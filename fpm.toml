@@ -1,17 +1,28 @@
 name = "fclap"
 version = "0.1.0"
-license = "license"
-author = "chselz"
-maintainer = "s6chselz@uni-bonn.de"
-copyright = "Copyright 2026, chselz"
+license = "MIT"
+author = ["Christian Selzer"]
+maintainer = ["@chselz"]
+copyright = "Copyright 2026, Christian Selzer"
+keywords = ["io", "cli"]
+description = "Command Line Argument Parser in Fortran"
+
+[library]
+source-dir = "src"
+
+[build]
+auto-tests = false
+
 [build]
 auto-executables = true
 auto-tests = true
 auto-examples = true
 module-naming = false
+
 [install]
 library = false
 test = false
+
 [fortran]
 implicit-typing = false
 implicit-external = false
