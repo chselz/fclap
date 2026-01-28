@@ -13,11 +13,11 @@ source-dir = "src"
 [build]
 auto-tests = false
 
-[build]
-auto-executables = true
-auto-tests = true
-auto-examples = true
-module-naming = false
+[[test]]
+name = "tester"
+source-dir = "test/unit"
+[test.dependencies]
+test-drive.git = "https://github.com/fortran-lang/test-drive.git"
 
 [install]
 library = false

@@ -1,3 +1,6 @@
+i want to build something like this in fortran https://github.com/python/cpython/blob/3.14/Lib/argparse.py. However I want to add one or two things. First I want to add a status like active, deprecated und removed. if a certain keyword is then chosen either nothing happens, a warning is printed but its accepted or a message is printed that this feature has been removed. Another thing that should be added is a visibility status. it should be controllable via a bolean expression to control if this keyword is shown when the automatically generated help page is generated, so that I allow hidden keywords so to speak
+
+
 # fclap
 fclap, a Fortran command line argument parser.
 
