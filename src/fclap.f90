@@ -1,13 +1,14 @@
-!> Public API for fclap
+!> @file fclap.f90
+!> @brief Public API for fclap - Fortran Command Line Argument Parser.
 !>
-!> This module provides the main entry point to fclap,
-!> a Fortran Command Line Argument Parser.
-!> It re-exports all public types and procedures needed
-!> for command line parsing.
+!> @details This module provides the main entry point to fclap,
+!> a Fortran Command Line Argument Parser inspired by Python's argparse.
+!> It re-exports all public types and procedures needed for command line parsing.
 !>
-!> This is the only module users need to import.
+!> This is the only module users need to import for most use cases.
 !>
-!> Example usage:
+!> @section usage Basic Usage
+!> @code{.f90}
 !>   use fclap, only: ArgumentParser, Namespace
 !>   type(ArgumentParser) :: parser
 !>   type(Namespace) :: args
@@ -16,6 +17,19 @@
 !>   call parser%add_argument("filename", help="Input file")
 !>   call parser%add_argument("-v", "--verbose", action="store_true")
 !>   args = parser%parse_args()
+!> @endcode
+!>
+!> @section features Features
+!> - Positional and optional arguments
+!> - Type conversion (string, integer, real, logical)
+!> - Multiple nargs modes (?, *, +, N)
+!> - Actions: store, store_true, store_false, count, append
+!> - Argument groups and mutually exclusive groups
+!> - Subparsers for git-style subcommands
+!> - Auto-generated help and version output
+!>
+!> @author fclap contributors
+!> @version 0.1.0
 
 module fclap
     ! Re-export from internal fclap modules

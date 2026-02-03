@@ -1,8 +1,9 @@
-!> Formatter module for fclap
+!> @file fclap_formatter.f90
+!> @brief Formatter module for fclap - help text generation.
 !>
-!> This module handles help text generation, including usage string formatting
-!> and full help message generation. It provides the HelpFormatter type
-!> and formatting functions.
+!> @details This module handles help text generation, including usage string
+!> formatting and full help message generation. It provides formatting
+!> functions used by ArgumentParser to display help information.
 
 module fclap_formatter
     use fclap_constants, only: MAX_ARG_LEN, MAX_ACTIONS, MAX_GROUPS, &
@@ -16,7 +17,10 @@ module fclap_formatter
     public :: format_usage_string
     public :: format_help_text
 
-    !> Argument group info for formatter
+    !> @brief Argument group info for formatter.
+    !>
+    !> @details Lightweight structure for passing group information
+    !> to formatting functions.
     type, public :: GroupInfo
         integer :: group_type = 1
         character(len=:), allocatable :: title
@@ -26,7 +30,10 @@ module fclap_formatter
         logical :: required = .false.
     end type GroupInfo
 
-    !> Mutex group info for formatter
+    !> @brief Mutex group info for formatter.
+    !>
+    !> @details Lightweight structure for passing mutually exclusive
+    !> group information to formatting functions.
     type, public :: MutexGroupInfo
         character(len=:), allocatable :: title
         character(len=MAX_ARG_LEN) :: action_dests(32)
@@ -36,7 +43,19 @@ module fclap_formatter
 
 contains
 
-    !> Format usage string
+    !> @brief Format usage string for display.
+    !>
+    !> @details Generates a formatted usage line showing program name,
+    !> optional arguments, positional arguments, and subcommands.
+    !> Mutually exclusive groups are shown with | separators.
+    !>
+    !> @param prog Program name
+    !> @param actions Array of registered actions
+    !> @param num_actions Number of actions
+    !> @param mutex_groups Array of mutually exclusive groups
+    !> @param num_mutex_groups Number of mutex groups
+    !> @param has_subparsers Whether subparsers are enabled
+    !> @return Formatted usage string
     function format_usage_string(prog, actions, num_actions, &
                                  mutex_groups, num_mutex_groups, &
                                  has_subparsers) result(usage)

@@ -1,24 +1,35 @@
-!> Error handling module for fclap
+!> @file fclap_errors.f90
+!> @brief Error handling module for fclap.
 !>
-!> This module defines the error type and error handling procedures
-!> used throughout the fclap library.
+!> @details This module defines the fclap_error type and error handling
+!> procedures used throughout the fclap library. Errors are used to
+!> communicate parsing failures and invalid argument usage.
 
 module fclap_errors
     implicit none
     private
 
-    !> Error type for fclap errors
-    !> Stores error information including message, related argument, and error state.
+    !> @brief Error type for fclap parsing and validation errors.
+    !>
+    !> @details Stores error information including a message, the related
+    !> argument name, and a flag indicating whether an error has occurred.
+    !> Used throughout fclap to report and handle errors.
     type, public :: fclap_error
         !> The error message describing what went wrong
         character(len=:), allocatable :: message
         !> The argument name or value that caused the error
         character(len=:), allocatable :: argument
-        !> Flag indicating whether an error has occurred
+        !> @brief Flag indicating whether an error has occurred
         logical :: has_error = .false.
     contains
+        !> @brief Initialize an error with message and optional argument.
+        !> @param message The error message
+        !> @param argument Optional related argument name
         procedure :: init => error_init
+        !> @brief Report the error message to an output unit.
+        !> @param unit Optional output unit (default: stderr)
         procedure :: report => error_report
+        !> @brief Clear the error state.
         procedure :: clear => error_clear
     end type fclap_error
 

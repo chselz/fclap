@@ -1,8 +1,15 @@
-!> Actions module for fclap
+!> @file fclap_actions.f90
+!> @brief Actions module for fclap - defines argument action types.
 !>
-!> This module defines the Action type which stores all data about
+!> @details This module defines the Action type which stores all data about
 !> an argument action, and provides methods for matching, validating,
 !> and executing actions.
+!>
+!> An Action represents a single argument definition and encapsulates:
+!> - Option strings (e.g., "-v", "--verbose")
+!> - Argument properties (nargs, type, default, choices)
+!> - Action behavior (store, store_true, count, append, etc.)
+!> - Help text and visibility settings
 
 module fclap_actions
     use fclap_constants, only: MAX_ARG_LEN, MAX_OPTION_STRINGS, MAX_CHOICES, &
@@ -19,8 +26,14 @@ module fclap_actions
     ! ACTION TYPE
     ! ============================================================================
 
-    !> Action type - stores all data about an argument action
-    !> Represents a single argument definition with all its properties
+    !> @brief Represents a single argument action with all its properties.
+    !>
+    !> @details The Action type encapsulates everything about an argument:
+    !> how it appears on the command line, what type of value it expects,
+    !> how many values it consumes, and what happens when it's encountered.
+    !>
+    !> Actions are created by ArgumentParser%add_argument() and stored
+    !> internally for use during parsing.
     type, public :: Action
         !> Destination name where the argument value will be stored
         character(len=:), allocatable :: dest
@@ -56,21 +69,44 @@ module fclap_actions
         integer :: status = STATUS_ACTIVE
         !> Whether argument is visible in help output (hidden if .false.)
         logical :: visible = .true.
-        !> Deprecation message shown when deprecated argument is used
+        !> @brief Deprecation message shown when deprecated argument is used
         character(len=:), allocatable :: deprecated_message
-        !> Removal message shown when removed argument is used
+        !> @brief Removal message shown when removed argument is used
         character(len=:), allocatable :: removed_message
     contains
+        !> @brief Check if action matches a given option string.
+        !> @param opt The option string to check (e.g., "-v" or "--verbose")
+        !> @return .true. if this action handles the given option
         procedure :: matches_option => action_matches_option
+        !> @brief Get the display name for this action.
+        !> @return The longest option string or destination name
         procedure :: get_display_name => action_get_display_name
+        !> @brief Check if a value is in the allowed choices.
+        !> @param value The value to validate
+        !> @return .true. if valid (or no choices defined)
         procedure :: is_valid_choice => action_is_valid_choice
+        !> @brief Execute the action with given values.
+        !> @param args The Namespace to store results in
+        !> @param values Array of consumed argument values
+        !> @param num_values Number of values consumed
+        !> @param error Error object for reporting issues
         procedure :: execute => action_execute
+        !> @brief Check argument status and handle deprecation.
+        !> @param error Error object for removed arguments
+        !> @return .true. if argument can proceed
         procedure :: check_status => action_check_status
     end type Action
 
 contains
 
-    !> Check if action matches given option string
+    !> @brief Check if action matches given option string.
+    !>
+    !> @details Compares the given option string against all option strings
+    !> registered for this action.
+    !>
+    !> @param self The Action instance
+    !> @param opt The option string to check
+    !> @return .true. if this action matches the option
     function action_matches_option(self, opt) result(matches)
         class(Action), intent(in) :: self
         character(len=*), intent(in) :: opt
@@ -86,7 +122,13 @@ contains
         end do
     end function action_matches_option
 
-    !> Get display name for action (longest option string or dest)
+    !> @brief Get display name for action (longest option string or dest).
+    !>
+    !> @details Returns the longest option string for display in help/error
+    !> messages. For positional arguments, returns the destination name.
+    !>
+    !> @param self The Action instance
+    !> @return The display name string
     function action_get_display_name(self) result(name)
         class(Action), intent(in) :: self
         character(len=:), allocatable :: name
@@ -107,7 +149,14 @@ contains
         end if
     end function action_get_display_name
 
-    !> Check if value is in choices (if choices defined)
+    !> @brief Check if value is in choices (if choices defined).
+    !>
+    !> @details Validates the given value against the list of allowed choices.
+    !> If no choices are defined, any value is considered valid.
+    !>
+    !> @param self The Action instance
+    !> @param value The value to validate
+    !> @return .true. if value is valid
     function action_is_valid_choice(self, value) result(valid)
         class(Action), intent(in) :: self
         character(len=*), intent(in) :: value
@@ -128,8 +177,16 @@ contains
         end do
     end function action_is_valid_choice
 
-    !> Check argument status and handle deprecated/removed arguments
-    !> Returns .true. if argument can proceed, .false. if removed
+    !> @brief Check argument status and handle deprecated/removed arguments.
+    !>
+    !> @details Checks the argument's status flag and takes appropriate action:
+    !> - STATUS_ACTIVE: Proceeds normally
+    !> - STATUS_DEPRECATED: Prints warning but continues
+    !> - STATUS_REMOVED: Sets error and returns .false.
+    !>
+    !> @param self The Action instance
+    !> @param error Error object for removed arguments
+    !> @return .true. if argument can proceed, .false. if removed
     function action_check_status(self, error) result(can_proceed)
         class(Action), intent(in) :: self
         type(fclap_error), intent(inout) :: error
@@ -166,7 +223,21 @@ contains
         end select
     end function action_check_status
 
-    !> Execute action based on action type
+    !> @brief Execute action based on action type.
+    !>
+    !> @details Performs the action's behavior based on its action_type:
+    !> - ACT_STORE: Store a single value
+    !> - ACT_STORE_TRUE/FALSE: Store .true./.false.
+    !> - ACT_COUNT: Increment counter
+    !> - ACT_APPEND: Append to list
+    !> - ACT_HELP: Set help flag
+    !> - ACT_VERSION: Print version and exit
+    !>
+    !> @param self The Action instance
+    !> @param args The Namespace to store results in
+    !> @param values Array of consumed argument values
+    !> @param num_values Number of values consumed
+    !> @param error Error object for reporting issues
     subroutine action_execute(self, args, values, num_values, error)
         class(Action), intent(in) :: self
         type(Namespace), intent(inout) :: args

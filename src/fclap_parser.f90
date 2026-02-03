@@ -1,8 +1,24 @@
-!> Parser module for fclap
+!> @file fclap_parser.f90
+!> @brief Parser module for fclap - the core command-line parsing engine.
 !>
 !> This module defines the main ArgumentParser type and provides
 !> all functionality for defining arguments, parsing command-line input,
 !> and generating help messages.
+!>
+!> @details The ArgumentParser is the central class of fclap. It handles:
+!> - Registration of positional and optional arguments
+!> - Parsing of command-line input into a Namespace object
+!> - Generation of help and usage messages
+!> - Support for subparsers (subcommands)
+!> - Argument groups and mutually exclusive groups
+!>
+!> @example
+!>   use fclap, only: ArgumentParser, Namespace
+!>   type(ArgumentParser) :: parser
+!>   type(Namespace) :: args
+!>   call parser%init(prog="myapp", description="My application")
+!>   call parser%add_argument("filename", help="Input file")
+!>   args = parser%parse_args()
 
 module fclap_parser
     use fclap_constants
@@ -18,28 +34,56 @@ module fclap_parser
     ! ARGUMENT GROUP TYPES
     ! ============================================================================
 
-    !> Argument group for organizing arguments in help output
+    !> @brief Argument group for organizing related arguments in help output.
+    !>
+    !> @details ArgumentGroup allows you to organize arguments into logical groups
+    !> that appear together in the help output with a custom title and description.
+    !> This is purely for documentation purposes and does not affect parsing behavior.
     type, public :: ArgumentGroup
+        !> @brief Type of the group (GROUP_STANDARD or GROUP_MUTEX)
         integer :: group_type = GROUP_STANDARD
+        !> @brief Title displayed above the group in help output
         character(len=:), allocatable :: title
+        !> @brief Optional description text for the group
         character(len=:), allocatable :: description
+        !> @brief Array of destination names for actions in this group
         character(len=MAX_ARG_LEN) :: action_dests(MAX_GROUP_ACTIONS)
+        !> @brief Current number of actions in the group
         integer :: num_actions = 0
+        !> @brief Whether at least one argument in the group is required
         logical :: required = .false.
+        !> @brief Index of the parent parser
         integer :: parser_idx = 0
     contains
+        !> @brief Add an action destination to this group
         procedure :: add_action_dest => group_add_action_dest
+        !> @brief Check if an action is in this group
         procedure :: has_action => group_has_action
     end type ArgumentGroup
 
-    !> Mutually exclusive group type
+    !> @brief Mutually exclusive group type.
+    !>
+    !> @details A MutuallyExclusiveGroup ensures that only one of its member
+    !> arguments can be used at a time. If the user specifies more than one,
+    !> a parsing error will occur.
+    !>
+    !> @example
+    !>   mutex = parser%add_mutually_exclusive_group(required=.true.)
+    !>   call parser%add_argument("-v", "--verbose", mutex_group_idx=mutex)
+    !>   call parser%add_argument("-q", "--quiet", mutex_group_idx=mutex)
     type, public :: MutuallyExclusiveGroup
+        !> @brief Optional title for the group
         character(len=:), allocatable :: title
+        !> @brief Array of destination names for actions in this group
         character(len=MAX_ARG_LEN) :: action_dests(MAX_GROUP_ACTIONS)
+        !> @brief Current number of actions in the group
         integer :: num_actions = 0
+        !> @brief Whether exactly one argument must be provided
         logical :: required = .false.
     contains
+        !> @brief Add an action destination to this mutex group
         procedure :: add_action_dest => mutex_add_action_dest
+        !> @brief Check if an action is in this mutex group
         procedure :: has_action => mutex_has_action
     end type MutuallyExclusiveGroup
 
@@ -47,45 +91,123 @@ module fclap_parser
     ! ARGUMENT PARSER TYPE
     ! ============================================================================
 
-    !> Main argument parser type
+    !> @brief The core class for parsing command line arguments.
+    !>
+    !> @details This class handles the registration of arguments, parsing of the
+    !> command line, and generation of help messages. It supports positional
+    !> arguments, optional flags, subcommands, argument groups, and mutually
+    !> exclusive options.
+    !>
+    !> @example
+    !>   type(ArgumentParser) :: parser
+    !>   call parser%init(prog="myapp", description="My application")
+    !>   call parser%add_argument("filename", help="Input file")
+    !>   call parser%add_argument("-v", "--verbose", action="store_true")
+    !>   args = parser%parse_args()
     type, public :: ArgumentParser
+        !> @brief The name of the program (e.g., from argv(0))
         character(len=:), allocatable :: prog
+        !> @brief Description text displayed before arguments in help output
         character(len=:), allocatable :: description
+        !> @brief Epilog text displayed after arguments in help output
         character(len=:), allocatable :: epilog
+        !> @brief Version string for --version output
         character(len=:), allocatable :: version
+        !> @brief Default value container for arguments without explicit defaults
         type(ValueContainer) :: argument_default
+        !> @brief Whether to automatically add -h/--help argument
         logical :: add_help = .true.
+        !> @brief Array of registered argument actions
         type(Action), allocatable :: actions(:)
+        !> @brief Current number of registered actions
         integer :: num_actions = 0
+        !> @brief Whether subparsers have been enabled
         logical :: has_subparsers = .false.
+        !> @brief Destination name for subparser command
         character(len=:), allocatable :: subparser_dest
+        !> @brief Title for subparser section in help
         character(len=:), allocatable :: subparser_title
+        !> @brief Width for help text formatting
         integer :: width = 80
+        !> @brief Maximum position for help text column
         integer :: max_help_position = 24
+        !> @brief Last error that occurred during parsing
         type(fclap_error) :: last_error
+        !> @brief Array of registered subparser names
         character(len=MAX_ARG_LEN) :: subparser_names(MAX_SUBPARSERS)
+        !> @brief Array of help texts for subparsers
         character(len=MAX_ARG_LEN) :: subparser_helps(MAX_SUBPARSERS)
+        !> @brief Current number of registered subparsers
         integer :: num_subparsers = 0
+        !> @brief Array of argument groups
         type(ArgumentGroup) :: groups(MAX_GROUPS)
+        !> @brief Current number of argument groups
         integer :: num_groups = 0
+        !> @brief Array of mutually exclusive groups
         type(MutuallyExclusiveGroup) :: mutex_groups(MAX_GROUPS)
+        !> @brief Current number of mutually exclusive groups
         integer :: num_mutex_groups = 0
+        !> @brief Array of seen destination names during parsing
         character(len=MAX_ARG_LEN) :: seen_dests(MAX_ACTIONS)
+        !> @brief Number of seen destinations
         integer :: num_seen_dests = 0
     contains
+        !> @brief Initialize the parser with optional configuration.
+        !> @param prog Optional program name (defaults to argv(0))
+        !> @param description Optional description for help output
+        !> @param epilog Optional text after arguments in help
+        !> @param add_help Whether to add -h/--help (default: .true.)
+        !> @param version Optional version string for --version
         procedure :: init => parser_init
+        !> @brief Initialize parser inheriting from parent parsers.
+        !> @param parents Array of parent parsers to inherit arguments from
         procedure :: init_with_parents => parser_init_with_parents
+        !> @brief Add a new argument to the parser.
+        !> @param name1 First option string or positional name
+        !> @param action Optional action type (store, store_true, count, etc.)
+        !> @param nargs Number of arguments to consume
+        !> @param type_name Value type (string, int, real, logical)
+        !> @param default_val Default value if not provided
+        !> @param choices Array of valid choices
+        !> @param required Whether argument is required
+        !> @param help Help text for the argument
         procedure :: add_argument => parser_add_argument
+        !> @brief Create a new argument group for organizing help output.
+        !> @param title Title for the group
+        !> @param description Optional description text
+        !> @return Index of the created group
         procedure :: add_argument_group => parser_add_argument_group
+        !> @brief Create a mutually exclusive group.
+        !> @param required Whether one option must be chosen
+        !> @return Index of the created mutex group
         procedure :: add_mutually_exclusive_group => parser_add_mutex_group
+        !> @brief Enable subparser (subcommand) support.
+        !> @param title Title for subcommands section
+        !> @param dest Destination name for the command
         procedure :: add_subparsers => parser_add_subparsers
+        !> @brief Add a subparser (subcommand).
+        !> @param name Name of the subcommand
+        !> @param help_text Help text for the subcommand
         procedure :: add_parser => parser_add_parser
+        !> @brief Parse command line arguments from the system.
+        !> @return Namespace containing parsed values
         procedure :: parse_args => parser_parse_args
+        !> @brief Parse arguments from an array of strings.
+        !> @param argv Array of argument strings
+        !> @return Namespace containing parsed values
         procedure :: parse_args_array => parser_parse_args_array
+        !> @brief Print the help message to stdout.
         procedure :: print_help => parser_print_help
+        !> @brief Print the usage message to stdout.
         procedure :: print_usage => parser_print_usage
+        !> @brief Format and return the usage string.
+        !> @return Formatted usage string
         procedure :: format_usage => parser_format_usage
+        !> @brief Format and return the full help text.
+        !> @return Formatted help text string
         procedure :: format_help => parser_format_help
+        !> @brief Report a parsing error and exit.
+        !> @param message Error message to display
         procedure :: error => parser_error
         procedure, private :: find_action_for_option => parser_find_action_for_option
         procedure, private :: get_positional_actions => parser_get_positional_actions
@@ -106,6 +228,14 @@ contains
     ! UTILITY FUNCTIONS
     ! ============================================================================
 
+    !> @brief Get the program name from the command line.
+    !>
+    !> @details Retrieves the program name from argv(0), stripping any path
+    !> components to return just the executable name. If an override is
+    !> provided, it will be used instead.
+    !>
+    !> @param override Optional custom program name to use
+    !> @return The program name string
     function get_prog_name(override) result(prog_name)
         character(len=*), intent(in), optional :: override
         character(len=:), allocatable :: prog_name
@@ -140,6 +270,10 @@ contains
     ! GROUP METHOD IMPLEMENTATIONS
     ! ============================================================================
 
+    !> @brief Add an action destination to the argument group.
+    !>
+    !> @param self The ArgumentGroup instance
+    !> @param dest The destination name of the action to add
     subroutine group_add_action_dest(self, dest)
         class(ArgumentGroup), intent(inout) :: self
         character(len=*), intent(in) :: dest
@@ -150,6 +284,11 @@ contains
         end if
     end subroutine group_add_action_dest
 
+    !> @brief Check if an action is in this argument group.
+    !>
+    !> @param self The ArgumentGroup instance
+    !> @param dest The destination name to check for
+    !> @return .true. if the action is in the group, .false. otherwise
     function group_has_action(self, dest) result(has)
         class(ArgumentGroup), intent(in) :: self
         character(len=*), intent(in) :: dest
@@ -165,6 +304,10 @@ contains
         end do
     end function group_has_action
 
+    !> @brief Add an action destination to the mutually exclusive group.
+    !>
+    !> @param self The MutuallyExclusiveGroup instance
+    !> @param dest The destination name of the action to add
     subroutine mutex_add_action_dest(self, dest)
         class(MutuallyExclusiveGroup), intent(inout) :: self
         character(len=*), intent(in) :: dest
@@ -175,6 +318,11 @@ contains
         end if
     end subroutine mutex_add_action_dest
 
+    !> @brief Check if an action is in this mutually exclusive group.
+    !>
+    !> @param self The MutuallyExclusiveGroup instance
+    !> @param dest The destination name to check for
+    !> @return .true. if the action is in the group, .false. otherwise
     function mutex_has_action(self, dest) result(has)
         class(MutuallyExclusiveGroup), intent(in) :: self
         character(len=*), intent(in) :: dest
@@ -194,6 +342,18 @@ contains
     ! PARSER IMPLEMENTATIONS
     ! ============================================================================
 
+    !> @brief Initialize the argument parser.
+    !>
+    !> @details Sets up the parser with the given configuration options.
+    !> By default, -h/--help is automatically added. If version is provided,
+    !> -V/--version is also added.
+    !>
+    !> @param self The ArgumentParser instance
+    !> @param prog Optional program name (defaults to argv(0))
+    !> @param description Optional description text for help output
+    !> @param epilog Optional text displayed after arguments in help
+    !> @param add_help Whether to add -h/--help (default: .true.)
+    !> @param version Optional version string (adds -V/--version if provided)
     subroutine parser_init(self, prog, description, epilog, add_help, version)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in), optional :: prog
@@ -236,6 +396,19 @@ contains
         end if
     end subroutine parser_init
 
+    !> @brief Initialize parser with inherited arguments from parent parsers.
+    !>
+    !> @details Creates a new parser that inherits all arguments (except -h/--help
+    !> and -V/--version) from the specified parent parsers. This is useful for
+    !> sharing common arguments across multiple parsers.
+    !>
+    !> @param self The ArgumentParser instance
+    !> @param parents Array of parent parsers to inherit from
+    !> @param prog Optional program name
+    !> @param description Optional description text
+    !> @param epilog Optional epilog text
+    !> @param add_help Whether to add help argument
+    !> @param version Optional version string
     subroutine parser_init_with_parents(self, parents, prog, description, epilog, add_help, version)
         class(ArgumentParser), intent(inout) :: self
         type(ArgumentParser), intent(in) :: parents(:)

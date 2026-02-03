@@ -1,8 +1,23 @@
-!> Namespace module for fclap
+!> @file fclap_namespace.f90
+!> @brief Namespace module for fclap - stores parsed argument values.
 !>
-!> This module defines the Namespace type (similar to Python's argparse.Namespace)
-!> which stores the results of parsing command-line arguments.
-!> It provides getter methods for retrieving values by key.
+!> @details This module defines the Namespace type (similar to Python's 
+!> argparse.Namespace) which stores the results of parsing command-line 
+!> arguments. It provides getter methods for retrieving values by key.
+!>
+!> The Namespace acts like a dictionary, allowing you to retrieve
+!> argument values by their destination names.
+!>
+!> @example
+!>   type(Namespace) :: args
+!>   character(len=256) :: filename
+!>   integer :: count
+!>   logical :: verbose
+!>   
+!>   args = parser%parse_args()
+!>   filename = args%get_string("filename")
+!>   count = args%get_integer("count", default=1)
+!>   verbose = args%get_logical("verbose", default=.false.)
 
 module fclap_namespace
     use fclap_constants, only: MAX_ACTIONS, MAX_ARG_LEN, MAX_LIST_VALUES, &
@@ -14,8 +29,11 @@ module fclap_namespace
     ! VALUE CONTAINER TYPE
     ! ============================================================================
 
-    !> Container for storing values of different types
-    !> Supports single values and lists for append actions
+    !> @brief Generic container for storing argument values of different types.
+    !>
+    !> @details ValueContainer provides polymorphic storage for string, integer,
+    !> real, and logical values. It also supports list storage for arguments
+    !> that accept multiple values (nargs=* or action=append).
     type, public :: ValueContainer
         !> The type of value stored (TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL)
         integer :: value_type = TYPE_STRING
@@ -64,32 +82,77 @@ module fclap_namespace
     ! NAMESPACE TYPE
     ! ============================================================================
 
-    !> Namespace type to store parsed arguments
-    !> Similar to Python's argparse.Namespace
-    !> Provides dictionary-like access to parsed argument values
+    !> @brief Container for parsed command-line arguments.
+    !>
+    !> @details The Namespace type stores the results of parse_args(). It behaves
+    !> similarly to a dictionary or Python's argparse.Namespace object, providing
+    !> type-safe getter methods for retrieving argument values.
+    !>
+    !> @example
+    !>   filename = args%get_string("filename")
+    !>   count = args%get_integer("count", default=1)
+    !>   verbose = args%get_logical("verbose")
     type, public :: Namespace
-        !> Array of argument entries storing all parsed key-value pairs
+        !> @brief Array of argument entries storing all parsed key-value pairs
         type(ArgumentEntry), allocatable :: entries(:)
-        !> Current number of entries stored in the entries array
+        !> @brief Current number of entries stored in the entries array
         integer :: num_entries = 0
     contains
+        !> @brief Initialize the namespace with empty storage.
         procedure :: init => namespace_init
+        !> @brief Set a string value for a key.
+        !> @param key The argument destination name
+        !> @param value The string value to store
         procedure :: set_string => namespace_set_string
+        !> @brief Set an integer value for a key.
         procedure :: set_integer => namespace_set_integer
+        !> @brief Set a real value for a key.
         procedure :: set_real => namespace_set_real
+        !> @brief Set a logical value for a key.
         procedure :: set_logical => namespace_set_logical
+        !> @brief Append a string to a list value.
         procedure :: append_string => namespace_append_string
+        !> @brief Append an integer to a list value.
         procedure :: append_integer => namespace_append_integer
+        !> @brief Increment an integer counter value.
         procedure :: increment => namespace_increment
+        !> @brief Retrieve a string value by key.
+        !> @param key The argument destination name
+        !> @param default Optional default if key not found
+        !> @return The string value
         procedure :: get_string => namespace_get_string
+        !> @brief Retrieve an integer value by key.
+        !> @param key The argument destination name
+        !> @param default Optional default if key not found
+        !> @return The integer value
         procedure :: get_integer => namespace_get_integer
+        !> @brief Retrieve a real value by key.
+        !> @param key The argument destination name
+        !> @param default Optional default if key not found
+        !> @return The real value
         procedure :: get_real => namespace_get_real
+        !> @brief Retrieve a logical value by key.
+        !> @param key The argument destination name
+        !> @param default Optional default if key not found
+        !> @return The logical value
         procedure :: get_logical => namespace_get_logical
+        !> @brief Retrieve a string list by key.
+        !> @param key The argument destination name
+        !> @param values Output array for the values
+        !> @param count Output number of values retrieved
         procedure :: get_string_list => namespace_get_string_list
+        !> @brief Retrieve an integer list by key.
         procedure :: get_integer_list => namespace_get_integer_list
+        !> @brief Check if a key exists and has a value.
+        !> @param key The argument destination name
+        !> @return .true. if the key exists and has a value
         procedure :: has_key => namespace_has_key
+        !> @brief Print namespace contents for debugging.
+        !> @param unit Optional output unit (default: stdout)
         procedure :: show => namespace_show
+        !> @brief Find or create an entry for a key (private).
         procedure, private :: find_or_create => namespace_find_or_create
+        !> @brief Find an entry by key (private).
         procedure, private :: find => namespace_find
     end type Namespace
 

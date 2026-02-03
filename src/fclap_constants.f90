@@ -1,8 +1,17 @@
-!> Constants module for fclap
+!> @file fclap_constants.f90
+!> @brief Constants module for fclap - configuration and enumeration values.
 !>
-!> This module contains all configuration constants, parameter values,
+!> @details This module contains all configuration constants, parameter values,
 !> and enumerations used throughout the fclap library.
 !> It has no dependencies on other modules.
+!>
+!> Constants are organized into categories:
+!> - Nargs constants: Control argument consumption
+!> - Size limits: Maximum array sizes
+!> - Value types: Type identifiers
+!> - Action types: Action behavior specifiers
+!> - Status constants: Argument lifecycle states
+!> - Group types: Argument group identifiers
 
 module fclap_constants
     implicit none
