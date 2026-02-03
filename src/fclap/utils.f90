@@ -1,20 +1,26 @@
-! TODO check whether it makes sense to use function to check if windows or linux os
-! TODO maybe change place where this function lives
+!> Utility functions for argparse
+!> This module provides helper functions for command-line argument parsing.
 
 module argparse_utils
     implicit none
+    private
+    
+    public :: get_prog_name
+    public :: strip_dashes
+    public :: is_option_string
+    public :: to_lower
+
 contains
-    ! This function determines the program name similar to argparse's _prog_name
-    ! A function rather than a subroutine was used to directly use the programname
-    ! in the generation of the help message instead of needing to use a dummy variable
-    ! print *, "Usage: ", get_prog_name(), " [options]"
-    !
-    ! vs
-    !
-    ! character(len=:), allocatable :: tmp_name
-    ! call get_prog_name(tmp_name)
-    ! print *, "Usage: ", tmp_name, " [options]"
-    !> calculate the 
+    !> Determine the program name similar to argparse's _prog_name
+    !> A function rather than a subroutine was used to directly use the programname
+    !> in the generation of the help message instead of needing to use a dummy variable
+    !> print *, "Usage: ", get_prog_name(), " [options]"
+    !>
+    !> vs
+    !>
+    !> character(len=:), allocatable :: tmp_name
+    !> call get_prog_name(tmp_name)
+    !> print *, "Usage: ", tmp_name, " [options]"
     function get_prog_name(override) result(prog_name)
         character(len=*), intent(in), optional :: override
         character(len=:), allocatable :: prog_name
@@ -45,11 +51,11 @@ contains
             if (idx == 0) idx = scan(arg0, '\', back=.true.)
             
             if (idx > 0) then
-            ! Return the substring after the last separator
-            prog_name = arg0(idx+1:)
+                ! Return the substring after the last separator
+                prog_name = arg0(idx+1:)
             else
-            ! No separators found, return the whole name
-            prog_name = trim(arg0)
+                ! No separators found, return the whole name
+                prog_name = trim(arg0)
             end if
         else
             ! Fallback: If we can't determine the name (edge case)
@@ -57,4 +63,45 @@ contains
         end if
 
     end function get_prog_name
+
+    !> Strip leading dashes from an option string
+    !> e.g., "--verbose" -> "verbose", "-v" -> "v"
+    function strip_dashes(str) result(stripped)
+        character(len=*), intent(in) :: str
+        character(len=:), allocatable :: stripped
+        integer :: i
+
+        stripped = trim(str)
+        do while (len(stripped) > 0 .and. stripped(1:1) == '-')
+            stripped = stripped(2:)
+        end do
+    end function strip_dashes
+
+    !> Check if a string is an option string (starts with dash)
+    function is_option_string(str) result(is_option)
+        character(len=*), intent(in) :: str
+        logical :: is_option
+
+        is_option = .false.
+        if (len_trim(str) > 0) then
+            is_option = (str(1:1) == '-')
+        end if
+    end function is_option_string
+
+    !> Convert string to lowercase
+    function to_lower(str) result(lower_str)
+        character(len=*), intent(in) :: str
+        character(len=:), allocatable :: lower_str
+        integer :: i, ic
+
+        lower_str = str
+        do i = 1, len(lower_str)
+            ic = ichar(lower_str(i:i))
+            ! ASCII: 'A' = 65, 'Z' = 90
+            if (ic >= 65 .and. ic <= 90) then
+                lower_str(i:i) = char(ic + 32)
+            end if
+        end do
+    end function to_lower
+
 end module argparse_utils

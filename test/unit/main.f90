@@ -1,5 +1,231 @@
+!> Unit tests for fclap argument parser
 program tester
-implicit none
+    use fclap
+    implicit none
 
-print *, "Put some tests in here!"
+    logical :: all_passed
+    
+    all_passed = .true.
+
+    call test_basic_parsing(all_passed)
+    call test_store_true_false(all_passed)
+    call test_count_action(all_passed)
+    call test_default_values(all_passed)
+    call test_help_generation(all_passed)
+    call test_type_conversion(all_passed)
+    call test_nargs(all_passed)
+
+    if (all_passed) then
+        print *, ""
+        print *, "========================================"
+        print *, "ALL TESTS PASSED!"
+        print *, "========================================"
+    else
+        print *, ""
+        print *, "========================================"
+        print *, "SOME TESTS FAILED!"
+        print *, "========================================"
+        error stop 1
+    end if
+
+contains
+
+    subroutine test_basic_parsing(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(3)
+
+        print *, "Test: Basic argument parsing..."
+
+        call parser%init(prog="test_prog", description="A test program", add_help=.false.)
+        call parser%add_argument("-o", "--output", help="Output file")
+        call parser%add_argument("input", help="Input file")
+
+        test_args(1) = "input.txt"
+        test_args(2) = "-o"
+        test_args(3) = "result.txt"
+
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_string("input") /= "input.txt") then
+            print *, "  FAILED: input should be 'input.txt', got: ", args%get_string("input")
+            passed = .false.
+        else if (args%get_string("output") /= "result.txt") then
+            print *, "  FAILED: output should be 'result.txt', got: ", args%get_string("output")
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_basic_parsing
+
+    subroutine test_store_true_false(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(1)
+
+        print *, "Test: store_true and store_false actions..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        call parser%add_argument("-q", "--quiet", action="store_false", help="Quiet mode")
+
+        test_args(1) = "-v"
+
+        args = parser%parse_args_array(test_args)
+
+        if (.not. args%get_logical("verbose")) then
+            print *, "  FAILED: verbose should be .true."
+            passed = .false.
+        else if (.not. args%get_logical("quiet")) then
+            print *, "  FAILED: quiet should be .true. (default for store_false)"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_store_true_false
+
+    subroutine test_count_action(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(3)
+
+        print *, "Test: count action..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-v", "--verbose", action="count", help="Increase verbosity")
+
+        test_args(1) = "-v"
+        test_args(2) = "-v"
+        test_args(3) = "-v"
+
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_integer("verbose") /= 3) then
+            print *, "  FAILED: verbose count should be 3, got: ", args%get_integer("verbose")
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_count_action
+
+    subroutine test_default_values(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(1)
+
+        print *, "Test: default values..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-o", "--output", default_val="default.txt", help="Output file")
+        call parser%add_argument("input", help="Input file")
+
+        test_args(1) = "input.txt"
+
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_string("output") /= "default.txt") then
+            print *, "  FAILED: output should be 'default.txt', got: ", args%get_string("output")
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_default_values
+
+    subroutine test_help_generation(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: help text generation..."
+
+        call parser%init(prog="my_program", description="A sample program", add_help=.false.)
+        call parser%add_argument("-o", "--output", help="Output file", metavar="FILE")
+        call parser%add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+        call parser%add_argument("input", help="Input file")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "my_program") == 0) then
+            print *, "  FAILED: help should contain program name"
+            passed = .false.
+        else if (index(help_text, "A sample program") == 0) then
+            print *, "  FAILED: help should contain description"
+            passed = .false.
+        else if (index(help_text, "--output") == 0) then
+            print *, "  FAILED: help should contain --output"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_help_generation
+
+    subroutine test_type_conversion(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(4)
+
+        print *, "Test: type conversion (integer, real)..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-n", "--number", type_name="int", help="An integer")
+        call parser%add_argument("-f", "--factor", type_name="float", help="A float")
+
+        test_args(1) = "-n"
+        test_args(2) = "42"
+        test_args(3) = "-f"
+        test_args(4) = "3.14"
+
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_integer("number") /= 42) then
+            print *, "  FAILED: number should be 42, got: ", args%get_integer("number")
+            passed = .false.
+        else if (abs(args%get_real("factor") - 3.14) > 0.01) then
+            print *, "  FAILED: factor should be ~3.14, got: ", args%get_real("factor")
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_type_conversion
+
+    subroutine test_nargs(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(5)
+        character(len=256) :: files(10)
+        integer :: file_count
+
+        print *, "Test: nargs with append action..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-f", "--file", action="append", help="Add a file")
+
+        test_args(1) = "-f"
+        test_args(2) = "file1.txt"
+        test_args(3) = "-f"
+        test_args(4) = "file2.txt"
+        test_args(5) = "-f"
+
+        ! Only parse first 4 to avoid needing value for last -f
+        args = parser%parse_args_array(test_args(1:4))
+
+        call args%get_string_list("file", files, file_count)
+
+        if (file_count /= 2) then
+            print *, "  FAILED: should have 2 files, got: ", file_count
+            passed = .false.
+        else if (trim(files(1)) /= "file1.txt" .or. trim(files(2)) /= "file2.txt") then
+            print *, "  FAILED: files don't match"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_nargs
+
 end program tester

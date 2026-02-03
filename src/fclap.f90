@@ -7,11 +7,17 @@
 
 
 module fclap
-  use fclap_argparser, only : ArgParser
+  use fclap_argparser, only : ArgParser, ParsedArgs, argparse_error, &
+    & NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, NARGS_ONE_OR_MORE, &
+    & NARGS_PARSER, NARGS_REMAINDER, NARGS_SINGLE, SUPPRESS
   use fclap_version, only : get_fclap_version, fclap_version_compact, &
     & fclap_version_string
 
   implicit none
   public
+
+  ! Create an alias: Namespace => ParsedArgs for Python-style naming
+  type, extends(ParsedArgs) :: Namespace
+  end type Namespace
 
 end module fclap
