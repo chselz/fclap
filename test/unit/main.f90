@@ -37,8 +37,8 @@ contains
 
     subroutine test_basic_parsing(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(3)
 
         print *, "Test: Basic argument parsing..."
@@ -66,8 +66,8 @@ contains
 
     subroutine test_store_true_false(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(1)
 
         print *, "Test: store_true and store_false actions..."
@@ -93,8 +93,8 @@ contains
 
     subroutine test_count_action(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(3)
 
         print *, "Test: count action..."
@@ -118,8 +118,8 @@ contains
 
     subroutine test_default_values(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(1)
 
         print *, "Test: default values..."
@@ -142,7 +142,7 @@ contains
 
     subroutine test_help_generation(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
+        type(ArgumentParser) :: parser
         character(len=:), allocatable :: help_text
 
         print *, "Test: help text generation..."
@@ -170,8 +170,8 @@ contains
 
     subroutine test_type_conversion(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(4)
 
         print *, "Test: type conversion (integer, real)..."
@@ -200,8 +200,8 @@ contains
 
     subroutine test_nargs(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(5)
         character(len=256) :: files(10)
         integer :: file_count
@@ -235,8 +235,8 @@ contains
 
     subroutine test_deprecated_warning(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(2)
 
         print *, "Test: deprecated argument warning..."
@@ -263,8 +263,8 @@ contains
 
     subroutine test_hidden_arguments(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=:), allocatable :: help_text
         character(len=256) :: test_args(2)
 
@@ -306,8 +306,8 @@ contains
 
     subroutine test_mutex_groups(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
         character(len=256) :: test_args(1)
         integer :: mutex_idx
 
@@ -339,8 +339,8 @@ contains
 
     subroutine test_parent_parsers(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parent, child
-        type(ParsedArgs) :: args
+        type(ArgumentParser) :: parent, child
+        type(Namespace) :: args
         character(len=256) :: test_args(4)
 
         print *, "Test: parent parser inheritance..."
@@ -374,7 +374,7 @@ contains
 
     subroutine test_argument_groups(passed)
         logical, intent(inout) :: passed
-        type(ArgParser) :: parser
+        type(ArgumentParser) :: parser
         character(len=:), allocatable :: help_text
         integer :: group_idx
 
