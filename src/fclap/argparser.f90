@@ -192,6 +192,17 @@ module fclap_argparser
     !> Action type: print version string and exit
     integer, parameter :: ACT_VERSION = 7
 
+    ! ============================================================================
+    ! ARGUMENT STATUS CONSTANTS
+    ! ============================================================================
+
+    !> Status: argument is active and fully supported (default)
+    integer, parameter, public :: STATUS_ACTIVE = 0
+    !> Status: argument is deprecated, prints warning but still works
+    integer, parameter, public :: STATUS_DEPRECATED = 1
+    !> Status: argument has been removed, prints error and rejects usage
+    integer, parameter, public :: STATUS_REMOVED = 2
+
     !> Action info - stores all data about an argument action
     !> Represents a single argument definition with all its properties
     type :: action_info
@@ -225,11 +236,20 @@ module fclap_argparser
         integer :: action_type = ACT_STORE
         !> Version string for ACT_VERSION action
         character(len=:), allocatable :: version_string
+        !> Argument status (STATUS_ACTIVE, STATUS_DEPRECATED, STATUS_REMOVED)
+        integer :: status = STATUS_ACTIVE
+        !> Whether argument is visible in help output (hidden if .false.)
+        logical :: visible = .true.
+        !> Deprecation message shown when deprecated argument is used
+        character(len=:), allocatable :: deprecated_message
+        !> Removal message shown when removed argument is used
+        character(len=:), allocatable :: removed_message
     contains
         procedure :: matches_option => action_matches_option
         procedure :: get_display_name => action_get_display_name
         procedure :: is_valid_choice => action_is_valid_choice
         procedure :: execute => action_execute
+        procedure :: check_status => action_check_status
     end type action_info
 
     ! ============================================================================
@@ -865,6 +885,47 @@ contains
         end do
     end function action_is_valid_choice
 
+    !> Check argument status and handle deprecated/removed arguments
+    !> Returns .true. if argument can proceed, .false. if removed
+    function action_check_status(self, error) result(can_proceed)
+        class(action_info), intent(in) :: self
+        type(argparse_error), intent(inout) :: error
+        logical :: can_proceed
+        character(len=:), allocatable :: display_name, msg
+
+        can_proceed = .true.
+        display_name = self%get_display_name()
+
+        select case(self%status)
+        case(STATUS_ACTIVE)
+            ! Normal operation, nothing to do
+            can_proceed = .true.
+
+        case(STATUS_DEPRECATED)
+            ! Print warning but allow usage
+            if (allocated(self%deprecated_message)) then
+                msg = self%deprecated_message
+            else
+                msg = "argument '" // trim(display_name) // "' is deprecated and may be removed in a future version"
+            end if
+            write(*, '(A,A)') "warning: ", trim(msg)
+            can_proceed = .true.
+
+        case(STATUS_REMOVED)
+            ! Print error and reject usage
+            if (allocated(self%removed_message)) then
+                msg = self%removed_message
+            else
+                msg = "argument '" // trim(display_name) // "' has been removed"
+            end if
+            call error%init_error(msg, display_name)
+            can_proceed = .false.
+
+        case default
+            can_proceed = .true.
+        end select
+    end function action_check_status
+
     !> Execute action based on action type
     subroutine action_execute(self, args, values, num_values, error)
         class(action_info), intent(in) :: self
@@ -1006,7 +1067,8 @@ contains
     !> Add argument to parser
     subroutine parser_add_argument(self, name1, name2, name3, name4, &
                                    action, nargs, type_name, default_val, &
-                                   choices, required, help, metavar, dest)
+                                   choices, required, help, metavar, dest, &
+                                   status, visible, deprecated_msg, removed_msg)
         class(ArgParser), intent(inout) :: self
         character(len=*), intent(in) :: name1
         character(len=*), intent(in), optional :: name2, name3, name4
@@ -1019,6 +1081,14 @@ contains
         character(len=*), intent(in), optional :: help
         character(len=*), intent(in), optional :: metavar
         character(len=*), intent(in), optional :: dest
+        !> Argument status: STATUS_ACTIVE (default), STATUS_DEPRECATED, or STATUS_REMOVED
+        integer, intent(in), optional :: status
+        !> Whether argument appears in help output (default: .true.)
+        logical, intent(in), optional :: visible
+        !> Custom message for deprecated arguments
+        character(len=*), intent(in), optional :: deprecated_msg
+        !> Custom message for removed arguments
+        character(len=*), intent(in), optional :: removed_msg
 
         character(len=MAX_ARG_LEN) :: option_strings(MAX_OPTION_STRINGS)
         integer :: num_options, num_choices, i, act_type, actual_nargs, actual_type
@@ -1152,6 +1222,30 @@ contains
         ! Set version string for version action
         if (act_type == ACT_VERSION .and. allocated(self%version)) then
             self%actions(self%num_actions)%version_string = self%version
+        end if
+
+        ! Set status (active, deprecated, removed)
+        if (present(status)) then
+            self%actions(self%num_actions)%status = status
+        else
+            self%actions(self%num_actions)%status = STATUS_ACTIVE
+        end if
+
+        ! Set visibility for help output
+        if (present(visible)) then
+            self%actions(self%num_actions)%visible = visible
+        else
+            self%actions(self%num_actions)%visible = .true.
+        end if
+
+        ! Set custom deprecation message
+        if (present(deprecated_msg)) then
+            self%actions(self%num_actions)%deprecated_message = trim(deprecated_msg)
+        end if
+
+        ! Set custom removal message
+        if (present(removed_msg)) then
+            self%actions(self%num_actions)%removed_message = trim(removed_msg)
         end if
     end subroutine parser_add_argument
 
@@ -1404,6 +1498,12 @@ contains
                 action_idx = self%find_action_for_option(current_arg)
 
                 if (action_idx > 0) then
+                    ! Check argument status (deprecated/removed)
+                    if (.not. self%actions(action_idx)%check_status(self%last_error)) then
+                        call self%error(self%last_error%message)
+                        return
+                    end if
+
                     arg_idx = arg_idx + 1
 
                     ! Consume values for this action
@@ -1460,6 +1560,13 @@ contains
                 else if (positional_idx <= num_positional) then
                     ! Handle positional argument
                     action_idx = positional_indices(positional_idx)
+
+                    ! Check argument status (deprecated/removed)
+                    if (.not. self%actions(action_idx)%check_status(self%last_error)) then
+                        call self%error(self%last_error%message)
+                        return
+                    end if
+
                     positional_idx = positional_idx + 1
 
                     call self%consume_values(action_idx, cmd_args, num_args, arg_idx, &
@@ -1543,14 +1650,16 @@ contains
             help_text = help_text // new_line('A') // self%description // new_line('A')
         end if
 
-        ! Check for positional and optional arguments
+        ! Check for positional and optional arguments (only visible ones)
         has_positional = .false.
         has_optional = .false.
         do i = 1, self%num_actions
-            if (self%actions(i)%is_positional) then
-                has_positional = .true.
-            else
-                has_optional = .true.
+            if (self%actions(i)%visible) then
+                if (self%actions(i)%is_positional) then
+                    has_positional = .true.
+                else
+                    has_optional = .true.
+                end if
             end if
         end do
 
@@ -1558,11 +1667,15 @@ contains
         if (has_positional) then
             help_text = help_text // new_line('A') // "positional arguments:" // new_line('A')
             do i = 1, self%num_actions
-                if (self%actions(i)%is_positional) then
+                if (self%actions(i)%is_positional .and. self%actions(i)%visible) then
                     line = "  " // self%actions(i)%dest
                     if (allocated(self%actions(i)%help_text)) then
                         padding = max(2, self%max_help_position - len(line))
                         line = line // repeat(" ", padding) // self%actions(i)%help_text
+                    end if
+                    ! Add deprecation notice if deprecated
+                    if (self%actions(i)%status == STATUS_DEPRECATED) then
+                        line = line // " (DEPRECATED)"
                     end if
                     help_text = help_text // line // new_line('A')
                 end if
@@ -1573,7 +1686,7 @@ contains
         if (has_optional) then
             help_text = help_text // new_line('A') // "optional arguments:" // new_line('A')
             do i = 1, self%num_actions
-                if (.not. self%actions(i)%is_positional) then
+                if (.not. self%actions(i)%is_positional .and. self%actions(i)%visible) then
                     ! Build option string
                     opt_str = "  "
                     do padding = 1, self%actions(i)%num_option_strings
@@ -1595,6 +1708,10 @@ contains
                     if (allocated(self%actions(i)%help_text)) then
                         padding = max(2, self%max_help_position - len(line))
                         line = line // repeat(" ", padding) // self%actions(i)%help_text
+                    end if
+                    ! Add deprecation notice if deprecated
+                    if (self%actions(i)%status == STATUS_DEPRECATED) then
+                        line = line // " (DEPRECATED)"
                     end if
                     help_text = help_text // line // new_line('A')
                 end if

@@ -14,6 +14,8 @@ program tester
     call test_help_generation(all_passed)
     call test_type_conversion(all_passed)
     call test_nargs(all_passed)
+    call test_deprecated_warning(all_passed)
+    call test_hidden_arguments(all_passed)
 
     if (all_passed) then
         print *, ""
@@ -227,5 +229,76 @@ contains
             print *, "  PASSED"
         end if
     end subroutine test_nargs
+
+    subroutine test_deprecated_warning(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(2)
+
+        print *, "Test: deprecated argument warning..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-o", "--old-option", status=STATUS_DEPRECATED, &
+                                 help="Old option", deprecated_msg="Use --new-option instead")
+        call parser%add_argument("-n", "--new-option", help="New option")
+
+        test_args(1) = "-o"
+        test_args(2) = "value"
+
+        ! This should print a warning but still work
+        print *, "  (Expected warning below:)"
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_string("old_option") /= "value") then
+            print *, "  FAILED: deprecated option should still work"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_deprecated_warning
+
+    subroutine test_hidden_arguments(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=:), allocatable :: help_text
+        character(len=256) :: test_args(2)
+
+        print *, "Test: hidden arguments..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-v", "--visible", help="Visible option")
+        call parser%add_argument("-H", "--hidden", visible=.false., help="Hidden option")
+
+        help_text = parser%format_help()
+
+        ! Check that visible option appears in help
+        if (index(help_text, "--visible") == 0) then
+            print *, "  FAILED: visible option should appear in help"
+            passed = .false.
+            return
+        end if
+
+        ! Check that hidden option does NOT appear in help
+        if (index(help_text, "--hidden") > 0) then
+            print *, "  FAILED: hidden option should NOT appear in help"
+            passed = .false.
+            return
+        end if
+
+        ! But hidden option should still work when used
+        test_args(1) = "-H"
+        test_args(2) = "secret"
+
+        args = parser%parse_args_array(test_args)
+
+        if (args%get_string("hidden") /= "secret") then
+            print *, "  FAILED: hidden option should still work"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_hidden_arguments
 
 end program tester
