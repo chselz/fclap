@@ -41,25 +41,30 @@ module fclap_argparser
     !> Constant to suppress default/help output
     character(len=*), parameter, public :: SUPPRESS = "==SUPPRESS=="
 
-    !> Maximum length for argument names and values
+    !> Maximum length for argument names, values, and strings
     integer, parameter :: MAX_ARG_LEN = 256
-    !> Maximum number of option strings per argument
+    !> Maximum number of option strings per argument (e.g., -v, --verbose, -V, --version)
     integer, parameter :: MAX_OPTION_STRINGS = 4
-    !> Maximum number of choices
+    !> Maximum number of choices for constrained argument values
     integer, parameter :: MAX_CHOICES = 32
-    !> Maximum number of values in a list
+    !> Maximum number of values in a list (for append action or nargs=*)
     integer, parameter :: MAX_LIST_VALUES = 64
-    !> Maximum number of actions/arguments
+    !> Maximum number of arguments/actions that can be added to a parser
     integer, parameter :: MAX_ACTIONS = 128
-    !> Maximum number of sub-parsers
+    !> Maximum number of sub-parsers that can be added
     integer, parameter :: MAX_SUBPARSERS = 32
 
     ! ============================================================================
     ! VALUE TYPE CONSTANTS
     ! ============================================================================
+
+    !> Value type constant for string/character values
     integer, parameter :: TYPE_STRING = 1
+    !> Value type constant for integer values
     integer, parameter :: TYPE_INTEGER = 2
+    !> Value type constant for real/float values
     integer, parameter :: TYPE_REAL = 3
+    !> Value type constant for logical/boolean values
     integer, parameter :: TYPE_LOGICAL = 4
 
     ! ============================================================================
@@ -68,8 +73,11 @@ module fclap_argparser
 
     !> Error type for argparse errors
     type, public :: argparse_error
+        !> The error message describing what went wrong
         character(len=:), allocatable :: message
+        !> The argument name or value that caused the error
         character(len=:), allocatable :: argument
+        !> Flag indicating whether an error has occurred
         logical :: has_error = .false.
     contains
         procedure :: init_error => error_init
@@ -82,17 +90,27 @@ module fclap_argparser
     ! ============================================================================
 
     !> Container for storing values of different types
+    !> Supports single values and lists for append actions
     type :: value_container
+        !> The type of value stored (TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL)
         integer :: value_type = TYPE_STRING
+        !> Storage for string values
         character(len=:), allocatable :: string_value
+        !> Storage for integer values
         integer :: integer_value = 0
+        !> Storage for real/float values
         real :: real_value = 0.0
+        !> Storage for logical/boolean values
         logical :: logical_value = .false.
-        ! For list values (append action)
+        !> Array storage for string list values (used with append action)
         character(len=MAX_ARG_LEN) :: string_list(MAX_LIST_VALUES)
+        !> Array storage for integer list values (used with append action)
         integer :: integer_list(MAX_LIST_VALUES)
+        !> Array storage for real list values (used with append action)
         real :: real_list(MAX_LIST_VALUES)
+        !> Number of items currently stored in list arrays
         integer :: list_count = 0
+        !> Flag indicating whether a value has been explicitly set
         logical :: is_set = .false.
     contains
         procedure :: set_string => value_set_string
@@ -110,8 +128,11 @@ module fclap_argparser
     ! ============================================================================
 
     !> Entry in the parsed args storing a key-value pair
+    !> Used internally by ParsedArgs to store argument name-value pairs
     type :: argument_entry
+        !> The argument destination name (key for lookup)
         character(len=:), allocatable :: key
+        !> The value container holding the argument's value
         type(value_container) :: value
     end type argument_entry
 
@@ -121,8 +142,11 @@ module fclap_argparser
 
     !> ParsedArgs type to store parsed arguments
     !> Similar to Python's argparse.Namespace
+    !> Provides dictionary-like access to parsed argument values
     type, public :: ParsedArgs
+        !> Array of argument entries storing all parsed key-value pairs
         type(argument_entry), allocatable :: entries(:)
+        !> Current number of entries stored in the entries array
         integer :: num_entries = 0
     contains
         procedure :: init => parsed_args_init
@@ -149,31 +173,57 @@ module fclap_argparser
     ! ACTION INFO TYPE (simple action data storage without polymorphism)
     ! ============================================================================
 
-    !> Action types
+    ! ============================================================================
+    ! ACTION TYPE CONSTANTS
+    ! ============================================================================
+
+    !> Action type: store a single value (default action)
     integer, parameter :: ACT_STORE = 1
+    !> Action type: store True when flag is present (no value consumed)
     integer, parameter :: ACT_STORE_TRUE = 2
+    !> Action type: store False when flag is present (no value consumed)
     integer, parameter :: ACT_STORE_FALSE = 3
+    !> Action type: count occurrences of the flag
     integer, parameter :: ACT_COUNT = 4
+    !> Action type: append value to a list (allows repeated use)
     integer, parameter :: ACT_APPEND = 5
+    !> Action type: print help message and exit
     integer, parameter :: ACT_HELP = 6
+    !> Action type: print version string and exit
     integer, parameter :: ACT_VERSION = 7
 
     !> Action info - stores all data about an argument action
+    !> Represents a single argument definition with all its properties
     type :: action_info
+        !> Destination name where the argument value will be stored
         character(len=:), allocatable :: dest
+        !> Array of option strings (e.g., "-v", "--verbose")
         character(len=MAX_ARG_LEN) :: option_strings(MAX_OPTION_STRINGS)
+        !> Number of option strings defined for this argument
         integer :: num_option_strings = 0
+        !> Number of arguments consumed (NARGS_* constants or positive integer)
         integer :: nargs = NARGS_SINGLE
+        !> Help text description displayed in usage/help output
         character(len=:), allocatable :: help_text
+        !> Whether this argument is required (positional args are always required)
         logical :: required = .false.
+        !> Default value if argument is not provided on command line
         type(value_container) :: default_value
+        !> Flag indicating whether a default value has been set
         logical :: has_default = .false.
+        !> Metavar for display in usage/help (e.g., "FILE" instead of "filename")
         character(len=:), allocatable :: metavar
+        !> Array of valid choices that constrain acceptable values
         character(len=MAX_ARG_LEN) :: choices(MAX_CHOICES)
+        !> Number of choices defined for this argument
         integer :: num_choices = 0
+        !> Expected value type (TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL)
         integer :: value_type = TYPE_STRING
+        !> Whether this is a positional argument (vs optional/flag)
         logical :: is_positional = .false.
+        !> The action type (ACT_STORE, ACT_STORE_TRUE, ACT_COUNT, etc.)
         integer :: action_type = ACT_STORE
+        !> Version string for ACT_VERSION action
         character(len=:), allocatable :: version_string
     contains
         procedure :: matches_option => action_matches_option
@@ -186,25 +236,42 @@ module fclap_argparser
     ! SUBPARSER CONTAINER
     ! ============================================================================
 
-    ! Forward declaration handled by pointer
+    !> Main argument parser type
+    !> Handles argument definition, parsing, and help generation
     type :: ArgParser
+        !> Program name displayed in usage/help (defaults to executable name)
         character(len=:), allocatable :: prog
+        !> Program description displayed after usage in help output
         character(len=:), allocatable :: description
+        !> Text displayed at the end of help output
         character(len=:), allocatable :: epilog
+        !> Program version string for --version action
         character(len=:), allocatable :: version
+        !> Global default value applied to all arguments without explicit defaults
         type(value_container) :: argument_default
+        !> Whether to automatically add -h/--help argument
         logical :: add_help = .true.
+        !> Array of action_info objects defining all arguments
         type(action_info), allocatable :: actions(:)
+        !> Current number of arguments/actions defined
         integer :: num_actions = 0
+        !> Whether subparsers have been added to this parser
         logical :: has_subparsers = .false.
+        !> Destination name for storing selected subparser command
         character(len=:), allocatable :: subparser_dest
+        !> Title displayed above subparser list in help output
         character(len=:), allocatable :: subparser_title
+        !> Maximum line width for help text formatting
         integer :: width = 80
+        !> Column position where help text descriptions start
         integer :: max_help_position = 24
+        !> Storage for the most recent parsing error
         type(argparse_error) :: last_error
-        ! Subparser storage (flat arrays)
+        !> Array of subparser command names
         character(len=MAX_ARG_LEN) :: subparser_names(MAX_SUBPARSERS)
+        !> Array of subparser help text descriptions
         character(len=MAX_ARG_LEN) :: subparser_helps(MAX_SUBPARSERS)
+        !> Current number of subparsers defined
         integer :: num_subparsers = 0
     contains
         procedure :: init => parser_init
