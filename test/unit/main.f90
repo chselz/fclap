@@ -16,6 +16,9 @@ program tester
     call test_nargs(all_passed)
     call test_deprecated_warning(all_passed)
     call test_hidden_arguments(all_passed)
+    call test_mutex_groups(all_passed)
+    call test_parent_parsers(all_passed)
+    call test_argument_groups(all_passed)
 
     if (all_passed) then
         print *, ""
@@ -300,5 +303,100 @@ contains
             print *, "  PASSED"
         end if
     end subroutine test_hidden_arguments
+
+    subroutine test_mutex_groups(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(1)
+        integer :: mutex_idx
+
+        print *, "Test: mutually exclusive groups..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        
+        ! Create a mutex group
+        mutex_idx = parser%add_mutually_exclusive_group(required=.false.)
+        
+        ! Add mutually exclusive options
+        call parser%add_argument("--foo", action="store_true", help="Foo option", mutex_group_idx=mutex_idx)
+        call parser%add_argument("--bar", action="store_true", help="Bar option", mutex_group_idx=mutex_idx)
+
+        ! Test with only one option (should work)
+        test_args(1) = "--foo"
+        args = parser%parse_args_array(test_args)
+
+        if (.not. args%get_logical("foo")) then
+            print *, "  FAILED: --foo should be true"
+            passed = .false.
+        else if (args%get_logical("bar")) then
+            print *, "  FAILED: --bar should be false"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_mutex_groups
+
+    subroutine test_parent_parsers(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parent, child
+        type(ParsedArgs) :: args
+        character(len=256) :: test_args(4)
+
+        print *, "Test: parent parser inheritance..."
+
+        ! Create parent parser (without help to avoid conflicts)
+        call parent%init(prog="parent", add_help=.false.)
+        call parent%add_argument("--parent-opt", help="Option from parent", default_val="default")
+
+        ! Create child parser with parent
+        call child%init_with_parents([parent], prog="child", add_help=.false.)
+        call child%add_argument("--child-opt", help="Option from child")
+
+        ! Test that child has both options
+        test_args(1) = "--parent-opt"
+        test_args(2) = "from_parent"
+        test_args(3) = "--child-opt"
+        test_args(4) = "from_child"
+
+        args = child%parse_args_array(test_args)
+
+        if (args%get_string("parent_opt") /= "from_parent") then
+            print *, "  FAILED: parent option should work, got: ", args%get_string("parent_opt")
+            passed = .false.
+        else if (args%get_string("child_opt") /= "from_child") then
+            print *, "  FAILED: child option should work, got: ", args%get_string("child_opt")
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_parent_parsers
+
+    subroutine test_argument_groups(passed)
+        logical, intent(inout) :: passed
+        type(ArgParser) :: parser
+        character(len=:), allocatable :: help_text
+        integer :: group_idx
+
+        print *, "Test: argument groups..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        
+        ! Create an argument group
+        group_idx = parser%add_argument_group("Input Options", "Options related to input files")
+        
+        call parser%add_argument("-i", "--input", help="Input file", group_idx=group_idx)
+        call parser%add_argument("-f", "--format", help="Input format", group_idx=group_idx)
+
+        help_text = parser%format_help()
+
+        ! Check that group title appears in help
+        if (index(help_text, "Input Options") == 0) then
+            print *, "  FAILED: help should contain group title 'Input Options'"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_argument_groups
 
 end program tester

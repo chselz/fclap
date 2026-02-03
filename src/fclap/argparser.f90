@@ -53,6 +53,12 @@ module fclap_argparser
     integer, parameter :: MAX_ACTIONS = 128
     !> Maximum number of sub-parsers that can be added
     integer, parameter :: MAX_SUBPARSERS = 32
+    !> Maximum number of argument groups
+    integer, parameter :: MAX_GROUPS = 32
+    !> Maximum number of actions in a group
+    integer, parameter :: MAX_GROUP_ACTIONS = 32
+    !> Maximum number of parent parsers
+    integer, parameter :: MAX_PARENTS = 8
 
     ! ============================================================================
     ! VALUE TYPE CONSTANTS
@@ -203,6 +209,15 @@ module fclap_argparser
     !> Status: argument has been removed, prints error and rejects usage
     integer, parameter, public :: STATUS_REMOVED = 2
 
+    ! ============================================================================
+    ! GROUP TYPE CONSTANTS
+    ! ============================================================================
+
+    !> Group type: standard argument group (for help organization)
+    integer, parameter :: GROUP_STANDARD = 1
+    !> Group type: mutually exclusive group (only one argument allowed)
+    integer, parameter :: GROUP_MUTEX = 2
+
     !> Action info - stores all data about an argument action
     !> Represents a single argument definition with all its properties
     type :: action_info
@@ -253,6 +268,48 @@ module fclap_argparser
     end type action_info
 
     ! ============================================================================
+    ! ARGUMENT GROUP TYPES
+    ! ============================================================================
+
+    !> Argument group for organizing arguments in help output
+    !> Also serves as base for mutually exclusive groups
+    type, public :: argument_group
+        !> Group type (GROUP_STANDARD or GROUP_MUTEX)
+        integer :: group_type = GROUP_STANDARD
+        !> Title displayed as section header in help output
+        character(len=:), allocatable :: title
+        !> Description displayed below the title in help output
+        character(len=:), allocatable :: description
+        !> Array of destination names for actions in this group
+        character(len=MAX_ARG_LEN) :: action_dests(MAX_GROUP_ACTIONS)
+        !> Number of actions in this group
+        integer :: num_actions = 0
+        !> For mutex groups: whether at least one argument is required
+        logical :: required = .false.
+        !> Index of the parent parser (for internal use)
+        integer :: parser_idx = 0
+    contains
+        procedure :: add_action_dest => group_add_action_dest
+        procedure :: has_action => group_has_action
+    end type argument_group
+
+    !> Mutually exclusive group type (extends argument_group conceptually)
+    !> Only one argument from this group can be used at a time
+    type, public :: mutually_exclusive_group
+        !> Title for the group (usually empty for mutex groups)
+        character(len=:), allocatable :: title
+        !> Array of destination names for actions in this group
+        character(len=MAX_ARG_LEN) :: action_dests(MAX_GROUP_ACTIONS)
+        !> Number of actions in this group
+        integer :: num_actions = 0
+        !> Whether at least one argument from this group is required
+        logical :: required = .false.
+    contains
+        procedure :: add_action_dest => mutex_add_action_dest
+        procedure :: has_action => mutex_has_action
+    end type mutually_exclusive_group
+
+    ! ============================================================================
     ! SUBPARSER CONTAINER
     ! ============================================================================
 
@@ -293,9 +350,24 @@ module fclap_argparser
         character(len=MAX_ARG_LEN) :: subparser_helps(MAX_SUBPARSERS)
         !> Current number of subparsers defined
         integer :: num_subparsers = 0
+        !> Array of argument groups for help organization
+        type(argument_group) :: groups(MAX_GROUPS)
+        !> Current number of argument groups
+        integer :: num_groups = 0
+        !> Array of mutually exclusive groups
+        type(mutually_exclusive_group) :: mutex_groups(MAX_GROUPS)
+        !> Current number of mutually exclusive groups
+        integer :: num_mutex_groups = 0
+        !> Tracks which destinations were set during parsing (for mutex validation)
+        character(len=MAX_ARG_LEN) :: seen_dests(MAX_ACTIONS)
+        !> Number of destinations seen during parsing
+        integer :: num_seen_dests = 0
     contains
         procedure :: init => parser_init
+        procedure :: init_with_parents => parser_init_with_parents
         procedure :: add_argument => parser_add_argument
+        procedure :: add_argument_group => parser_add_argument_group
+        procedure :: add_mutually_exclusive_group => parser_add_mutex_group
         procedure :: add_subparsers => parser_add_subparsers
         procedure :: add_parser => parser_add_parser
         procedure :: parse_args => parser_parse_args
@@ -310,6 +382,10 @@ module fclap_argparser
         procedure, private :: set_defaults => parser_set_defaults
         procedure, private :: check_required => parser_check_required
         procedure, private :: consume_values => parser_consume_values
+        procedure, private :: copy_actions_from => parser_copy_actions_from
+        procedure, private :: validate_mutex_groups => parser_validate_mutex_groups
+        procedure, private :: mark_seen => parser_mark_seen
+        procedure, private :: find_action_by_dest => parser_find_action_by_dest
     end type ArgParser
 
     public :: ArgParser
@@ -1051,6 +1127,11 @@ contains
         self%has_subparsers = .false.
         self%num_subparsers = 0
 
+        ! Initialize group counters
+        self%num_groups = 0
+        self%num_mutex_groups = 0
+        self%num_seen_dests = 0
+
         ! Add help argument if requested
         if (self%add_help) then
             call self%add_argument("-h", "--help", action="help", &
@@ -1068,7 +1149,8 @@ contains
     subroutine parser_add_argument(self, name1, name2, name3, name4, &
                                    action, nargs, type_name, default_val, &
                                    choices, required, help, metavar, dest, &
-                                   status, visible, deprecated_msg, removed_msg)
+                                   status, visible, deprecated_msg, removed_msg, &
+                                   group_idx, mutex_group_idx)
         class(ArgParser), intent(inout) :: self
         character(len=*), intent(in) :: name1
         character(len=*), intent(in), optional :: name2, name3, name4
@@ -1089,6 +1171,10 @@ contains
         character(len=*), intent(in), optional :: deprecated_msg
         !> Custom message for removed arguments
         character(len=*), intent(in), optional :: removed_msg
+        !> Index of argument group to add this argument to (from add_argument_group)
+        integer, intent(in), optional :: group_idx
+        !> Index of mutex group to add this argument to (from add_mutually_exclusive_group)
+        integer, intent(in), optional :: mutex_group_idx
 
         character(len=MAX_ARG_LEN) :: option_strings(MAX_OPTION_STRINGS)
         integer :: num_options, num_choices, i, act_type, actual_nargs, actual_type
@@ -1246,6 +1332,20 @@ contains
         ! Set custom removal message
         if (present(removed_msg)) then
             self%actions(self%num_actions)%removed_message = trim(removed_msg)
+        end if
+
+        ! Register in argument group if specified
+        if (present(group_idx)) then
+            if (group_idx > 0 .and. group_idx <= self%num_groups) then
+                call self%groups(group_idx)%add_action_dest(actual_dest)
+            end if
+        end if
+
+        ! Register in mutex group if specified
+        if (present(mutex_group_idx)) then
+            if (mutex_group_idx > 0 .and. mutex_group_idx <= self%num_mutex_groups) then
+                call self%mutex_groups(mutex_group_idx)%add_action_dest(actual_dest)
+            end if
         end if
     end subroutine parser_add_argument
 
@@ -1481,6 +1581,9 @@ contains
 
         num_args = size(cmd_args)
 
+        ! Reset seen destinations for mutex validation
+        self%num_seen_dests = 0
+
         ! Set defaults
         call self%set_defaults(args)
 
@@ -1523,6 +1626,9 @@ contains
                         call self%error(self%last_error%message)
                         return
                     end if
+
+                    ! Mark this destination as seen (for mutex validation)
+                    call self%mark_seen(self%actions(action_idx)%dest)
 
                     ! Check if help was requested
                     if (args%get_logical("__help__")) then
@@ -1585,6 +1691,9 @@ contains
                         call self%error(self%last_error%message)
                         return
                     end if
+
+                    ! Mark this destination as seen (for mutex validation)
+                    call self%mark_seen(self%actions(action_idx)%dest)
                 else
                     ! Too many positional arguments
                     call self%last_error%init_error("unrecognized arguments", current_arg)
@@ -1593,6 +1702,13 @@ contains
                 end if
             end if
         end do
+
+        ! Validate mutually exclusive groups
+        call self%validate_mutex_groups(self%last_error)
+        if (self%last_error%has_error) then
+            call self%error(self%last_error%message)
+            return
+        end if
 
         ! Check required arguments
         call self%check_required(args, self%last_error)
@@ -1606,8 +1722,10 @@ contains
     function parser_format_usage(self) result(usage)
         class(ArgParser), intent(in) :: self
         character(len=:), allocatable :: usage
-        character(len=:), allocatable :: prog_name
-        integer :: i
+        character(len=:), allocatable :: prog_name, mutex_str
+        integer :: i, j, k, m
+        logical :: first_in_mutex, is_in_any_mutex
+        logical :: mutex_shown(MAX_GROUPS)
 
         if (allocated(self%prog)) then
             prog_name = self%prog
@@ -1615,7 +1733,67 @@ contains
             prog_name = get_prog_name()
         end if
 
-        usage = "usage: " // trim(prog_name) // " [options]"
+        usage = "usage: " // trim(prog_name)
+
+        ! Track which mutex groups we've shown
+        mutex_shown = .false.
+        ! Add optional arguments (checking for mutex groups)
+        do i = 1, self%num_actions
+            if (.not. self%actions(i)%is_positional .and. self%actions(i)%visible) then
+                ! Skip help/version in brief usage
+                if (self%actions(i)%action_type == ACT_HELP .or. &
+                    self%actions(i)%action_type == ACT_VERSION) cycle
+
+                ! Check if this action is in a mutex group
+                is_in_any_mutex = .false.
+                do j = 1, self%num_mutex_groups
+                    if (self%mutex_groups(j)%has_action(self%actions(i)%dest)) then
+                        is_in_any_mutex = .true.
+                        ! Only show mutex group once
+                        if (.not. mutex_shown(j)) then
+                            mutex_shown(j) = .true.
+                            ! Format mutex group as (--opt1 | --opt2)
+                            if (self%mutex_groups(j)%required) then
+                                mutex_str = " ("
+                            else
+                                mutex_str = " ["
+                            end if
+                            first_in_mutex = .true.
+                            do k = 1, self%mutex_groups(j)%num_actions
+                                ! Find action for this dest
+                                do m = 1, self%num_actions
+                                    if (allocated(self%actions(m)%dest)) then
+                                        if (trim(self%actions(m)%dest) == &
+                                            trim(self%mutex_groups(j)%action_dests(k))) then
+                                            if (.not. first_in_mutex) mutex_str = mutex_str // " | "
+                                            first_in_mutex = .false.
+                                            if (self%actions(m)%num_option_strings > 0) then
+                                                mutex_str = mutex_str // trim(self%actions(m)%option_strings(1))
+                                            else
+                                                mutex_str = mutex_str // trim(self%actions(m)%dest)
+                                            end if
+                                            exit
+                                        end if
+                                    end if
+                                end do
+                            end do
+                            if (self%mutex_groups(j)%required) then
+                                mutex_str = mutex_str // ")"
+                            else
+                                mutex_str = mutex_str // "]"
+                            end if
+                            usage = usage // mutex_str
+                        end if
+                        exit
+                    end if
+                end do
+
+                ! If not in any mutex group, add normally
+                if (.not. is_in_any_mutex) then
+                    usage = usage // " [" // trim(self%actions(i)%option_strings(1)) // "]"
+                end if
+            end if
+        end do
 
         ! Add positional arguments
         do i = 1, self%num_actions
@@ -1639,8 +1817,9 @@ contains
         class(ArgParser), intent(in) :: self
         character(len=:), allocatable :: help_text
         character(len=:), allocatable :: line, opt_str
-        integer :: i, padding
-        logical :: has_positional, has_optional
+        integer :: i, j, k, padding
+        logical :: has_positional, has_optional, in_group
+        logical :: action_shown(MAX_ACTIONS)
 
         ! Usage
         help_text = self%format_usage() // new_line('A')
@@ -1649,6 +1828,9 @@ contains
         if (allocated(self%description)) then
             help_text = help_text // new_line('A') // self%description // new_line('A')
         end if
+
+        ! Track which actions have been shown
+        action_shown = .false.
 
         ! Check for positional and optional arguments (only visible ones)
         has_positional = .false.
@@ -1678,44 +1860,104 @@ contains
                         line = line // " (DEPRECATED)"
                     end if
                     help_text = help_text // line // new_line('A')
+                    action_shown(i) = .true.
                 end if
             end do
         end if
 
-        ! Optional arguments
-        if (has_optional) then
-            help_text = help_text // new_line('A') // "optional arguments:" // new_line('A')
-            do i = 1, self%num_actions
-                if (.not. self%actions(i)%is_positional .and. self%actions(i)%visible) then
-                    ! Build option string
-                    opt_str = "  "
-                    do padding = 1, self%actions(i)%num_option_strings
-                        if (padding > 1) opt_str = opt_str // ", "
-                        opt_str = opt_str // trim(self%actions(i)%option_strings(padding))
-                    end do
+        ! Display argument groups
+        do j = 1, self%num_groups
+            if (self%groups(j)%num_actions > 0) then
+                help_text = help_text // new_line('A') // trim(self%groups(j)%title) // ":" // new_line('A')
+                if (allocated(self%groups(j)%description)) then
+                    help_text = help_text // "  " // self%groups(j)%description // new_line('A')
+                end if
+                
+                ! Show actions in this group
+                do k = 1, self%groups(j)%num_actions
+                    do i = 1, self%num_actions
+                        if (trim(self%actions(i)%dest) == trim(self%groups(j)%action_dests(k)) .and. &
+                            self%actions(i)%visible .and. .not. self%actions(i)%is_positional) then
+                            ! Build option string
+                            opt_str = "  "
+                            do padding = 1, self%actions(i)%num_option_strings
+                                if (padding > 1) opt_str = opt_str // ", "
+                                opt_str = opt_str // trim(self%actions(i)%option_strings(padding))
+                            end do
 
-                    ! Add metavar if applicable (not for store_true/false/count/help/version)
-                    if (self%actions(i)%action_type == ACT_STORE .or. &
-                        self%actions(i)%action_type == ACT_APPEND) then
-                        if (allocated(self%actions(i)%metavar)) then
-                            opt_str = opt_str // " " // self%actions(i)%metavar
-                        else
-                            opt_str = opt_str // " " // self%actions(i)%dest
+                            ! Add metavar if applicable
+                            if (self%actions(i)%action_type == ACT_STORE .or. &
+                                self%actions(i)%action_type == ACT_APPEND) then
+                                if (allocated(self%actions(i)%metavar)) then
+                                    opt_str = opt_str // " " // self%actions(i)%metavar
+                                else
+                                    opt_str = opt_str // " " // self%actions(i)%dest
+                                end if
+                            end if
+
+                            line = opt_str
+                            if (allocated(self%actions(i)%help_text)) then
+                                padding = max(2, self%max_help_position - len(line))
+                                line = line // repeat(" ", padding) // self%actions(i)%help_text
+                            end if
+                            if (self%actions(i)%status == STATUS_DEPRECATED) then
+                                line = line // " (DEPRECATED)"
+                            end if
+                            help_text = help_text // line // new_line('A')
+                            action_shown(i) = .true.
                         end if
-                    end if
+                    end do
+                end do
+            end if
+        end do
 
-                    line = opt_str
-                    if (allocated(self%actions(i)%help_text)) then
-                        padding = max(2, self%max_help_position - len(line))
-                        line = line // repeat(" ", padding) // self%actions(i)%help_text
-                    end if
-                    ! Add deprecation notice if deprecated
-                    if (self%actions(i)%status == STATUS_DEPRECATED) then
-                        line = line // " (DEPRECATED)"
-                    end if
-                    help_text = help_text // line // new_line('A')
+        ! Optional arguments (only those not in a group)
+        if (has_optional) then
+            ! Check if there are any ungrouped optional arguments
+            in_group = .true.
+            do i = 1, self%num_actions
+                if (.not. self%actions(i)%is_positional .and. self%actions(i)%visible .and. &
+                    .not. action_shown(i)) then
+                    in_group = .false.
+                    exit
                 end if
             end do
+
+            if (.not. in_group) then
+                help_text = help_text // new_line('A') // "optional arguments:" // new_line('A')
+                do i = 1, self%num_actions
+                    if (.not. self%actions(i)%is_positional .and. self%actions(i)%visible .and. &
+                        .not. action_shown(i)) then
+                        ! Build option string
+                        opt_str = "  "
+                        do padding = 1, self%actions(i)%num_option_strings
+                            if (padding > 1) opt_str = opt_str // ", "
+                            opt_str = opt_str // trim(self%actions(i)%option_strings(padding))
+                        end do
+
+                        ! Add metavar if applicable (not for store_true/false/count/help/version)
+                        if (self%actions(i)%action_type == ACT_STORE .or. &
+                            self%actions(i)%action_type == ACT_APPEND) then
+                            if (allocated(self%actions(i)%metavar)) then
+                                opt_str = opt_str // " " // self%actions(i)%metavar
+                            else
+                                opt_str = opt_str // " " // self%actions(i)%dest
+                            end if
+                        end if
+
+                        line = opt_str
+                        if (allocated(self%actions(i)%help_text)) then
+                            padding = max(2, self%max_help_position - len(line))
+                            line = line // repeat(" ", padding) // self%actions(i)%help_text
+                        end if
+                        ! Add deprecation notice if deprecated
+                        if (self%actions(i)%status == STATUS_DEPRECATED) then
+                            line = line // " (DEPRECATED)"
+                        end if
+                        help_text = help_text // line // new_line('A')
+                    end if
+                end do
+            end if
         end if
 
         ! Subparsers
@@ -1764,5 +2006,283 @@ contains
         write(*, '(A,A,A)') trim(self%prog), ": error: ", trim(message)
         error stop 2
     end subroutine parser_error
+
+    ! ============================================================================
+    ! GROUP METHOD IMPLEMENTATIONS
+    ! ============================================================================
+
+    !> Add an action destination to a standard argument group
+    subroutine group_add_action_dest(self, dest)
+        class(argument_group), intent(inout) :: self
+        character(len=*), intent(in) :: dest
+
+        if (self%num_actions < MAX_GROUP_ACTIONS) then
+            self%num_actions = self%num_actions + 1
+            self%action_dests(self%num_actions) = trim(dest)
+        end if
+    end subroutine group_add_action_dest
+
+    !> Check if group contains an action with given destination
+    function group_has_action(self, dest) result(has)
+        class(argument_group), intent(in) :: self
+        character(len=*), intent(in) :: dest
+        logical :: has
+        integer :: i
+
+        has = .false.
+        do i = 1, self%num_actions
+            if (trim(self%action_dests(i)) == trim(dest)) then
+                has = .true.
+                return
+            end if
+        end do
+    end function group_has_action
+
+    !> Add an action destination to a mutually exclusive group
+    subroutine mutex_add_action_dest(self, dest)
+        class(mutually_exclusive_group), intent(inout) :: self
+        character(len=*), intent(in) :: dest
+
+        if (self%num_actions < MAX_GROUP_ACTIONS) then
+            self%num_actions = self%num_actions + 1
+            self%action_dests(self%num_actions) = trim(dest)
+        end if
+    end subroutine mutex_add_action_dest
+
+    !> Check if mutex group contains an action with given destination
+    function mutex_has_action(self, dest) result(has)
+        class(mutually_exclusive_group), intent(in) :: self
+        character(len=*), intent(in) :: dest
+        logical :: has
+        integer :: i
+
+        has = .false.
+        do i = 1, self%num_actions
+            if (trim(self%action_dests(i)) == trim(dest)) then
+                has = .true.
+                return
+            end if
+        end do
+    end function mutex_has_action
+
+    ! ============================================================================
+    ! PARENT PARSER SUPPORT
+    ! ============================================================================
+
+    !> Initialize parser with parent parsers for argument inheritance
+    subroutine parser_init_with_parents(self, parents, prog, description, epilog, add_help, version)
+        class(ArgParser), intent(inout) :: self
+        type(ArgParser), intent(in) :: parents(:)
+        character(len=*), intent(in), optional :: prog
+        character(len=*), intent(in), optional :: description
+        character(len=*), intent(in), optional :: epilog
+        logical, intent(in), optional :: add_help
+        character(len=*), intent(in), optional :: version
+        integer :: i
+
+        ! First, initialize the parser normally
+        call self%init(prog=prog, description=description, epilog=epilog, &
+                       add_help=add_help, version=version)
+
+        ! Copy actions from all parent parsers
+        do i = 1, size(parents)
+            call self%copy_actions_from(parents(i))
+        end do
+    end subroutine parser_init_with_parents
+
+    !> Copy actions from another parser (used for parent parser inheritance)
+    subroutine parser_copy_actions_from(self, parent)
+        class(ArgParser), intent(inout) :: self
+        type(ArgParser), intent(in) :: parent
+        integer :: i, j, existing_idx
+
+        do i = 1, parent%num_actions
+            ! Skip help and version actions from parent (they should be added by child)
+            if (parent%actions(i)%action_type == ACT_HELP .or. &
+                parent%actions(i)%action_type == ACT_VERSION) then
+                cycle
+            end if
+
+            ! Check if action with same dest already exists (child overrides parent)
+            existing_idx = self%find_action_by_dest(parent%actions(i)%dest)
+
+            if (existing_idx > 0) then
+                ! Override existing action
+                self%actions(existing_idx) = parent%actions(i)
+            else
+                ! Add new action
+                if (self%num_actions < MAX_ACTIONS) then
+                    self%num_actions = self%num_actions + 1
+                    self%actions(self%num_actions) = parent%actions(i)
+                end if
+            end if
+        end do
+
+        ! Also copy argument groups from parent
+        do i = 1, parent%num_groups
+            if (self%num_groups < MAX_GROUPS) then
+                self%num_groups = self%num_groups + 1
+                self%groups(self%num_groups) = parent%groups(i)
+            end if
+        end do
+
+        ! Copy mutex groups from parent
+        do i = 1, parent%num_mutex_groups
+            if (self%num_mutex_groups < MAX_GROUPS) then
+                self%num_mutex_groups = self%num_mutex_groups + 1
+                self%mutex_groups(self%num_mutex_groups) = parent%mutex_groups(i)
+            end if
+        end do
+    end subroutine parser_copy_actions_from
+
+    !> Find action by destination name
+    function parser_find_action_by_dest(self, dest) result(idx)
+        class(ArgParser), intent(in) :: self
+        character(len=*), intent(in) :: dest
+        integer :: idx
+        integer :: i
+
+        idx = 0
+        do i = 1, self%num_actions
+            if (allocated(self%actions(i)%dest)) then
+                if (trim(self%actions(i)%dest) == trim(dest)) then
+                    idx = i
+                    return
+                end if
+            end if
+        end do
+    end function parser_find_action_by_dest
+
+    ! ============================================================================
+    ! ARGUMENT GROUP METHODS
+    ! ============================================================================
+
+    !> Create and add an argument group for organizing help output
+    function parser_add_argument_group(self, title, description) result(group_idx)
+        class(ArgParser), intent(inout) :: self
+        character(len=*), intent(in) :: title
+        character(len=*), intent(in), optional :: description
+        integer :: group_idx
+
+        if (self%num_groups >= MAX_GROUPS) then
+            group_idx = 0
+            return
+        end if
+
+        self%num_groups = self%num_groups + 1
+        group_idx = self%num_groups
+
+        self%groups(group_idx)%group_type = GROUP_STANDARD
+        self%groups(group_idx)%title = trim(title)
+        self%groups(group_idx)%num_actions = 0
+        self%groups(group_idx)%required = .false.
+
+        if (present(description)) then
+            self%groups(group_idx)%description = trim(description)
+        end if
+    end function parser_add_argument_group
+
+    !> Create and add a mutually exclusive group
+    function parser_add_mutex_group(self, required) result(group_idx)
+        class(ArgParser), intent(inout) :: self
+        logical, intent(in), optional :: required
+        integer :: group_idx
+
+        if (self%num_mutex_groups >= MAX_GROUPS) then
+            group_idx = 0
+            return
+        end if
+
+        self%num_mutex_groups = self%num_mutex_groups + 1
+        group_idx = self%num_mutex_groups
+
+        self%mutex_groups(group_idx)%num_actions = 0
+        self%mutex_groups(group_idx)%required = .false.
+
+        if (present(required)) then
+            self%mutex_groups(group_idx)%required = required
+        end if
+    end function parser_add_mutex_group
+
+    ! ============================================================================
+    ! MUTEX VALIDATION
+    ! ============================================================================
+
+    !> Mark a destination as seen during parsing
+    subroutine parser_mark_seen(self, dest)
+        class(ArgParser), intent(inout) :: self
+        character(len=*), intent(in) :: dest
+
+        if (self%num_seen_dests < MAX_ACTIONS) then
+            self%num_seen_dests = self%num_seen_dests + 1
+            self%seen_dests(self%num_seen_dests) = trim(dest)
+        end if
+    end subroutine parser_mark_seen
+
+    !> Validate mutually exclusive groups after parsing
+    subroutine parser_validate_mutex_groups(self, error)
+        class(ArgParser), intent(in) :: self
+        type(argparse_error), intent(inout) :: error
+        integer :: i, j, k, seen_count
+        character(len=MAX_ARG_LEN) :: first_seen, current
+        character(len=1024) :: mutex_names
+        logical :: found
+
+        do i = 1, self%num_mutex_groups
+            seen_count = 0
+            first_seen = ""
+            mutex_names = ""
+
+            ! Build list of mutex argument names for error message
+            do j = 1, self%mutex_groups(i)%num_actions
+                if (j > 1) mutex_names = trim(mutex_names) // " "
+                ! Find the action to get its display name
+                do k = 1, self%num_actions
+                    if (allocated(self%actions(k)%dest)) then
+                        if (trim(self%actions(k)%dest) == trim(self%mutex_groups(i)%action_dests(j))) then
+                            if (self%actions(k)%num_option_strings > 0) then
+                                mutex_names = trim(mutex_names) // trim(self%actions(k)%option_strings(1))
+                            else
+                                mutex_names = trim(mutex_names) // trim(self%actions(k)%dest)
+                            end if
+                            exit
+                        end if
+                    end if
+                end do
+            end do
+
+            ! Count how many actions from this mutex group were seen
+            do j = 1, self%mutex_groups(i)%num_actions
+                current = self%mutex_groups(i)%action_dests(j)
+
+                ! Check if this dest was seen
+                found = .false.
+                do k = 1, self%num_seen_dests
+                    if (trim(self%seen_dests(k)) == trim(current)) then
+                        found = .true.
+                        exit
+                    end if
+                end do
+
+                if (found) then
+                    seen_count = seen_count + 1
+                    if (seen_count == 1) then
+                        first_seen = current
+                    else
+                        ! Conflict! More than one mutex argument used
+                        call error%init_error("not allowed with argument " // trim(first_seen), &
+                                             trim(current))
+                        return
+                    end if
+                end if
+            end do
+
+            ! Check required constraint
+            if (self%mutex_groups(i)%required .and. seen_count == 0) then
+                call error%init_error("one of the arguments is required: " // trim(mutex_names), "")
+                return
+            end if
+        end do
+    end subroutine parser_validate_mutex_groups
 
 end module fclap_argparser
