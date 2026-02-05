@@ -1,0 +1,725 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tutorial &mdash; fclap 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=01f34227"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="API Reference" href="api/fclap.html" />
+    <link rel="prev" title="Welcome to fclap’s documentation!" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            fclap
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Tutorial</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#using-fpm-fortran-package-manager">Using fpm (Fortran Package Manager)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#manual-installation">Manual Installation</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#the-basics">The Basics</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#creating-a-parser">Creating a Parser</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#adding-positional-arguments">Adding Positional Arguments</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#adding-optional-arguments-flags">Adding Optional Arguments (Flags)</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#types-and-nargs">Types and Nargs</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#argument-types">Argument Types</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#nargs-consuming-multiple-values">Nargs: Consuming Multiple Values</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#actions">Actions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#store-default">store (default)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#store-true-store-false">store_true / store_false</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#count">count</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#append">append</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#advanced-features">Advanced Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#argument-groups">Argument Groups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#mutually-exclusive-groups">Mutually Exclusive Groups</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#parent-parsers">Parent Parsers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#subparsers-subcommands">Subparsers (Subcommands)</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#version-information">Version Information</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#error-handling">Error Handling</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#complete-example">Complete Example</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="api/fclap.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">fclap</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Tutorial</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/tutorial.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="tutorial">
+<h1>Tutorial<a class="headerlink" href="#tutorial" title="Link to this heading"></a></h1>
+<p>This tutorial will guide you through using <strong>fclap</strong> to build command-line
+interfaces for your Fortran applications. We’ll start with the basics and
+progress to more advanced features.</p>
+<section id="installation">
+<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
+<section id="using-fpm-fortran-package-manager">
+<h3>Using fpm (Fortran Package Manager)<a class="headerlink" href="#using-fpm-fortran-package-manager" title="Link to this heading"></a></h3>
+<p>Add fclap to your <code class="docutils literal notranslate"><span class="pre">fpm.toml</span></code> file:</p>
+<div class="highlight-toml notranslate"><div class="highlight"><pre><span></span><span class="k">[dependencies]</span>
+<span class="n">fclap</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">git</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="s2">&quot;https://github.com/your-org/fclap.git&quot;</span><span class="w"> </span><span class="p">}</span>
+</pre></div>
+</div>
+<p>Then build your project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>fpm<span class="w"> </span>build
+</pre></div>
+</div>
+</section>
+<section id="manual-installation">
+<h3>Manual Installation<a class="headerlink" href="#manual-installation" title="Link to this heading"></a></h3>
+<p>Clone the repository and include the source files in your project:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/your-org/fclap.git
+<span class="c1"># Copy src/*.f90 to your project&#39;s source directory</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="the-basics">
+<h2>The Basics<a class="headerlink" href="#the-basics" title="Link to this heading"></a></h2>
+<section id="creating-a-parser">
+<h3>Creating a Parser<a class="headerlink" href="#creating-a-parser" title="Link to this heading"></a></h3>
+<p>Every fclap application starts by creating an <code class="docutils literal notranslate"><span class="pre">ArgumentParser</span></code> object:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">basic_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+
+<span class="w">    </span><span class="c">! Initialize with program name and description</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A simple example application&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Parse the command line</span>
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">end program </span><span class="n">basic_example</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">init</span></code> subroutine accepts several optional arguments:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">prog</span></code>: The program name (defaults to the actual program name)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">description</span></code>: Text displayed before the argument help</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">epilog</span></code>: Text displayed after the argument help</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">add_help</span></code>: Whether to add <code class="docutils literal notranslate"><span class="pre">-h/--help</span></code> automatically (default: <code class="docutils literal notranslate"><span class="pre">.true.</span></code>)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">version</span></code>: Version string (adds <code class="docutils literal notranslate"><span class="pre">-V/--version</span></code> if provided)</p></li>
+</ul>
+</section>
+<section id="adding-positional-arguments">
+<h3>Adding Positional Arguments<a class="headerlink" href="#adding-positional-arguments" title="Link to this heading"></a></h3>
+<p>Positional arguments are required and must appear in order:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">positional_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">input_file</span><span class="p">,</span><span class="w"> </span><span class="n">output_file</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;converter&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Convert files between formats&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Add positional arguments</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;input&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Input file path&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output file path&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="c">! Retrieve values</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;input&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">input_file</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">output_file</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Input:  &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">input_file</span><span class="p">)</span>
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Output: &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">output_file</span><span class="p">)</span>
+<span class="k">end program </span><span class="n">positional_example</span>
+</pre></div>
+</div>
+<p>Running this program:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./converter<span class="w"> </span>data.txt<span class="w"> </span>result.csv
+Input:<span class="w">  </span>data.txt
+Output:<span class="w"> </span>result.csv
+
+$<span class="w"> </span>./converter<span class="w"> </span>--help
+usage:<span class="w"> </span>converter<span class="w"> </span>input<span class="w"> </span>output
+
+Convert<span class="w"> </span>files<span class="w"> </span>between<span class="w"> </span>formats
+
+positional<span class="w"> </span>arguments:
+<span class="w">  </span>input<span class="w">         </span>Input<span class="w"> </span>file<span class="w"> </span>path
+<span class="w">  </span>output<span class="w">        </span>Output<span class="w"> </span>file<span class="w"> </span>path
+
+optional<span class="w"> </span>arguments:
+<span class="w">  </span>-h,<span class="w"> </span>--help<span class="w">    </span>show<span class="w"> </span>this<span class="w"> </span><span class="nb">help</span><span class="w"> </span>message<span class="w"> </span>and<span class="w"> </span><span class="nb">exit</span>
+</pre></div>
+</div>
+</section>
+<section id="adding-optional-arguments-flags">
+<h3>Adding Optional Arguments (Flags)<a class="headerlink" href="#adding-optional-arguments-flags" title="Link to this heading"></a></h3>
+<p>Optional arguments start with <code class="docutils literal notranslate"><span class="pre">-</span></code> or <code class="docutils literal notranslate"><span class="pre">--</span></code> and can appear in any order:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">optional_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">filename</span><span class="p">,</span><span class="w"> </span><span class="n">output</span>
+<span class="w">    </span><span class="kt">logical</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">verbose</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="nb">count</span>
+
+<span class="nb">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;processor&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Positional argument</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;filename&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;File to process&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Optional arguments</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Enable verbose output&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-o&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;out.txt&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output file (default: out.txt)&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-c&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--count&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;1&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Number of iterations&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;filename&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">filename</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">output</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_logical</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">verbose</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_integer</span><span class="p">(</span><span class="s2">&quot;count&quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">count</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">verbose</span><span class="p">)</span><span class="w"> </span><span class="k">print</span><span class="w"> </span><span class="o">*</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Verbose mode enabled&quot;</span>
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Processing: &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span>
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Output to:  &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Running &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">count</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot; iterations&quot;</span>
+<span class="k">end program </span><span class="n">optional_example</span>
+</pre></div>
+</div>
+<p>Running this program:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./processor<span class="w"> </span>input.dat<span class="w"> </span>-v<span class="w"> </span>-o<span class="w"> </span>results.txt<span class="w"> </span>--count<span class="w"> </span><span class="m">5</span>
+Verbose<span class="w"> </span>mode<span class="w"> </span>enabled
+Processing:<span class="w"> </span>input.dat
+Output<span class="w"> </span>to:<span class="w">  </span>results.txt
+Running<span class="w"> </span><span class="m">5</span><span class="w"> </span>iterations
+</pre></div>
+</div>
+</section>
+</section>
+<section id="types-and-nargs">
+<h2>Types and Nargs<a class="headerlink" href="#types-and-nargs" title="Link to this heading"></a></h2>
+<section id="argument-types">
+<h3>Argument Types<a class="headerlink" href="#argument-types" title="Link to this heading"></a></h3>
+<p>fclap supports four value types specified with the <code class="docutils literal notranslate"><span class="pre">type</span></code> parameter:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;string&quot;</span></code> (default): Character strings</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;int&quot;</span></code>: Integer values</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;real&quot;</span></code>: Real/floating-point values</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">&quot;logical&quot;</span></code>: Boolean values (typically used with store_true/store_false)</p></li>
+</ul>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">types_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">name</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">iterations</span>
+<span class="w">    </span><span class="kt">real</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">threshold</span>
+<span class="w">    </span><span class="kt">logical</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">debug</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;typed_args&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-n&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--name&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;string&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Name string&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-i&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--iterations&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;10&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Number of iterations&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-t&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--threshold&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;real&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;0.5&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Threshold value&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-d&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--debug&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Enable debug mode&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">name</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_integer</span><span class="p">(</span><span class="s2">&quot;iterations&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">iterations</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_real</span><span class="p">(</span><span class="s2">&quot;threshold&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">threshold</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_logical</span><span class="p">(</span><span class="s2">&quot;debug&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">debug</span><span class="p">)</span>
+<span class="k">end program </span><span class="n">types_example</span>
+</pre></div>
+</div>
+</section>
+<section id="nargs-consuming-multiple-values">
+<h3>Nargs: Consuming Multiple Values<a class="headerlink" href="#nargs-consuming-multiple-values" title="Link to this heading"></a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">nargs</span></code> parameter controls how many command-line arguments are consumed:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">nargs=&quot;?&quot;</span></code> (ARG_OPTIONAL): Zero or one argument</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nargs=&quot;*&quot;</span></code> (ARG_ZERO_OR_MORE): Zero or more arguments</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nargs=&quot;+&quot;</span></code> (ARG_ONE_OR_MORE): One or more arguments (required)</p></li>
+<li><p>Positive integer: Exact number of arguments</p></li>
+</ul>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">nargs_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span><span class="p">,</span><span class="w"> </span><span class="n">ARG_ONE_OR_MORE</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">files</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">num_files</span><span class="p">,</span><span class="w"> </span><span class="n">i</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;multi_file&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Accept one or more input files</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;files&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">nargs</span><span class="o">=</span><span class="n">ARG_ONE_OR_MORE</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Input files to process&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="c">! Get the list of files</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string_list</span><span class="p">(</span><span class="s2">&quot;files&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">files</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Processing &quot;</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot; files:&quot;</span>
+<span class="w">    </span><span class="k">do </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;  - &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">files</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+<span class="w">    </span><span class="k">end do</span>
+<span class="k">end program </span><span class="n">nargs_example</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="actions">
+<h2>Actions<a class="headerlink" href="#actions" title="Link to this heading"></a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">action</span></code> parameter specifies what to do when an argument is encountered:</p>
+<section id="store-default">
+<h3>store (default)<a class="headerlink" href="#store-default" title="Link to this heading"></a></h3>
+<p>Stores the argument value:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-n&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--name&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Your name&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="store-true-store-false">
+<h3>store_true / store_false<a class="headerlink" href="#store-true-store-false" title="Link to this heading"></a></h3>
+<p>Stores <code class="docutils literal notranslate"><span class="pre">.true.</span></code> or <code class="docutils literal notranslate"><span class="pre">.false.</span></code> when the flag is present:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                         </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Enable verbose mode&quot;</span><span class="p">)</span>
+<span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-q&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--quiet&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_false&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                         </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Disable output&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="count">
+<h3>count<a class="headerlink" href="#count" title="Link to this heading"></a></h3>
+<p>Counts the number of times a flag appears:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">count_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">verbosity</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;verbose_app&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;count&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Increase verbosity (use multiple times)&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_integer</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">verbosity</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Verbosity level: &quot;</span><span class="p">,</span><span class="w"> </span><span class="n">verbosity</span>
+<span class="k">end program </span><span class="n">count_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./verbose_app<span class="w"> </span>-vvv
+Verbosity<span class="w"> </span>level:<span class="w"> </span><span class="m">3</span>
+</pre></div>
+</div>
+</section>
+<section id="append">
+<h3>append<a class="headerlink" href="#append" title="Link to this heading"></a></h3>
+<p>Appends values to a list (allows repeated use of the same flag):</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">append_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">include_dirs</span><span class="p">(</span><span class="mi">64</span><span class="p">)</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">num_dirs</span><span class="p">,</span><span class="w"> </span><span class="n">i</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;compiler&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-I&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--include&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Add include directory&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string_list</span><span class="p">(</span><span class="s2">&quot;include&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">include_dirs</span><span class="p">,</span><span class="w"> </span><span class="n">num_dirs</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Include directories (&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">num_dirs</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;):&quot;</span>
+<span class="w">    </span><span class="k">do </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">num_dirs</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;  &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">include_dirs</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+<span class="w">    </span><span class="k">end do</span>
+<span class="k">end program </span><span class="n">append_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./compiler<span class="w"> </span>-I<span class="w"> </span>/usr/include<span class="w"> </span>-I<span class="w"> </span>./src<span class="w"> </span>-I<span class="w"> </span>../lib
+Include<span class="w"> </span>directories<span class="w"> </span><span class="o">(</span><span class="m">3</span><span class="o">)</span>:
+<span class="w">  </span>/usr/include
+<span class="w">  </span>./src
+<span class="w">  </span>../lib
+</pre></div>
+</div>
+</section>
+</section>
+<section id="advanced-features">
+<h2>Advanced Features<a class="headerlink" href="#advanced-features" title="Link to this heading"></a></h2>
+<section id="argument-groups">
+<h3>Argument Groups<a class="headerlink" href="#argument-groups" title="Link to this heading"></a></h3>
+<p>Groups organize related arguments in the help output:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">groups_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span><span class="p">,</span><span class="w"> </span><span class="n">ArgumentGroup</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentGroup</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">io_group</span><span class="p">,</span><span class="w"> </span><span class="n">proc_group</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;processor&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Data processing application&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Create input/output group</span>
+<span class="w">    </span><span class="n">io_group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument_group</span><span class="p">(</span><span class="s2">&quot;Input/Output Options&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                   </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Control input and output files&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-i&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--input&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">group</span><span class="o">=</span><span class="n">io_group</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Input file&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-o&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">group</span><span class="o">=</span><span class="n">io_group</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output file&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Create processing group</span>
+<span class="w">    </span><span class="n">proc_group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument_group</span><span class="p">(</span><span class="s2">&quot;Processing Options&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Control processing behavior&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-n&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--iterations&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">group</span><span class="o">=</span><span class="n">proc_group</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Number of iterations&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-t&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--threads&quot;</span><span class="p">,</span><span class="w"> </span><span class="k">type</span><span class="o">=</span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">group</span><span class="o">=</span><span class="n">proc_group</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Number of threads&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">end program </span><span class="n">groups_example</span>
+</pre></div>
+</div>
+</section>
+<section id="mutually-exclusive-groups">
+<h3>Mutually Exclusive Groups<a class="headerlink" href="#mutually-exclusive-groups" title="Link to this heading"></a></h3>
+<p>Ensure only one option from a group is used:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">mutex_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span><span class="p">,</span><span class="w"> </span><span class="n">MutuallyExclusiveGroup</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">MutuallyExclusiveGroup</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">verbosity_group</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;app&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Create a mutually exclusive group - user can only pick one</span>
+<span class="w">    </span><span class="n">verbosity_group</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">add_mutually_exclusive_group</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.)</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">mutex_group</span><span class="o">=</span><span class="n">verbosity_group</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Verbose output&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-q&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--quiet&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">mutex_group</span><span class="o">=</span><span class="n">verbosity_group</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Quiet output&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">end program </span><span class="n">mutex_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./app<span class="w"> </span>-v<span class="w"> </span>-q
+error:<span class="w"> </span>argument<span class="w"> </span>-q:<span class="w"> </span>not<span class="w"> </span>allowed<span class="w"> </span>with<span class="w"> </span>argument<span class="w"> </span>-v
+</pre></div>
+</div>
+</section>
+<section id="parent-parsers">
+<h3>Parent Parsers<a class="headerlink" href="#parent-parsers" title="Link to this heading"></a></h3>
+<p>Share common arguments across multiple parsers:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">parents_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parent</span><span class="p">,</span><span class="w"> </span><span class="n">child</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+
+<span class="w">    </span><span class="c">! Create parent with common arguments</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parent</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">add_help</span><span class="o">=</span><span class="p">.</span><span class="n">false</span><span class="p">.)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parent</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Enable verbose mode&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parent</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--config&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Config file path&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Create child that inherits from parent</span>
+<span class="w">    </span><span class="k">call </span><span class="n">child</span><span class="p">%</span><span class="n">init_with_parents</span><span class="p">([</span><span class="n">parent</span><span class="p">],</span><span class="w"> </span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                 </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;Application with inherited args&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Add child-specific arguments</span>
+<span class="w">    </span><span class="k">call </span><span class="n">child</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;input&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Input file&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">child</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">end program </span><span class="n">parents_example</span>
+</pre></div>
+</div>
+</section>
+<section id="subparsers-subcommands">
+<h3>Subparsers (Subcommands)<a class="headerlink" href="#subparsers-subcommands" title="Link to this heading"></a></h3>
+<p>Create git-style subcommands:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">subcommand_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span><span class="p">,</span><span class="w"> </span><span class="n">clone_parser</span><span class="p">,</span><span class="w"> </span><span class="n">commit_parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">64</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">command</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;mygit&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A simple VCS&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Enable subparsers</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_subparsers</span><span class="p">(</span><span class="n">title</span><span class="o">=</span><span class="s2">&quot;commands&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">dest</span><span class="o">=</span><span class="s2">&quot;command&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Add &#39;clone&#39; subcommand</span>
+<span class="w">    </span><span class="n">clone_parser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">add_parser</span><span class="p">(</span><span class="s2">&quot;clone&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Clone a repository&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">clone_parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;url&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Repository URL&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">clone_parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-b&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--branch&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Branch to clone&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Add &#39;commit&#39; subcommand</span>
+<span class="w">    </span><span class="n">commit_parser</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">add_parser</span><span class="p">(</span><span class="s2">&quot;commit&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Commit changes&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">commit_parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-m&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--message&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">required</span><span class="o">=</span><span class="p">.</span><span class="n">true</span><span class="p">.,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                                    </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Commit message&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="c">! Check which command was used</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;command&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">command</span><span class="p">)</span>
+
+<span class="w">    </span><span class="k">select case</span><span class="p">(</span><span class="nb">trim</span><span class="p">(</span><span class="n">command</span><span class="p">))</span>
+<span class="w">    </span><span class="k">case</span><span class="p">(</span><span class="s2">&quot;clone&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="o">*</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Cloning repository...&quot;</span>
+<span class="w">    </span><span class="k">case</span><span class="p">(</span><span class="s2">&quot;commit&quot;</span><span class="p">)</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="o">*</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Committing changes...&quot;</span>
+<span class="w">    </span><span class="k">end select</span>
+<span class="k">end program </span><span class="n">subcommand_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./mygit<span class="w"> </span>--help
+usage:<span class="w"> </span>mygit<span class="w"> </span><span class="o">[</span>-h<span class="o">]</span><span class="w"> </span><span class="o">{</span>clone,commit<span class="o">}</span>
+
+A<span class="w"> </span>simple<span class="w"> </span>VCS
+
+commands:
+<span class="w">  </span>clone<span class="w">        </span>Clone<span class="w"> </span>a<span class="w"> </span>repository
+<span class="w">  </span>commit<span class="w">       </span>Commit<span class="w"> </span>changes
+
+$<span class="w"> </span>./mygit<span class="w"> </span>clone<span class="w"> </span>https://github.com/user/repo.git<span class="w"> </span>-b<span class="w"> </span>main
+Cloning<span class="w"> </span>repository...
+</pre></div>
+</div>
+</section>
+<section id="version-information">
+<h3>Version Information<a class="headerlink" href="#version-information" title="Link to this heading"></a></h3>
+<p>Add version information to your application:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">version_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;myapp&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;My Application&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                     </span><span class="n">version</span><span class="o">=</span><span class="s2">&quot;myapp 1.2.3&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+<span class="k">end program </span><span class="n">version_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./myapp<span class="w"> </span>--version
+myapp<span class="w"> </span><span class="m">1</span>.2.3
+</pre></div>
+</div>
+</section>
+</section>
+<section id="error-handling">
+<h2>Error Handling<a class="headerlink" href="#error-handling" title="Link to this heading"></a></h2>
+<p>fclap automatically handles common errors and displays helpful messages:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Missing required argument</span>
+$<span class="w"> </span>./app
+usage:<span class="w"> </span>app<span class="w"> </span><span class="o">[</span>-h<span class="o">]</span><span class="w"> </span>filename
+error:<span class="w"> </span>the<span class="w"> </span>following<span class="w"> </span>arguments<span class="w"> </span>are<span class="w"> </span>required:<span class="w"> </span>filename
+
+<span class="c1"># Invalid type</span>
+$<span class="w"> </span>./app<span class="w"> </span>--count<span class="w"> </span>abc
+error:<span class="w"> </span>argument<span class="w"> </span>--count:<span class="w"> </span>invalid<span class="w"> </span>integer<span class="w"> </span>value<span class="w"> </span>--<span class="w"> </span>abc
+
+<span class="c1"># Unknown argument</span>
+$<span class="w"> </span>./app<span class="w"> </span>--unknown
+error:<span class="w"> </span>unrecognized<span class="w"> </span>arguments:<span class="w"> </span>--unknown
+</pre></div>
+</div>
+</section>
+<section id="complete-example">
+<h2>Complete Example<a class="headerlink" href="#complete-example" title="Link to this heading"></a></h2>
+<p>Here’s a complete example combining multiple features:</p>
+<div class="highlight-fortran notranslate"><div class="highlight"><pre><span></span><span class="k">program </span><span class="n">complete_example</span>
+<span class="w">    </span><span class="k">use </span><span class="n">fclap</span><span class="p">,</span><span class="w"> </span><span class="k">only</span><span class="p">:</span><span class="w"> </span><span class="n">ArgumentParser</span><span class="p">,</span><span class="w"> </span><span class="n">Namespace</span><span class="p">,</span><span class="w"> </span><span class="n">ARG_ONE_OR_MORE</span>
+
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">ArgumentParser</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">parser</span>
+<span class="w">    </span><span class="k">type</span><span class="p">(</span><span class="n">Namespace</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">args</span>
+<span class="w">    </span><span class="kt">character</span><span class="p">(</span><span class="nb">len</span><span class="o">=</span><span class="mi">256</span><span class="p">)</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">output</span><span class="p">,</span><span class="w"> </span><span class="n">files</span><span class="p">(</span><span class="mi">64</span><span class="p">),</span><span class="w"> </span><span class="n">format_str</span>
+<span class="w">    </span><span class="kt">integer</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">num_files</span><span class="p">,</span><span class="w"> </span><span class="n">verbosity</span><span class="p">,</span><span class="w"> </span><span class="n">i</span>
+<span class="w">    </span><span class="kt">logical</span><span class="w"> </span><span class="kd">::</span><span class="w"> </span><span class="n">force</span>
+
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">init</span><span class="p">(</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">        </span><span class="n">prog</span><span class="o">=</span><span class="s2">&quot;processor&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">        </span><span class="n">description</span><span class="o">=</span><span class="s2">&quot;A comprehensive file processing utility&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">        </span><span class="n">epilog</span><span class="o">=</span><span class="s2">&quot;For more information, visit https://github.com/fclap&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">        </span><span class="n">version</span><span class="o">=</span><span class="s2">&quot;processor 2.0.0&quot;</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">    </span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Positional: one or more input files</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;files&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">nargs</span><span class="o">=</span><span class="n">ARG_ONE_OR_MORE</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">metavar</span><span class="o">=</span><span class="s2">&quot;FILE&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Input files to process&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Optional arguments</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-o&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;output.dat&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output file (default: output.dat)&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-f&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--format&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">choices</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;csv &quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;json&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;xml &quot;</span><span class="p">],</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">default</span><span class="o">=</span><span class="s2">&quot;csv&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Output format: csv, json, or xml&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;-v&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;--verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;count&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Increase verbosity (-v, -vv, -vvv)&quot;</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">parser</span><span class="p">%</span><span class="n">add_argument</span><span class="p">(</span><span class="s2">&quot;--force&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">action</span><span class="o">=</span><span class="s2">&quot;store_true&quot;</span><span class="p">,</span><span class="w"> </span><span class="p">&amp;</span>
+<span class="w">                             </span><span class="n">help</span><span class="o">=</span><span class="s2">&quot;Overwrite existing output file&quot;</span><span class="p">)</span>
+
+<span class="w">    </span><span class="n">args</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="n">parser</span><span class="p">%</span><span class="n">parse_args</span><span class="p">()</span>
+
+<span class="w">    </span><span class="c">! Retrieve all values</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string_list</span><span class="p">(</span><span class="s2">&quot;files&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">files</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;output&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">output</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_string</span><span class="p">(</span><span class="s2">&quot;format&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">format_str</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_integer</span><span class="p">(</span><span class="s2">&quot;verbose&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">verbosity</span><span class="p">)</span>
+<span class="w">    </span><span class="k">call </span><span class="n">args</span><span class="p">%</span><span class="n">get_logical</span><span class="p">(</span><span class="s2">&quot;force&quot;</span><span class="p">,</span><span class="w"> </span><span class="n">force</span><span class="p">)</span>
+
+<span class="w">    </span><span class="c">! Use the values</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="n">verbosity</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">1</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">        print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;=== Processing Configuration ===&quot;</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Verbosity level: &quot;</span><span class="p">,</span><span class="w"> </span><span class="n">verbosity</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Output file: &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">output</span><span class="p">)</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Output format: &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">format_str</span><span class="p">)</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,L1)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Force overwrite: &quot;</span><span class="p">,</span><span class="w"> </span><span class="n">force</span>
+<span class="w">        </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,I0)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Number of input files: &quot;</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span>
+<span class="w">    </span><span class="k">end if</span>
+
+<span class="k">    if</span><span class="w"> </span><span class="p">(</span><span class="n">verbosity</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="mi">2</span><span class="p">)</span><span class="w"> </span><span class="k">then</span>
+<span class="k">        print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Input files:&quot;</span>
+<span class="w">        </span><span class="k">do </span><span class="n">i</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="n">num_files</span>
+<span class="w">            </span><span class="k">print</span><span class="w"> </span><span class="s1">&#39;(A,A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;  - &quot;</span><span class="p">,</span><span class="w"> </span><span class="nb">trim</span><span class="p">(</span><span class="n">files</span><span class="p">(</span><span class="n">i</span><span class="p">))</span>
+<span class="w">        </span><span class="k">end do</span>
+<span class="k">    end if</span>
+
+<span class="k">    print</span><span class="w"> </span><span class="s1">&#39;(A)&#39;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Processing complete!&quot;</span>
+<span class="k">end program </span><span class="n">complete_example</span>
+</pre></div>
+</div>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>$<span class="w"> </span>./processor<span class="w"> </span>-vv<span class="w"> </span>--format<span class="w"> </span>json<span class="w"> </span>-o<span class="w"> </span>result.json<span class="w"> </span>file1.txt<span class="w"> </span>file2.txt
+<span class="o">===</span><span class="w"> </span>Processing<span class="w"> </span><span class="nv">Configuration</span><span class="w"> </span><span class="o">===</span>
+Verbosity<span class="w"> </span>level:<span class="w"> </span><span class="m">2</span>
+Output<span class="w"> </span>file:<span class="w"> </span>result.json
+Output<span class="w"> </span>format:<span class="w"> </span>json
+Force<span class="w"> </span>overwrite:<span class="w"> </span>F
+Number<span class="w"> </span>of<span class="w"> </span>input<span class="w"> </span>files:<span class="w"> </span><span class="m">2</span>
+Input<span class="w"> </span>files:
+<span class="w">  </span>-<span class="w"> </span>file1.txt
+<span class="w">  </span>-<span class="w"> </span>file2.txt
+Processing<span class="w"> </span>complete!
+</pre></div>
+</div>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Welcome to fclap’s documentation!" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="api/fclap.html" class="btn btn-neutral float-right" title="API Reference" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2026, fclap contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
