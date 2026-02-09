@@ -35,5 +35,10 @@
 /build*/
 /_*/
 
+# Sphinx documentation
+docs/build
+docs/_build
+docs/source/_autosummary/
+
 # Python files
 __pycache__
