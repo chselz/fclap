@@ -10,4 +10,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+srcs += files(
+  'accuracy.f90',
+  'fclap_version.f90',
+)

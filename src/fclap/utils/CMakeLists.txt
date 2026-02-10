@@ -10,4 +10,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
+
+list(
+  APPEND srcs
+  "${dir}/accuracy.f90"
+  "${dir}/fclap_version.f90"
+)
+
+set(srcs "${srcs}" PARENT_SCOPE)

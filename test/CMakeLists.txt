@@ -10,4 +10,5 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+# Unit testing
+add_subdirectory("unit")

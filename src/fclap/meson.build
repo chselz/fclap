@@ -10,4 +10,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+subdir('utils')
+
+srcs += files(
+  'fclap_actions.f90',
+  'fclap_constants.f90',
+  'fclap_errors.f90',
+  'fclap_formatter.f90',
+  'fclap_namespace.f90',
+  'fclap_parser.f90',
+)

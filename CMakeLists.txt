@@ -1,9 +1,8 @@
-# This file is part of toml-f.
-# SPDX-Identifier: Apache-2.0 OR MIT
+# This file is part of fclap.
+# SPDX-Identifier: MIT
 #
-# Licensed under either of Apache License, Version 2.0 or MIT license
-# at your option; you may not use this file except in compliance with
-# the License.
+# Licensed under the MIT license; you may not use this file except
+# in compliance with the License.
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -11,11 +10,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.15)
 get_directory_property(is-subproject PARENT_DIRECTORY)
 
 project(
-  "fclap" # Fortran Command Line Argument Parser
+  "fclap"
   LANGUAGES "Fortran"
   VERSION "0.1.0"
   DESCRIPTION "A Fortran Command Line Argument Parser library"
@@ -54,7 +53,7 @@ target_include_directories(
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/${module-dir}>
 )
 if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
-   file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")
+  file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")
 endif()
 
 # Export targets for other projects
@@ -84,8 +83,7 @@ install(
 # Package license files
 install(
   FILES
-  "LICENSE-Apache"
-  "LICENSE-MIT"
+  "LICENSE.md"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME}"
 )
 

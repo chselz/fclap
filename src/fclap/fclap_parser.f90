@@ -166,7 +166,7 @@ module fclap_parser
         !> @param name1 First option string or positional name
         !> @param action Optional action type (store, store_true, count, etc.)
         !> @param nargs Number of arguments to consume
-        !> @param type_name Value type (string, int, real, logical)
+        !> @param data_type Value type (string, int, real, logical)
         !> @param default_val Default value if not provided
         !> @param choices Array of valid choices
         !> @param required Whether argument is required
@@ -483,7 +483,7 @@ contains
     end function parser_find_action_by_dest
 
     subroutine parser_add_argument(self, name1, name2, name3, name4, &
-                                   action, nargs, type_name, default_val, &
+                                   action, nargs, data_type, default_val, &
                                    choices, required, help, metavar, dest, &
                                    status, visible, deprecated_msg, removed_msg, &
                                    group_idx, mutex_group_idx)
@@ -492,7 +492,7 @@ contains
         character(len=*), intent(in), optional :: name2, name3, name4
         character(len=*), intent(in), optional :: action
         integer, intent(in), optional :: nargs
-        character(len=*), intent(in), optional :: type_name
+        character(len=*), intent(in), optional :: data_type
         character(len=*), intent(in), optional :: default_val
         character(len=*), intent(in), optional :: choices(:)
         logical, intent(in), optional :: required
@@ -515,6 +515,7 @@ contains
         option_strings = ""
         option_strings(1) = trim(name1)
 
+        ! TODO: make name a vector that has arbitrary length
         if (present(name2)) then
             num_options = num_options + 1
             option_strings(num_options) = trim(name2)
@@ -579,8 +580,8 @@ contains
         end if
 
         actual_type = TYPE_STRING
-        if (present(type_name)) then
-            select case(trim(type_name))
+        if (present(data_type)) then
+            select case(trim(data_type))
             case("integer", "int")
                 actual_type = TYPE_INTEGER
             case("real", "float", "double")

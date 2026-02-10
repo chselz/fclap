@@ -128,10 +128,13 @@ Optional arguments start with ``-`` or ``--`` and can appear in any order:
        use fclap, only: ArgumentParser, Namespace
        
        type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       character(len=256) :: filename, output
-       logical :: verbose
-       integer :: count
+       type(Namespace) :: namspace
+       type :: args
+         
+         character(len=256) :: filename, output
+         logical :: verbose
+         integer :: count
+       end type args
        
        call parser%init(prog="processor")
        
@@ -148,15 +151,15 @@ Optional arguments start with ``-`` or ``--`` and can appear in any order:
        
        args = parser%parse_args()
        
-       call args%get_string("filename", filename)
-       call args%get_string("output", output)
-       call args%get_logical("verbose", verbose)
-       call args%get_integer("count", count)
+       call args%get_string("filename", args%filename)
+       call args%get_string("output", args%output)
+       call args%get_logical("verbose", args%verbose)
+       call args%get_integer("count", args%count)
        
-       if (verbose) print *, "Verbose mode enabled"
-       print '(A,A)', "Processing: ", trim(filename)
-       print '(A,A)', "Output to:  ", trim(output)
-       print '(A,I0,A)', "Running ", count, " iterations"
+       if (args%verbose) print *, "Verbose mode enabled"
+       print '(A,A)', "Processing: ", trim(agrs%filename)
+       print '(A,A)', "Output to:  ", trim(args%output)
+       print '(A,I0,A)', "Running ", args%count, " iterations"
    end program optional_example
 
 Running this program:

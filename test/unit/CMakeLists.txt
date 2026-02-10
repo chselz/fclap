@@ -10,4 +10,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+set(
+  test-srcs
+  "main.f90"
+)
+
+add_executable(
+  ${PROJECT_NAME}-tester
+  "${test-srcs}"
+)
+target_link_libraries(
+  ${PROJECT_NAME}-tester
+  PRIVATE
+  "${PROJECT_NAME}-lib"
+)
+add_test(
+  "${PROJECT_NAME}-test"
+  ${PROJECT_NAME}-tester
+)

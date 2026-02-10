@@ -10,4 +10,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+add_subdirectory("utils")
+
+set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
+
+list(
+  APPEND srcs
+  "${dir}/fclap_actions.f90"
+  "${dir}/fclap_constants.f90"
+  "${dir}/fclap_errors.f90"
+  "${dir}/fclap_formatter.f90"
+  "${dir}/fclap_namespace.f90"
+  "${dir}/fclap_parser.f90"
+)
+
+set(srcs "${srcs}" PARENT_SCOPE)

@@ -1,9 +1,8 @@
-# This file is part of toml-f.
-# SPDX-Identifier: Apache-2.0 OR MIT
+# This file is part of fclap.
+# SPDX-Identifier: MIT
 #
-# Licensed under either of Apache License, Version 2.0 or MIT license
-# at your option; you may not use this file except in compliance with
-# the License.
+# Licensed under the MIT license; you may not use this file except
+# in compliance with the License.
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,7 +14,7 @@ project(
   'fclap',
   'fortran',
   version: '0.1.0',
-  license: 'Apache-2.0 OR MIT',
+  license: 'MIT',
   meson_version: '>=0.55',
   default_options: [
     'buildtype=debugoptimized',
@@ -31,7 +30,7 @@ subdir('config')
 srcs = []
 subdir('src')
 
-# Fortran cli parser library target
+# Fortran Command Line Argument Parser library target
 fclap_lib = library(
   meson.project_name(),
   sources: srcs,
@@ -48,8 +47,7 @@ fclap_dep = declare_dependency(
 
 # Package the license files
 fclap_lic = files(
-  'LICENSE-MIT',
-  'LICENSE-Apache',
+  'LICENSE.md',
 )
 
 if install
@@ -68,7 +66,7 @@ if install
   pkg = import('pkgconfig')
   pkg.generate(
     fclap_lib,
-    description: 'A TOML parser implementation for data serialization and deserialization in Fortran',
+    description: 'A Fortran Command Line Argument Parser library',
     subdirs: ['', module_id],
   )
 endif

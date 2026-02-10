@@ -10,4 +10,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-option('tests', type: 'boolean', value: true, description: 'Enable building and running tests')
+test_srcs = files('main.f90')
+
+tester = executable(
+  'fclap-tester',
+  sources: test_srcs,
+  dependencies: [fclap_dep],
+)
+
+test(
+  'fclap-unit-tests',
+  tester,
+)
