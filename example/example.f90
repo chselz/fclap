@@ -1,24 +1,20 @@
 program nargs_example
-    use fclap, only: ArgumentParser, Namespace, ARG_ONE_OR_MORE
+    use fclap, only: ArgumentParser, Namespace, not_bigger_than
+    implicit none
 
     type(ArgumentParser) :: parser
     type(Namespace) :: args
-    character(len=256) :: files(64)
-    integer :: num_files, i
+    integer :: count_val
 
     call parser%init(prog="multi_file")
 
-    ! Accept one or more input files
-    call parser%add_argument("files", nargs=ARG_ONE_OR_MORE, &
-                             help="Input files to process")
+    ! Accept a count that must be >= 5
+    call parser%add_argument("count", data_type="int", action=not_bigger_than(5), &
+                             help="A count value (must be >= 5)")
 
     args = parser%parse_args()
 
-    ! Get the list of files
-    call args%get("files", files, num_files)
+    call args%get("count", count_val)
 
-    print '(A,I0,A)', "Processing ", num_files, " files:"
-    do i = 1, num_files
-        print '(A,A)', "  - ", trim(files(i))
-    end do
+    print '(A,I0)', "Count value: ", count_val
 end program nargs_example

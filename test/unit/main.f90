@@ -13,6 +13,7 @@ program tester
     call test_default_values(all_passed)
     call test_help_generation(all_passed)
     call test_type_conversion(all_passed)
+    call test_append(all_passed)
     call test_nargs(all_passed)
     call test_deprecated_warning(all_passed)
     call test_hidden_arguments(all_passed)
@@ -217,7 +218,7 @@ contains
         end if
     end subroutine test_type_conversion
 
-    subroutine test_nargs(passed)
+    subroutine test_append(passed)
         logical, intent(inout) :: passed
         type(ArgumentParser) :: parser
         type(Namespace) :: args
@@ -250,6 +251,12 @@ contains
         else
             print *, "  PASSED"
         end if
+    end subroutine test_append
+
+    subroutine test_nargs(passed)
+        logical, intent(in) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
     end subroutine test_nargs
 
     subroutine test_deprecated_warning(passed)

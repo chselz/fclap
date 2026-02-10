@@ -99,6 +99,10 @@ module fclap_constants
     integer, parameter, public :: ACT_HELP = 6
     !> Action type: print version string and exit
     integer, parameter, public :: ACT_VERSION = 7
+    !> Action type: store value only if it is not less than a bound
+    integer, parameter, public :: ACT_NOT_LESS_THAN = 8
+    !> Action type: store value only if it is not bigger than a bound
+    integer, parameter, public :: ACT_NOT_BIGGER_THAN = 9
 
     ! ============================================================================
     ! ARGUMENT STATUS CONSTANTS

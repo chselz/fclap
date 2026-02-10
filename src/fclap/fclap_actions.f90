@@ -15,13 +15,47 @@ module fclap_actions
     use fclap_constants, only: MAX_ARG_LEN, MAX_OPTION_STRINGS, MAX_CHOICES, &
         TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL, &
         ACT_STORE, ACT_STORE_TRUE, ACT_STORE_FALSE, ACT_COUNT, ACT_APPEND, &
-        ACT_HELP, ACT_VERSION, ARG_SINGLE, &
+        ACT_HELP, ACT_VERSION, ACT_NOT_LESS_THAN, ACT_NOT_BIGGER_THAN, &
+        ARG_SINGLE, &
         ARG_OPTIONAL, ARG_ONE_OR_MORE, ARG_ZERO_OR_MORE, ARG_REMAINDER, &
         STATUS_ACTIVE, STATUS_DEPRECATED, STATUS_REMOVED
     use fclap_namespace, only: ValueContainer, Namespace
     use fclap_errors, only: fclap_error
+    use fclap_utils_accuracy, only: wp
     implicit none
     private
+
+    ! ============================================================================
+    ! GENERIC INTERFACES FOR BOUND-CHECKING ACTION FACTORIES
+    ! ============================================================================
+
+    !> @brief Factory function: returns an action string for not-less-than validation.
+    !>
+    !> @details Generic interface supporting integer, real(wp), and string types.
+    !> Returns an encoded action string (e.g. "not_less_than:5") that the parser
+    !> recognizes. Usage: action=not_less_than(0.0_wp)
+    !> For strings, the bound is passed as a character and will be compared
+    !> against the trimmed string length during validation.
+    interface not_less_than
+        module procedure not_less_than_int
+        module procedure not_less_than_real
+        module procedure not_less_than_string
+    end interface not_less_than
+
+    !> @brief Factory function: returns an action string for not-bigger-than validation.
+    !>
+    !> @details Generic interface supporting integer, real(wp), and string types.
+    !> Returns an encoded action string (e.g. "not_bigger_than:100") that the parser
+    !> recognizes. Usage: action=not_bigger_than(100)
+    !> For strings, the bound is passed as a character and will be compared
+    !> against the trimmed string length during validation.
+    interface not_bigger_than
+        module procedure not_bigger_than_int
+        module procedure not_bigger_than_real
+        module procedure not_bigger_than_string
+    end interface not_bigger_than
+
+    public :: not_less_than, not_bigger_than
 
     ! ============================================================================
     ! ACTION TYPE
@@ -74,6 +108,8 @@ module fclap_actions
         character(len=:), allocatable :: deprecated_message
         !> @brief Removal message shown when removed argument is used
         character(len=:), allocatable :: removed_message
+        !> @brief Bound value string for not_less_than / not_bigger_than actions
+        character(len=:), allocatable :: bound_str
     contains
         !> @brief Check if action matches a given option string.
         !> @param opt The option string to check (e.g., "-v" or "--verbose")
@@ -245,8 +281,9 @@ contains
         character(len=*), intent(in) :: values(:)
         integer, intent(in) :: num_values
         type(fclap_error), intent(inout) :: error
-        integer :: int_val, ios, i
-        real :: real_val
+        integer :: int_val, ios, i, int_bound, str_len
+        real(wp) :: real_val, real_bound
+        real :: store_real_val
 
         select case(self%action_type)
         case(ACT_STORE)
@@ -301,7 +338,8 @@ contains
                         call error%init("invalid real value", values(1))
                         return
                     end if
-                    call args%set_real(self%dest, real_val)
+                    store_real_val = real(real_val)
+                    call args%set_real(self%dest, store_real_val)
 
                 case default
                     call args%set_string(self%dest, values(1))
@@ -352,7 +390,213 @@ contains
             end if
             stop
 
+        case(ACT_NOT_LESS_THAN)
+            ! Store value and validate it is >= bound
+            if (num_values < 1) then
+                call error%init("expected one argument", self%dest)
+                return
+            end if
+
+            select case(self%value_type)
+            case(TYPE_INTEGER)
+                read(values(1), *, iostat=ios) int_val
+                if (ios /= 0) then
+                    call error%init("invalid integer value", values(1))
+                    return
+                end if
+                read(self%bound_str, *, iostat=ios) int_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (int_val < int_bound) then
+                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                call args%set_integer(self%dest, int_val)
+
+            case(TYPE_REAL)
+                read(values(1), *, iostat=ios) real_val
+                if (ios /= 0) then
+                    call error%init("invalid real value", values(1))
+                    return
+                end if
+                read(self%bound_str, *, iostat=ios) real_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (real_val < real_bound) then
+                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                store_real_val = real(real_val)
+                call args%set_real(self%dest, store_real_val)
+
+            case default
+                ! String type: compare len(trim(value)) against integer bound
+                str_len = len(trim(values(1)))
+                read(self%bound_str, *, iostat=ios) int_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (str_len < int_bound) then
+                    call error%init("string length must not be less than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                call args%set_string(self%dest, values(1))
+            end select
+
+        case(ACT_NOT_BIGGER_THAN)
+            ! Store value and validate it is <= bound
+            if (num_values < 1) then
+                call error%init("expected one argument", self%dest)
+                return
+            end if
+
+            select case(self%value_type)
+            case(TYPE_INTEGER)
+                read(values(1), *, iostat=ios) int_val
+                if (ios /= 0) then
+                    call error%init("invalid integer value", values(1))
+                    return
+                end if
+                read(self%bound_str, *, iostat=ios) int_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (int_val > int_bound) then
+                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                call args%set_integer(self%dest, int_val)
+
+            case(TYPE_REAL)
+                read(values(1), *, iostat=ios) real_val
+                if (ios /= 0) then
+                    call error%init("invalid real value", values(1))
+                    return
+                end if
+                read(self%bound_str, *, iostat=ios) real_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (real_val > real_bound) then
+                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                store_real_val = real(real_val)
+                call args%set_real(self%dest, store_real_val)
+
+            case default
+                ! String type: compare len(trim(value)) against integer bound
+                str_len = len(trim(values(1)))
+                read(self%bound_str, *, iostat=ios) int_bound
+                if (ios /= 0) then
+                    call error%init("invalid bound value", self%bound_str)
+                    return
+                end if
+                if (str_len > int_bound) then
+                    call error%init("string length must not be bigger than " // trim(self%bound_str), values(1))
+                    return
+                end if
+                call args%set_string(self%dest, values(1))
+            end select
+
         end select
     end subroutine action_execute
+
+    ! ============================================================================
+    ! NOT_LESS_THAN FACTORY PROCEDURES
+    ! ============================================================================
+
+    !> @brief Create an action string for integer not-less-than validation.
+    !>
+    !> @param bound The minimum allowed value
+    !> @return Encoded action string "not_less_than:<bound>"
+    function not_less_than_int(bound) result(action_string)
+        integer, intent(in) :: bound
+        character(len=:), allocatable :: action_string
+        character(len=32) :: buf
+
+        write(buf, '(I0)') bound
+        action_string = "not_less_than:" // trim(buf)
+    end function not_less_than_int
+
+    !> @brief Create an action string for real(wp) not-less-than validation.
+    !>
+    !> @param bound The minimum allowed value (working precision)
+    !> @return Encoded action string "not_less_than:<bound>"
+    function not_less_than_real(bound) result(action_string)
+        real(wp), intent(in) :: bound
+        character(len=:), allocatable :: action_string
+        character(len=64) :: buf
+
+        write(buf, '(ES23.16)') bound
+        action_string = "not_less_than:" // trim(adjustl(buf))
+    end function not_less_than_real
+
+    !> @brief Create an action string for string not-less-than validation.
+    !>
+    !> @details The bound is passed as a character string representing the
+    !> minimum trimmed length. During validation, `len(trim(value))` is
+    !> compared against this bound.
+    !>
+    !> @param bound The minimum allowed trimmed length (as string, e.g. "5")
+    !> @return Encoded action string "not_less_than:<bound>"
+    function not_less_than_string(bound) result(action_string)
+        character(len=*), intent(in) :: bound
+        character(len=:), allocatable :: action_string
+
+        action_string = "not_less_than:" // trim(bound)
+    end function not_less_than_string
+
+    ! ============================================================================
+    ! NOT_BIGGER_THAN FACTORY PROCEDURES
+    ! ============================================================================
+
+    !> @brief Create an action string for integer not-bigger-than validation.
+    !>
+    !> @param bound The maximum allowed value
+    !> @return Encoded action string "not_bigger_than:<bound>"
+    function not_bigger_than_int(bound) result(action_string)
+        integer, intent(in) :: bound
+        character(len=:), allocatable :: action_string
+        character(len=32) :: buf
+
+        write(buf, '(I0)') bound
+        action_string = "not_bigger_than:" // trim(buf)
+    end function not_bigger_than_int
+
+    !> @brief Create an action string for real(wp) not-bigger-than validation.
+    !>
+    !> @param bound The maximum allowed value (working precision)
+    !> @return Encoded action string "not_bigger_than:<bound>"
+    function not_bigger_than_real(bound) result(action_string)
+        real(wp), intent(in) :: bound
+        character(len=:), allocatable :: action_string
+        character(len=64) :: buf
+
+        write(buf, '(ES23.16)') bound
+        action_string = "not_bigger_than:" // trim(adjustl(buf))
+    end function not_bigger_than_real
+
+    !> @brief Create an action string for string not-bigger-than validation.
+    !>
+    !> @details The bound is passed as a character string representing the
+    !> maximum trimmed length. During validation, `len(trim(value))` is
+    !> compared against this bound.
+    !>
+    !> @param bound The maximum allowed trimmed length (as string, e.g. "100")
+    !> @return Encoded action string "not_bigger_than:<bound>"
+    function not_bigger_than_string(bound) result(action_string)
+        character(len=*), intent(in) :: bound
+        character(len=:), allocatable :: action_string
+
+        action_string = "not_bigger_than:" // trim(bound)
+    end function not_bigger_than_string
 
 end module fclap_actions

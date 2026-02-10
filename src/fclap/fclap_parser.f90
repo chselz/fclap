@@ -24,7 +24,7 @@ module fclap_parser
     use fclap_constants
     use fclap_errors, only: fclap_error
     use fclap_namespace, only: Namespace, ValueContainer
-    use fclap_actions, only: Action
+    use fclap_actions, only: Action, not_less_than, not_bigger_than
     use fclap_formatter, only: format_usage_string, format_help_text, &
         GroupInfo, MutexGroupInfo
     implicit none
@@ -552,22 +552,28 @@ contains
 
         act_type = ACT_STORE
         if (present(action)) then
-            select case(trim(action))
-            case("store_true")
-                act_type = ACT_STORE_TRUE
-            case("store_false")
-                act_type = ACT_STORE_FALSE
-            case("count")
-                act_type = ACT_COUNT
-            case("append")
-                act_type = ACT_APPEND
-            case("help")
-                act_type = ACT_HELP
-            case("version")
-                act_type = ACT_VERSION
-            case default
-                act_type = ACT_STORE
-            end select
+            if (len(action) > 14 .and. action(1:14) == "not_less_than:") then
+                act_type = ACT_NOT_LESS_THAN
+            else if (len(action) > 16 .and. action(1:16) == "not_bigger_than:") then
+                act_type = ACT_NOT_BIGGER_THAN
+            else
+                select case(trim(action))
+                case("store_true")
+                    act_type = ACT_STORE_TRUE
+                case("store_false")
+                    act_type = ACT_STORE_FALSE
+                case("count")
+                    act_type = ACT_COUNT
+                case("append")
+                    act_type = ACT_APPEND
+                case("help")
+                    act_type = ACT_HELP
+                case("version")
+                    act_type = ACT_VERSION
+                case default
+                    act_type = ACT_STORE
+                end select
+            end if
         end if
 
         actual_nargs = ARG_SINGLE
@@ -632,6 +638,15 @@ contains
 
         if (act_type == ACT_VERSION .and. allocated(self%version)) then
             self%actions(self%num_actions)%version_string = self%version
+        end if
+
+        ! Extract and store the bound value for not_less_than / not_bigger_than
+        if (present(action)) then
+            if (act_type == ACT_NOT_LESS_THAN) then
+                self%actions(self%num_actions)%bound_str = action(15:)
+            else if (act_type == ACT_NOT_BIGGER_THAN) then
+                self%actions(self%num_actions)%bound_str = action(17:)
+            end if
         end if
 
         if (present(status)) then

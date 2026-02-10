@@ -46,11 +46,12 @@ module fclap
         ! Action type constants
         ACT_STORE, ACT_STORE_TRUE, ACT_STORE_FALSE, &
         ACT_COUNT, ACT_APPEND, ACT_HELP, ACT_VERSION, &
+        ACT_NOT_LESS_THAN, ACT_NOT_BIGGER_THAN, &
         ! Group type constants
         GROUP_STANDARD, GROUP_MUTEX
     use fclap_errors, only: fclap_error
     use fclap_namespace, only: Namespace, ValueContainer
-    use fclap_actions, only: Action
+    use fclap_actions, only: Action, not_less_than, not_bigger_than
     use fclap_parser, only: ArgumentParser, ArgumentGroup, MutuallyExclusiveGroup, &
         get_prog_name
     use fclap_version, only: get_fclap_version, fclap_version_compact, &
@@ -100,6 +101,12 @@ module fclap
     public :: ACT_APPEND
     public :: ACT_HELP
     public :: ACT_VERSION
+    public :: ACT_NOT_LESS_THAN
+    public :: ACT_NOT_BIGGER_THAN
+
+    ! Public procedures - bound-checking action factories
+    public :: not_less_than       ! Factory: action=not_less_than(bound)
+    public :: not_bigger_than     ! Factory: action=not_bigger_than(bound)
 
     ! Public constants - group types
     public :: GROUP_STANDARD
