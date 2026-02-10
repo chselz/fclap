@@ -1,0 +1,155 @@
+# name: CI
+
+# on: [push, pull_request]
+
+# env:
+#   BUILD_DIR: _build
+#   PIP_PACKAGES: >-
+#     meson!=1.8.0
+#     cmake
+#     ninja
+
+# jobs:
+#   build:
+#     runs-on: ${{ matrix.os }}
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         os: [ubuntu-latest]
+#         build-type: [debug]
+#         toolchain:
+#           - {compiler: gcc, version: '14', build: meson}
+#           - {compiler: gcc, version: '14', build: cmake}
+#           - {compiler: gcc, version: '14', build: fpm}
+#           - {compiler: intel, version: '2024.2', build: meson}
+#           - {compiler: intel, version: '2024.2', build: cmake}
+#           - {compiler: intel, version: '2024.2', build: fpm}
+
+#     defaults:
+#       run:
+#         shell: bash
+
+#     env:
+#       PYTHON_V: 3.9
+
+#     steps:
+#     - name: Checkout code
+#       uses: actions/checkout@v4
+
+#     - uses: actions/setup-python@v5
+#       with:
+#         python-version: ${{ env.PYTHON_V }}
+
+#     - name: Install fpm
+#       if: ${{ matrix.toolchain.build == 'fpm' }}
+#       uses: fortran-lang/setup-fpm@v7
+#       with:
+#         github-token: ${{ secrets.GITHUB_TOKEN }}
+
+#     - name: Prepare for cache restore
+#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
+#       run: |
+#         sudo mkdir -p /opt/intel
+#         sudo chown $USER /opt/intel
+
+#     - name: Cache Intel installation
+#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
+#       id: cache-install
+#       uses: actions/cache@v4
+#       with:
+#         path: /opt/intel/oneapi
+#         key: install-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}-${{ matrix.os }}
+
+#     - name: Install GCC Compiler
+#       if: ${{ contains(matrix.toolchain.compiler, 'gcc') }}
+#       uses: fortran-lang/setup-fortran@v1
+#       with:
+#         compiler: ${{ matrix.toolchain.compiler }}
+#         version: ${{ matrix.toolchain.version }}
+
+#     - name: Install Intel Compiler
+#       if: ${{ contains(matrix.toolchain.compiler, 'intel') && steps.cache-install.outputs.cache-hit != 'true' }}
+#       uses: fortran-lang/setup-fortran@v1
+#       with:
+#         compiler: ${{ matrix.toolchain.compiler }}
+#         version: ${{ matrix.toolchain.version }}
+
+#     - name: Setup Intel oneAPI environment
+#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
+#       run: |
+#         source /opt/intel/oneapi/setvars.sh --force
+#         printenv >> $GITHUB_ENV
+
+#     - name: Setup environment for Fortran and C compilers
+#       run: |
+#         if [ ! -n "$FC" ]; then
+#           if [ "${{ matrix.toolchain.compiler }}" = "gcc" ]; then
+#             FC="gfortran"
+#             CC="gcc"
+#           elif [ "${{ matrix.toolchain.compiler }}" = "intel" ]; then
+#             FC="ifx"
+#             CC="icx"
+#           elif [ "${{ matrix.toolchain.compiler }}" = "intel-classic" ]; then
+#             FC="ifort"
+#             CC="icc"
+#           fi
+#           echo "FC=$FC" >> $GITHUB_ENV
+#           echo "CC=$CC" >> $GITHUB_ENV
+#         fi
+
+#     - name: Install build and test dependencies
+#       run: pip3 install ${{ env.PIP_PACKAGES }}
+
+#     - name: Configure build (meson)
+#       if: ${{ matrix.toolchain.build == 'meson' }}
+#       run: >-
+#         meson setup ${{ env.BUILD_DIR }}
+#         --buildtype=debug
+#         --prefix=$PWD/_dist
+#         --libdir=lib
+#         --warnlevel=0
+
+#     - name: Configure build (CMake)
+#       if: ${{ matrix.toolchain.build == 'cmake' }}
+#       run: >-
+#         cmake -B${{ env.BUILD_DIR }}
+#         -GNinja
+#         -DCMAKE_BUILD_TYPE=Debug
+#         -DCMAKE_INSTALL_PREFIX=$PWD/_dist
+#         -DCMAKE_INSTALL_LIBDIR=lib
+
+#     - name: Build library (fpm)
+#       if: ${{ matrix.toolchain.build == 'fpm' }}
+#       run: |
+#         fpm --version
+#         fpm build
+
+#     - name: Build library
+#       if: ${{ matrix.toolchain.build != 'fpm' }}
+#       run: ninja -C ${{ env.BUILD_DIR }}
+
+#     - name: Run unit tests (fpm)
+#       if: ${{ matrix.toolchain.build == 'fpm' }}
+#       run: fpm test
+
+#     - name: Run unit tests (meson)
+#       if: ${{ matrix.toolchain.build == 'meson' }}
+#       run: >-
+#          meson test
+#          -C ${{ env.BUILD_DIR }}
+#          --print-errorlogs
+#          --no-rebuild
+#          --num-processes 1
+#          -t 2
+
+#     - name: Run unit tests (ctest)
+#       if: ${{ matrix.toolchain.build == 'cmake' }}
+#       run: |
+#          ctest --output-on-failure --parallel 2
+#       working-directory: ${{ env.BUILD_DIR }}
+
+#     - name: Install project
+#       if: ${{ matrix.toolchain.build != 'fpm' }}
+#       run: |
+#         ninja -C ${{ env.BUILD_DIR }} install
+#         echo "FCLAP_PREFIX=$PWD/_dist" >> $GITHUB_ENV

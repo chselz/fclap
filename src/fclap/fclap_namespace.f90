@@ -15,9 +15,9 @@
 !>   logical :: verbose
 !>   
 !>   args = parser%parse_args()
-!>   filename = args%get_string("filename")
-!>   count = args%get_integer("count", default=1)
-!>   verbose = args%get_logical("verbose", default=.false.)
+!>   call args%get("filename", filename)
+!>   call args%get("count", count, default=1)
+!>   call args%get("verbose", verbose, default=.false.)
 
 module fclap_namespace
     use fclap_constants, only: MAX_ACTIONS, MAX_ARG_LEN, MAX_LIST_VALUES, &
@@ -86,12 +86,15 @@ module fclap_namespace
     !>
     !> @details The Namespace type stores the results of parse_args(). It behaves
     !> similarly to a dictionary or Python's argparse.Namespace object, providing
-    !> type-safe getter methods for retrieving argument values.
+    !> a generic getter method for retrieving argument values.
+    !>
+    !> The generic get interface resolves based on the type of the output
+    !> argument, so callers simply write:
     !>
     !> @example
-    !>   filename = args%get_string("filename")
-    !>   count = args%get_integer("count", default=1)
-    !>   verbose = args%get_logical("verbose")
+    !>   call args%get("filename", my_string)
+    !>   call args%get("count", my_integer, default=1)
+    !>   call args%get("verbose", my_logical)
     type, public :: Namespace
         !> @brief Array of argument entries storing all parsed key-value pairs
         type(ArgumentEntry), allocatable :: entries(:)
@@ -116,26 +119,25 @@ module fclap_namespace
         procedure :: append_integer => namespace_append_integer
         !> @brief Increment an integer counter value.
         procedure :: increment => namespace_increment
-        !> @brief Retrieve a string value by key.
-        !> @param key The argument destination name
-        !> @param default Optional default if key not found
-        !> @return The string value
-        procedure :: get_string => namespace_get_string
-        !> @brief Retrieve an integer value by key.
-        !> @param key The argument destination name
-        !> @param default Optional default if key not found
-        !> @return The integer value
-        procedure :: get_integer => namespace_get_integer
-        !> @brief Retrieve a real value by key.
-        !> @param key The argument destination name
-        !> @param default Optional default if key not found
-        !> @return The real value
-        procedure :: get_real => namespace_get_real
-        !> @brief Retrieve a logical value by key.
-        !> @param key The argument destination name
-        !> @param default Optional default if key not found
-        !> @return The logical value
-        procedure :: get_logical => namespace_get_logical
+        ! Private specific getter functions (used internally)
+        procedure, private :: get_string => namespace_get_string
+        procedure, private :: get_integer => namespace_get_integer
+        procedure, private :: get_real => namespace_get_real
+        procedure, private :: get_logical => namespace_get_logical
+        ! Private specific getter subroutines (backing the generic interface)
+        procedure, private :: get_sub_string => namespace_get_sub_string
+        procedure, private :: get_sub_integer => namespace_get_sub_integer
+        procedure, private :: get_sub_real => namespace_get_sub_real
+        procedure, private :: get_sub_logical => namespace_get_sub_logical
+        procedure, private :: get_sub_string_list => namespace_get_sub_string_list
+        procedure, private :: get_sub_integer_list => namespace_get_sub_integer_list
+        !> @brief Generic getter: call args%get(key, value [, default])
+        !>
+        !> Resolves based on the type of the output value argument.
+        !> Supported types: character, integer, real, logical.
+        !> Also supports list forms: call args%get(key, values_array, count)
+        generic :: get => get_sub_string, get_sub_integer, get_sub_real, get_sub_logical, &
+                          get_sub_string_list, get_sub_integer_list
         !> @brief Retrieve a string list by key.
         !> @param key The argument destination name
         !> @param values Output array for the values
@@ -525,10 +527,19 @@ contains
         idx = self%find(key)
         if (idx > 0) then
             if (self%entries(idx)%value%is_set) then
-                count = min(self%entries(idx)%value%list_count, size(values))
-                do i = 1, count
-                    values(i) = self%entries(idx)%value%string_list(i)
-                end do
+                if (self%entries(idx)%value%list_count > 0) then
+                    ! Return values from the string list
+                    count = min(self%entries(idx)%value%list_count, size(values))
+                    do i = 1, count
+                        values(i) = self%entries(idx)%value%string_list(i)
+                    end do
+                else if (allocated(self%entries(idx)%value%string_value)) then
+                    ! Fallback: return a single string_value as a 1-element list
+                    if (size(values) >= 1) then
+                        count = 1
+                        values(1) = self%entries(idx)%value%string_value
+                    end if
+                end if
             end if
         end if
     end subroutine namespace_get_string_list
@@ -544,10 +555,18 @@ contains
         idx = self%find(key)
         if (idx > 0) then
             if (self%entries(idx)%value%is_set) then
-                count = min(self%entries(idx)%value%list_count, size(values))
-                do i = 1, count
-                    values(i) = self%entries(idx)%value%integer_list(i)
-                end do
+                if (self%entries(idx)%value%list_count > 0) then
+                    count = min(self%entries(idx)%value%list_count, size(values))
+                    do i = 1, count
+                        values(i) = self%entries(idx)%value%integer_list(i)
+                    end do
+                else if (self%entries(idx)%value%value_type == TYPE_INTEGER) then
+                    ! Fallback: return a single integer_value as a 1-element list
+                    if (size(values) >= 1) then
+                        count = 1
+                        values(1) = self%entries(idx)%value%integer_value
+                    end if
+                end if
             end if
         end if
     end subroutine namespace_get_integer_list
@@ -584,5 +603,101 @@ contains
         end do
         write(out_unit, '(A)') ")"
     end subroutine namespace_show
+
+    ! ============================================================================
+    ! GENERIC GETTER SUBROUTINE IMPLEMENTATIONS
+    ! ============================================================================
+
+    !> @brief Retrieve a string value by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param value Output variable receiving the string value
+    !> @param default Optional default if key not found
+    subroutine namespace_get_sub_string(self, key, value, default)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        character(len=*), intent(out) :: value
+        character(len=*), intent(in), optional :: default
+        character(len=:), allocatable :: tmp
+
+        tmp = self%get_string(key, default)
+        value = tmp
+    end subroutine namespace_get_sub_string
+
+    !> @brief Retrieve an integer value by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param value Output variable receiving the integer value
+    !> @param default Optional default if key not found
+    subroutine namespace_get_sub_integer(self, key, value, default)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        integer, intent(out) :: value
+        integer, intent(in), optional :: default
+
+        value = self%get_integer(key, default)
+    end subroutine namespace_get_sub_integer
+
+    !> @brief Retrieve a real value by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param value Output variable receiving the real value
+    !> @param default Optional default if key not found
+    subroutine namespace_get_sub_real(self, key, value, default)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        real, intent(out) :: value
+        real, intent(in), optional :: default
+
+        value = self%get_real(key, default)
+    end subroutine namespace_get_sub_real
+
+    !> @brief Retrieve a logical value by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param value Output variable receiving the logical value
+    !> @param default Optional default if key not found
+    subroutine namespace_get_sub_logical(self, key, value, default)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        logical, intent(out) :: value
+        logical, intent(in), optional :: default
+
+        value = self%get_logical(key, default)
+    end subroutine namespace_get_sub_logical
+
+    !> @brief Retrieve a string list by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param values Output array receiving the string values
+    !> @param count Output number of values retrieved
+    subroutine namespace_get_sub_string_list(self, key, values, count)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        character(len=*), intent(out) :: values(:)
+        integer, intent(out) :: count
+
+        call self%get_string_list(key, values, count)
+    end subroutine namespace_get_sub_string_list
+
+    !> @brief Retrieve an integer list by key (subroutine form for generic interface).
+    !>
+    !> @param self The Namespace instance
+    !> @param key The argument destination name
+    !> @param values Output array receiving the integer values
+    !> @param count Output number of values retrieved
+    subroutine namespace_get_sub_integer_list(self, key, values, count)
+        class(Namespace), intent(in) :: self
+        character(len=*), intent(in) :: key
+        integer, intent(out) :: values(:)
+        integer, intent(out) :: count
+
+        call self%get_integer_list(key, values, count)
+    end subroutine namespace_get_sub_integer_list
 
 end module fclap_namespace

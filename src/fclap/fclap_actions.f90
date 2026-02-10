@@ -16,6 +16,7 @@ module fclap_actions
         TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL, &
         ACT_STORE, ACT_STORE_TRUE, ACT_STORE_FALSE, ACT_COUNT, ACT_APPEND, &
         ACT_HELP, ACT_VERSION, ARG_SINGLE, &
+        ARG_OPTIONAL, ARG_ONE_OR_MORE, ARG_ZERO_OR_MORE, ARG_REMAINDER, &
         STATUS_ACTIVE, STATUS_DEPRECATED, STATUS_REMOVED
     use fclap_namespace, only: ValueContainer, Namespace
     use fclap_errors, only: fclap_error
@@ -249,36 +250,63 @@ contains
 
         select case(self%action_type)
         case(ACT_STORE)
-            if (num_values < 1) then
-                call error%init("expected one argument", self%dest)
-                return
-            end if
+            ! Check if this is a multi-value nargs (list storage)
+            if (self%nargs == ARG_ONE_OR_MORE .or. self%nargs == ARG_ZERO_OR_MORE .or. &
+                self%nargs == ARG_OPTIONAL .or. &
+                self%nargs == ARG_REMAINDER .or. self%nargs > 1) then
+                ! Store all values as a list
+                do i = 1, num_values
+                    if (.not. self%is_valid_choice(values(i))) then
+                        call error%init("invalid choice", values(i))
+                        return
+                    end if
 
-            if (.not. self%is_valid_choice(values(1))) then
-                call error%init("invalid choice", values(1))
-                return
-            end if
+                    select case(self%value_type)
+                    case(TYPE_INTEGER)
+                        read(values(i), *, iostat=ios) int_val
+                        if (ios /= 0) then
+                            call error%init("invalid integer value", values(i))
+                            return
+                        end if
+                        call args%append_integer(self%dest, int_val)
 
-            select case(self%value_type)
-            case(TYPE_INTEGER)
-                read(values(1), *, iostat=ios) int_val
-                if (ios /= 0) then
-                    call error%init("invalid integer value", values(1))
+                    case default
+                        call args%append_string(self%dest, values(i))
+                    end select
+                end do
+            else
+                ! Single-value storage
+                if (num_values < 1) then
+                    call error%init("expected one argument", self%dest)
                     return
                 end if
-                call args%set_integer(self%dest, int_val)
 
-            case(TYPE_REAL)
-                read(values(1), *, iostat=ios) real_val
-                if (ios /= 0) then
-                    call error%init("invalid real value", values(1))
+                if (.not. self%is_valid_choice(values(1))) then
+                    call error%init("invalid choice", values(1))
                     return
                 end if
-                call args%set_real(self%dest, real_val)
 
-            case default
-                call args%set_string(self%dest, values(1))
-            end select
+                select case(self%value_type)
+                case(TYPE_INTEGER)
+                    read(values(1), *, iostat=ios) int_val
+                    if (ios /= 0) then
+                        call error%init("invalid integer value", values(1))
+                        return
+                    end if
+                    call args%set_integer(self%dest, int_val)
+
+                case(TYPE_REAL)
+                    read(values(1), *, iostat=ios) real_val
+                    if (ios /= 0) then
+                        call error%init("invalid real value", values(1))
+                        return
+                    end if
+                    call args%set_real(self%dest, real_val)
+
+                case default
+                    call args%set_string(self%dest, values(1))
+                end select
+            end if
 
         case(ACT_STORE_TRUE)
             call args%set_logical(self%dest, .true.)

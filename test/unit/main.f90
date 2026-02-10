@@ -40,6 +40,7 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(3)
+        character(len=256) :: tmp_input, tmp_output
 
         print *, "Test: Basic argument parsing..."
 
@@ -53,11 +54,14 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (args%get_string("input") /= "input.txt") then
-            print *, "  FAILED: input should be 'input.txt', got: ", args%get_string("input")
+        call args%get("input", tmp_input)
+        call args%get("output", tmp_output)
+
+        if (tmp_input /= "input.txt") then
+            print *, "  FAILED: input should be 'input.txt', got: ", trim(tmp_input)
             passed = .false.
-        else if (args%get_string("output") /= "result.txt") then
-            print *, "  FAILED: output should be 'result.txt', got: ", args%get_string("output")
+        else if (tmp_output /= "result.txt") then
+            print *, "  FAILED: output should be 'result.txt', got: ", trim(tmp_output)
             passed = .false.
         else
             print *, "  PASSED"
@@ -69,6 +73,7 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(1)
+        logical :: tmp_verbose, tmp_quiet
 
         print *, "Test: store_true and store_false actions..."
 
@@ -80,10 +85,13 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (.not. args%get_logical("verbose")) then
+        call args%get("verbose", tmp_verbose)
+        call args%get("quiet", tmp_quiet)
+
+        if (.not. tmp_verbose) then
             print *, "  FAILED: verbose should be .true."
             passed = .false.
-        else if (.not. args%get_logical("quiet")) then
+        else if (.not. tmp_quiet) then
             print *, "  FAILED: quiet should be .true. (default for store_false)"
             passed = .false.
         else
@@ -96,6 +104,7 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(3)
+        integer :: tmp_count
 
         print *, "Test: count action..."
 
@@ -108,8 +117,10 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (args%get_integer("verbose") /= 3) then
-            print *, "  FAILED: verbose count should be 3, got: ", args%get_integer("verbose")
+        call args%get("verbose", tmp_count)
+
+        if (tmp_count /= 3) then
+            print *, "  FAILED: verbose count should be 3, got: ", tmp_count
             passed = .false.
         else
             print *, "  PASSED"
@@ -121,6 +132,7 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(1)
+        character(len=256) :: tmp_output
 
         print *, "Test: default values..."
 
@@ -132,8 +144,10 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (args%get_string("output") /= "default.txt") then
-            print *, "  FAILED: output should be 'default.txt', got: ", args%get_string("output")
+        call args%get("output", tmp_output)
+
+        if (tmp_output /= "default.txt") then
+            print *, "  FAILED: output should be 'default.txt', got: ", trim(tmp_output)
             passed = .false.
         else
             print *, "  PASSED"
@@ -173,12 +187,14 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(4)
+        integer :: tmp_number
+        real :: tmp_factor
 
         print *, "Test: type conversion (integer, real)..."
 
         call parser%init(prog="test_prog", add_help=.false.)
-        call parser%add_argument("-n", "--number", type_name="int", help="An integer")
-        call parser%add_argument("-f", "--factor", type_name="float", help="A float")
+        call parser%add_argument("-n", "--number", data_type="int", help="An integer")
+        call parser%add_argument("-f", "--factor", data_type="float", help="A float")
 
         test_args(1) = "-n"
         test_args(2) = "42"
@@ -187,11 +203,14 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (args%get_integer("number") /= 42) then
-            print *, "  FAILED: number should be 42, got: ", args%get_integer("number")
+        call args%get("number", tmp_number)
+        call args%get("factor", tmp_factor)
+
+        if (tmp_number /= 42) then
+            print *, "  FAILED: number should be 42, got: ", tmp_number
             passed = .false.
-        else if (abs(args%get_real("factor") - 3.14) > 0.01) then
-            print *, "  FAILED: factor should be ~3.14, got: ", args%get_real("factor")
+        else if (abs(tmp_factor - 3.14) > 0.01) then
+            print *, "  FAILED: factor should be ~3.14, got: ", tmp_factor
             passed = .false.
         else
             print *, "  PASSED"
@@ -238,6 +257,7 @@ contains
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(2)
+        character(len=256) :: tmp_old_option
 
         print *, "Test: deprecated argument warning..."
 
@@ -253,7 +273,9 @@ contains
         print *, "  (Expected warning below:)"
         args = parser%parse_args_array(test_args)
 
-        if (args%get_string("old_option") /= "value") then
+        call args%get("old_option", tmp_old_option)
+
+        if (tmp_old_option /= "value") then
             print *, "  FAILED: deprecated option should still work"
             passed = .false.
         else
@@ -267,6 +289,7 @@ contains
         type(Namespace) :: args
         character(len=:), allocatable :: help_text
         character(len=256) :: test_args(2)
+        character(len=256) :: tmp_hidden
 
         print *, "Test: hidden arguments..."
 
@@ -296,7 +319,9 @@ contains
 
         args = parser%parse_args_array(test_args)
 
-        if (args%get_string("hidden") /= "secret") then
+        call args%get("hidden", tmp_hidden)
+
+        if (tmp_hidden /= "secret") then
             print *, "  FAILED: hidden option should still work"
             passed = .false.
         else
@@ -310,6 +335,7 @@ contains
         type(Namespace) :: args
         character(len=256) :: test_args(1)
         integer :: mutex_idx
+        logical :: tmp_foo, tmp_bar
 
         print *, "Test: mutually exclusive groups..."
 
@@ -326,10 +352,13 @@ contains
         test_args(1) = "--foo"
         args = parser%parse_args_array(test_args)
 
-        if (.not. args%get_logical("foo")) then
+        call args%get("foo", tmp_foo)
+        call args%get("bar", tmp_bar)
+
+        if (.not. tmp_foo) then
             print *, "  FAILED: --foo should be true"
             passed = .false.
-        else if (args%get_logical("bar")) then
+        else if (tmp_bar) then
             print *, "  FAILED: --bar should be false"
             passed = .false.
         else
@@ -342,6 +371,7 @@ contains
         type(ArgumentParser) :: parent, child
         type(Namespace) :: args
         character(len=256) :: test_args(4)
+        character(len=256) :: tmp_parent_opt, tmp_child_opt
 
         print *, "Test: parent parser inheritance..."
 
@@ -361,11 +391,14 @@ contains
 
         args = child%parse_args_array(test_args)
 
-        if (args%get_string("parent_opt") /= "from_parent") then
-            print *, "  FAILED: parent option should work, got: ", args%get_string("parent_opt")
+        call args%get("parent_opt", tmp_parent_opt)
+        call args%get("child_opt", tmp_child_opt)
+
+        if (tmp_parent_opt /= "from_parent") then
+            print *, "  FAILED: parent option should work, got: ", trim(tmp_parent_opt)
             passed = .false.
-        else if (args%get_string("child_opt") /= "from_child") then
-            print *, "  FAILED: child option should work, got: ", args%get_string("child_opt")
+        else if (tmp_child_opt /= "from_child") then
+            print *, "  FAILED: child option should work, got: ", trim(tmp_child_opt)
             passed = .false.
         else
             print *, "  PASSED"

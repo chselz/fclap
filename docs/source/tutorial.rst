@@ -306,7 +306,7 @@ Counts the number of times a flag appears:
 
 .. code-block:: bash
 
-   $ ./verbose_app -vvv
+   $ ./verbose_app -v -v -v
    Verbosity level: 3
 
 append

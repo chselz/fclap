@@ -593,7 +593,14 @@ contains
 
         is_required = .false.
         if (present(required)) is_required = required
-        if (is_positional) is_required = .true.
+        if (is_positional) then
+            ! Positional args are required by default, unless nargs allows 0 values
+            if (actual_nargs == ARG_OPTIONAL .or. actual_nargs == ARG_ZERO_OR_MORE) then
+                if (.not. present(required)) is_required = .false.
+            else
+                is_required = .true.
+            end if
+        end if
 
         self%num_actions = self%num_actions + 1
         self%actions(self%num_actions)%dest = actual_dest
@@ -1028,7 +1035,7 @@ contains
 
                     call self%mark_seen(self%actions(action_idx)%dest)
 
-                    if (args%get_logical("__help__")) then
+                    if (args%has_key("__help__")) then
                         call self%print_help()
                         stop
                     end if
