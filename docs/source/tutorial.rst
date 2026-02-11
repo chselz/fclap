@@ -45,17 +45,18 @@ Every fclap application starts by creating an ``ArgumentParser`` object:
 .. code-block:: fortran
 
    program basic_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       
-       ! Initialize with program name and description
-       call parser%init(prog="myapp", &
-                        description="A simple example application")
-       
-       ! Parse the command line
-       args = parser%parse_args()
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      
+      ! Initialize with program name and description
+      call parser%init(prog="myapp", &
+                     description="A simple example application")
+      
+      ! Parse the command line
+      args = parser%parse_args()
    end program basic_example
 
 The ``init`` subroutine accepts several optional arguments:
@@ -74,27 +75,28 @@ Positional arguments are required and must appear in order:
 .. code-block:: fortran
 
    program positional_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       character(len=256) :: input_file, output_file
-       
-       call parser%init(prog="converter", &
-                        description="Convert files between formats")
-       
-       ! Add positional arguments
-       call parser%add_argument("input", help="Input file path")
-       call parser%add_argument("output", help="Output file path")
-       
-       args = parser%parse_args()
-       
-       ! Retrieve values
-       call args%get("input", input_file)
-       call args%get("output", output_file)
-       
-       print '(A,A)', "Input:  ", trim(input_file)
-       print '(A,A)', "Output: ", trim(output_file)
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      character(len=256) :: input_file, output_file
+      
+      call parser%init(prog="converter", &
+                     description="Convert files between formats")
+      
+      ! Add positional arguments
+      call parser%add_argument("input", help="Input file path")
+      call parser%add_argument("output", help="Output file path")
+      
+      args = parser%parse_args()
+      
+      ! Retrieve values
+      call args%get("input", input_file)
+      call args%get("output", output_file)
+      
+      print '(A,A)', "Input:  ", trim(input_file)
+      print '(A,A)', "Output: ", trim(output_file)
    end program positional_example
 
 Running this program:
@@ -125,40 +127,41 @@ Optional arguments start with ``-`` or ``--`` and can appear in any order:
 .. code-block:: fortran
 
    program optional_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       type :: argsholder
-         character(len=256) :: filename, output
-         logical :: verbose
-         integer :: count
-       end type argsholder
-       
-       call parser%init(prog="processor")
-       
-       ! Positional argument
-       call parser%add_argument("filename", help="File to process")
-       
-       ! Optional arguments
-       call parser%add_argument("-v", "--verbose", action="store_true", &
-                                help="Enable verbose output")
-       call parser%add_argument("-o", "--output", default="out.txt", &
-                                help="Output file (default: out.txt)")
-       call parser%add_argument("-c", "--count", type="int", default="1", &
-                                help="Number of iterations")
-       
-       args = parser%parse_args()
-       
-       call args%get("filename", argsholder%filename)
-       call args%get("output", argsholder%output)
-       call args%get("verbose", argsholder%verbose)
-       call args%get("count", argsholder%count)
-       
-       if (argsholder%verbose) print *, "Verbose mode enabled"
-       print '(A,A)', "Processing: ", trim(argsholder%filename)
-       print '(A,A)', "Output to:  ", trim(argsholder%output)
-       print '(A,I0,A)', "Running ", argsholder%count, " iterations"
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      type :: argsholder
+      character(len=256) :: filename, output
+      logical :: verbose
+      integer :: count
+      end type argsholder
+      
+      call parser%init(prog="processor")
+      
+      ! Positional argument
+      call parser%add_argument("filename", help="File to process")
+      
+      ! Optional arguments
+      call parser%add_argument("-v", "--verbose", action="store_true", &
+                              help="Enable verbose output")
+      call parser%add_argument("-o", "--output", default="out.txt", &
+                              help="Output file (default: out.txt)")
+      call parser%add_argument("-c", "--count", type="int", default="1", &
+                              help="Number of iterations")
+      
+      args = parser%parse_args()
+      
+      call args%get("filename", argsholder%filename)
+      call args%get("output", argsholder%output)
+      call args%get("verbose", argsholder%verbose)
+      call args%get("count", argsholder%count)
+      
+      if (argsholder%verbose) print *, "Verbose mode enabled"
+      print '(A,A)', "Processing: ", trim(argsholder%filename)
+      print '(A,A)', "Output to:  ", trim(argsholder%output)
+      print '(A,I0,A)', "Running ", argsholder%count, " iterations"
    end program optional_example
 
 Running this program:
@@ -187,32 +190,33 @@ fclap supports four value types specified with the ``type`` parameter:
 .. code-block:: fortran
 
    program types_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       character(len=256) :: name
-       integer :: iterations
-       real :: threshold
-       logical :: debug
-       
-       call parser%init(prog="typed_args")
-       
-       call parser%add_argument("-n", "--name", type="string", &
-                                help="Name string")
-       call parser%add_argument("-i", "--iterations", type="int", &
-                                default="10", help="Number of iterations")
-       call parser%add_argument("-t", "--threshold", type="real", &
-                                default="0.5", help="Threshold value")
-       call parser%add_argument("-d", "--debug", action="store_true", &
-                                help="Enable debug mode")
-       
-       args = parser%parse_args()
-       
-       call args%get("name", name)
-       call args%get("iterations", iterations)
-       call args%get("threshold", threshold)
-       call args%get("debug", debug)
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      character(len=256) :: name
+      integer :: iterations
+      real :: threshold
+      logical :: debug
+      
+      call parser%init(prog="typed_args")
+      
+      call parser%add_argument("-n", "--name", type="string", &
+                              help="Name string")
+      call parser%add_argument("-i", "--iterations", type="int", &
+                              default="10", help="Number of iterations")
+      call parser%add_argument("-t", "--threshold", type="real", &
+                              default="0.5", help="Threshold value")
+      call parser%add_argument("-d", "--debug", action="store_true", &
+                              help="Enable debug mode")
+      
+      args = parser%parse_args()
+      
+      call args%get("name", name)
+      call args%get("iterations", iterations)
+      call args%get("threshold", threshold)
+      call args%get("debug", debug)
    end program types_example
 
 Nargs: Consuming Multiple Values
@@ -228,28 +232,29 @@ The ``nargs`` parameter controls how many command-line arguments are consumed:
 .. code-block:: fortran
 
    program nargs_example
-       use fclap, only: ArgumentParser, Namespace, ARG_ONE_OR_MORE
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       character(len=256) :: files(64)
-       integer :: num_files, i
-       
-       call parser%init(prog="multi_file")
-       
-       ! Accept one or more input files
-       call parser%add_argument("files", nargs=ARG_ONE_OR_MORE, &
-                                help="Input files to process")
-       
-       args = parser%parse_args()
-       
-       ! Get the list of files
-       call args%get_string_list("files", files, num_files)
-       
-       print '(A,I0,A)', "Processing ", num_files, " files:"
-       do i = 1, num_files
-           print '(A,A)', "  - ", trim(files(i))
-       end do
+      use fclap, only: ArgumentParser, Namespace, ARG_ONE_OR_MORE
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      character(len=256) :: files(64)
+      integer :: num_files, i
+      
+      call parser%init(prog="multi_file")
+      
+      ! Accept one or more input files
+      call parser%add_argument("files", nargs=ARG_ONE_OR_MORE, &
+                              help="Input files to process")
+      
+      args = parser%parse_args()
+      
+      ! Get the list of files
+      call args%get_string_list("files", files, num_files)
+      
+      print '(A,I0,A)', "Processing ", num_files, " files:"
+      do i = 1, num_files
+         print '(A,A)', "  - ", trim(files(i))
+      end do
    end program nargs_example
 
 Actions
@@ -286,21 +291,22 @@ Counts the number of times a flag appears:
 .. code-block:: fortran
 
    program count_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser
-       type(Namespace) :: args
-       integer :: verbosity
-       
-       call parser%init(prog="verbose_app")
-       
-       call parser%add_argument("-v", "--verbose", action="count", &
-                                help="Increase verbosity (use multiple times)")
-       
-       args = parser%parse_args()
-       call args%get_integer("verbose", verbosity)
-       
-       print '(A,I0)', "Verbosity level: ", verbosity
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      integer :: verbosity
+      
+      call parser%init(prog="verbose_app")
+      
+      call parser%add_argument("-v", "--verbose", action="count", &
+                              help="Increase verbosity (use multiple times)")
+      
+      args = parser%parse_args()
+      call args%get_integer("verbose", verbosity)
+      
+      print '(A,I0)', "Verbosity level: ", verbosity
    end program count_example
 
 .. code-block:: bash
@@ -317,6 +323,7 @@ Appends values to a list (allows repeated use of the same flag):
 
    program append_example
        use fclap, only: ArgumentParser, Namespace
+       implicit none
        
        type(ArgumentParser) :: parser
        type(Namespace) :: args
@@ -345,12 +352,13 @@ Appends values to a list (allows repeated use of the same flag):
      ./src
      ../lib
 
-special Actions
+Special Actions
 ~~~~~~~~~~~~~~~
 
 The ``not_less_than()`` and the ``not_bigger_than()`` actions allow to check that a ``int``, ``real`` and ``character`` is not smaller or bigger, respectively than a certain value.
 
 .. code-block:: fortran
+   
    program nargs_example
       use fclap, only: ArgumentParser, Namespace, not_bigger_than
       implicit none
@@ -382,33 +390,34 @@ Groups organize related arguments in the help output:
 
 .. code-block:: fortran
 
-   program groups_example
-       use fclap, only: ArgumentParser, Namespace, ArgumentGroup
-       
-       type(ArgumentParser) :: parser
-       type(ArgumentGroup) :: io_group, proc_group
-       type(Namespace) :: args
-       
-       call parser%init(prog="processor", &
-                        description="Data processing application")
-       
-       ! Create input/output group
-       io_group = parser%add_argument_group("Input/Output Options", &
-                      description="Control input and output files")
-       call parser%add_argument("-i", "--input", group=io_group, &
-                                help="Input file")
-       call parser%add_argument("-o", "--output", group=io_group, &
-                                help="Output file")
-       
-       ! Create processing group
-       proc_group = parser%add_argument_group("Processing Options", &
-                        description="Control processing behavior")
-       call parser%add_argument("-n", "--iterations", type="int", &
-                                group=proc_group, help="Number of iterations")
-       call parser%add_argument("-t", "--threads", type="int", &
-                                group=proc_group, help="Number of threads")
-       
-       args = parser%parse_args()
+    program groups_example
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+      
+      type(ArgumentParser) :: parser
+      integer :: io_group, proc_group
+      type(Namespace) :: args
+      
+      call parser%init(prog="processor", &
+                     description="Data processing application")
+      
+      ! Create input/output group
+      io_group = parser%add_argument_group("Input/Output Options", &
+                     description="Control input and output files")
+      call parser%add_argument("-i", "--input", group_idx=io_group, &
+                              help="Input file")
+      call parser%add_argument("-o", "--output", group_idx=io_group, &
+                              help="Output file")
+      
+      ! Create processing group
+      proc_group = parser%add_argument_group("Processing Options", &
+                     description="Control processing behavior")
+      call parser%add_argument("-n", "--iterations", data_type="int", &
+                              group_idx=proc_group, help="Number of iterations")
+      call parser%add_argument("-t", "--threads", data_type="int", &
+                              group_idx=proc_group, help="Number of threads")
+      
+      args = parser%parse_args()
    end program groups_example
 
 Mutually Exclusive Groups
@@ -418,26 +427,27 @@ Ensure only one option from a group is used:
 
 .. code-block:: fortran
 
-   program mutex_example
-       use fclap, only: ArgumentParser, Namespace, MutuallyExclusiveGroup
-       
-       type(ArgumentParser) :: parser
-       type(MutuallyExclusiveGroup) :: verbosity_group
-       type(Namespace) :: args
-       
-       call parser%init(prog="app")
-       
-       ! Create a mutually exclusive group - user can only pick one
-       verbosity_group = parser%add_mutually_exclusive_group(required=.true.)
-       
-       call parser%add_argument("-v", "--verbose", action="store_true", &
-                                mutex_group=verbosity_group, &
-                                help="Verbose output")
-       call parser%add_argument("-q", "--quiet", action="store_true", &
-                                mutex_group=verbosity_group, &
-                                help="Quiet output")
-       
-       args = parser%parse_args()
+      program mutex_example
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+
+      type(ArgumentParser) :: parser
+      integer :: verbosity_group
+      type(Namespace) :: args
+
+      call parser%init(prog="app")
+
+      ! Create a mutually exclusive group - user can only pick one
+      verbosity_group = parser%add_mutually_exclusive_group(required=.true.)
+
+      call parser%add_argument("-v", "--verbose", action="store_true", &
+                              mutex_group_idx=verbosity_group, &
+                              help="Verbose output")
+      call parser%add_argument("-q", "--quiet", action="store_true", &
+                              mutex_group_idx=verbosity_group, &
+                              help="Quiet output")
+
+      args = parser%parse_args()
    end program mutex_example
 
 .. code-block:: bash
@@ -454,6 +464,7 @@ Share common arguments across multiple parsers:
 
    program parents_example
        use fclap, only: ArgumentParser, Namespace
+       implicit none
        
        type(ArgumentParser) :: parent, child
        type(Namespace) :: args
@@ -482,38 +493,51 @@ Create git-style subcommands:
 .. code-block:: fortran
 
    program subcommand_example
-       use fclap, only: ArgumentParser, Namespace
-       
-       type(ArgumentParser) :: parser, clone_parser, commit_parser
-       type(Namespace) :: args
-       character(len=64) :: command
-       
-       call parser%init(prog="mygit", description="A simple VCS")
-       
-       ! Enable subparsers
-       call parser%add_subparsers(title="commands", dest="command")
-       
-       ! Add 'clone' subcommand
-       clone_parser = parser%add_parser("clone", help="Clone a repository")
-       call clone_parser%add_argument("url", help="Repository URL")
-       call clone_parser%add_argument("-b", "--branch", help="Branch to clone")
-       
-       ! Add 'commit' subcommand
-       commit_parser = parser%add_parser("commit", help="Commit changes")
-       call commit_parser%add_argument("-m", "--message", required=.true., &
+      use fclap, only: ArgumentParser, Namespace
+      implicit none
+
+      type(ArgumentParser) :: parser, clone_parser, commit_parser
+      type(Namespace) :: args
+      character(len=64) :: command
+      character(len=256) :: url, branch, message
+
+      call parser%init(prog="mygit", description="A simple VCS")
+
+      ! Add a global option (available before the subcommand)
+      call parser%add_argument("--foo", action="store_true", help="foo help")
+
+      ! Enable subparsers
+      call parser%add_subparsers(title="commands", dest="command")
+
+      ! Create the 'clone' subcommand with its own arguments
+      call clone_parser%init(prog="mygit clone")
+      call clone_parser%add_argument("url", help="Repository URL")
+      call clone_parser%add_argument("-b", "--branch", help="Branch to clone")
+      call parser%add_parser("clone", clone_parser, help_text="Clone a repository")
+
+      ! Create the 'commit' subcommand with its own arguments
+      call commit_parser%init(prog="mygit commit")
+      call commit_parser%add_argument("-m", "--message", required=.true., &
                                        help="Commit message")
-       
-       args = parser%parse_args()
-       
-       ! Check which command was used
-       call args%get_string("command", command)
-       
-       select case(trim(command))
-       case("clone")
-           print *, "Cloning repository..."
-       case("commit")
-           print *, "Committing changes..."
-       end select
+      call parser%add_parser("commit", commit_parser, help_text="Commit changes")
+
+      args = parser%parse_args()
+
+      ! Check which command was used
+      call args%get("command", command)
+
+      select case(trim(command))
+      case("clone")
+         call args%get("url", url)
+         print *, "Cloning: ", trim(url)
+         if (args%has_key("branch")) then
+               call args%get("branch", branch)
+               print *, "  Branch: ", trim(branch)
+         end if
+      case("commit")
+         call args%get("message", message)
+         print *, "Committing: ", trim(message)
+      end select
    end program subcommand_example
 
 .. code-block:: bash

@@ -20,6 +20,7 @@ program tester
     call test_mutex_groups(all_passed)
     call test_parent_parsers(all_passed)
     call test_argument_groups(all_passed)
+    call test_subparsers(all_passed)
 
     if (all_passed) then
         print *, ""
@@ -438,5 +439,93 @@ contains
             print *, "  PASSED"
         end if
     end subroutine test_argument_groups
+
+    subroutine test_subparsers(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser, sub_a, sub_b
+        type(Namespace) :: args
+        character(len=256) :: test_args(4)
+        character(len=256) :: tmp_cmd, tmp_url, tmp_branch, tmp_msg
+        character(len=:), allocatable :: help_text
+        integer :: tmp_bar
+        logical :: tmp_foo
+
+        print *, "Test: subparser per-command arguments..."
+
+        ! --- Test 1: subparser with positional + optional args ---
+        call parser%init(prog="PROG", add_help=.false.)
+        call parser%add_argument("--foo", action="store_true", help="foo help")
+        call parser%add_subparsers(dest="command")
+
+        call sub_a%init(prog="PROG a", add_help=.false.)
+        call sub_a%add_argument("bar", data_type="int", help="bar help")
+        call parser%add_parser("a", sub_a, help_text="a help")
+
+        call sub_b%init(prog="PROG b", add_help=.false.)
+        call sub_b%add_argument("--baz", help="baz help")
+        call parser%add_parser("b", sub_b, help_text="b help")
+
+        ! Test: PROG a 12
+        test_args(1) = "a"
+        test_args(2) = "12"
+        args = parser%parse_args_array(test_args(1:2))
+
+        call args%get("command", tmp_cmd)
+        call args%get("bar", tmp_bar)
+        call args%get("foo", tmp_foo)
+
+        if (trim(tmp_cmd) /= "a") then
+            print *, "  FAILED: command should be 'a', got: ", trim(tmp_cmd)
+            passed = .false.
+            return
+        end if
+        if (tmp_bar /= 12) then
+            print *, "  FAILED: bar should be 12, got: ", tmp_bar
+            passed = .false.
+            return
+        end if
+        if (tmp_foo) then
+            print *, "  FAILED: foo should be .false."
+            passed = .false.
+            return
+        end if
+
+        ! Test: PROG --foo b --baz Z
+        test_args(1) = "--foo"
+        test_args(2) = "b"
+        test_args(3) = "--baz"
+        test_args(4) = "Z"
+        args = parser%parse_args_array(test_args(1:4))
+
+        call args%get("command", tmp_cmd)
+        call args%get("foo", tmp_foo)
+        call args%get("baz", tmp_msg)
+
+        if (trim(tmp_cmd) /= "b") then
+            print *, "  FAILED: command should be 'b', got: ", trim(tmp_cmd)
+            passed = .false.
+            return
+        end if
+        if (.not. tmp_foo) then
+            print *, "  FAILED: foo should be .true."
+            passed = .false.
+            return
+        end if
+        if (trim(tmp_msg) /= "Z") then
+            print *, "  FAILED: baz should be 'Z', got: ", trim(tmp_msg)
+            passed = .false.
+            return
+        end if
+
+        ! --- Test 2: help text shows subparser names ---
+        help_text = parser%format_help()
+        if (index(help_text, "a") == 0 .or. index(help_text, "b") == 0) then
+            print *, "  FAILED: help should list subcommands 'a' and 'b'"
+            passed = .false.
+            return
+        end if
+
+        print *, "  PASSED"
+    end subroutine test_subparsers
 
 end program tester

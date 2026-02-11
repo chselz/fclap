@@ -56,6 +56,7 @@ Quick Example
 
    tutorial
    api/fclap
+   documentation
 
 Indices and tables
 ------------------

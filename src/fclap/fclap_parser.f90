@@ -139,6 +139,8 @@ module fclap_parser
         character(len=MAX_ARG_LEN) :: subparser_helps(MAX_SUBPARSERS)
         !> @brief Current number of registered subparsers
         integer :: num_subparsers = 0
+        !> @brief Array of subparser ArgumentParser objects (one per subcommand)
+        type(ArgumentParser), allocatable :: subparser_parsers(:)
         !> @brief Array of argument groups
         type(ArgumentGroup) :: groups(MAX_GROUPS)
         !> @brief Current number of argument groups
@@ -185,8 +187,9 @@ module fclap_parser
         !> @param title Title for subcommands section
         !> @param dest Destination name for the command
         procedure :: add_subparsers => parser_add_subparsers
-        !> @brief Add a subparser (subcommand).
+        !> @brief Add a subparser (subcommand) with its own ArgumentParser.
         !> @param name Name of the subcommand
+        !> @param subparser The ArgumentParser for this subcommand
         !> @param help_text Help text for the subcommand
         procedure :: add_parser => parser_add_parser
         !> @brief Parse command line arguments from the system.
@@ -381,6 +384,7 @@ contains
 
         self%has_subparsers = .false.
         self%num_subparsers = 0
+        if (allocated(self%subparser_parsers)) deallocate(self%subparser_parsers)
         self%num_groups = 0
         self%num_mutex_groups = 0
         self%num_seen_dests = 0
@@ -736,6 +740,10 @@ contains
         self%has_subparsers = .true.
         self%num_subparsers = 0
 
+        ! Allocate subparser storage
+        if (allocated(self%subparser_parsers)) deallocate(self%subparser_parsers)
+        allocate(self%subparser_parsers(MAX_SUBPARSERS))
+
         if (present(title)) then
             self%subparser_title = trim(title)
         else
@@ -749,10 +757,13 @@ contains
         end if
     end subroutine parser_add_subparsers
 
-    subroutine parser_add_parser(self, name, help_text)
+    subroutine parser_add_parser(self, name, subparser, help_text)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name
+        type(ArgumentParser), intent(in), optional :: subparser
         character(len=*), intent(in), optional :: help_text
+
+        if (self%num_subparsers >= MAX_SUBPARSERS) return
 
         self%num_subparsers = self%num_subparsers + 1
         self%subparser_names(self%num_subparsers) = trim(name)
@@ -761,6 +772,21 @@ contains
             self%subparser_helps(self%num_subparsers) = trim(help_text)
         else
             self%subparser_helps(self%num_subparsers) = ""
+        end if
+
+        ! Store the subparser's ArgumentParser
+        if (present(subparser)) then
+            self%subparser_parsers(self%num_subparsers) = subparser
+            ! Set the prog name to "parent_prog name" if not already set
+            if (.not. allocated(self%subparser_parsers(self%num_subparsers)%prog) .or. &
+                len_trim(self%subparser_parsers(self%num_subparsers)%prog) == 0) then
+                self%subparser_parsers(self%num_subparsers)%prog = &
+                    trim(self%prog) // " " // trim(name)
+            end if
+        else
+            ! Create a default sub-parser with help and prog set
+            call self%subparser_parsers(self%num_subparsers)%init( &
+                prog=trim(self%prog) // " " // trim(name), add_help=.true.)
         end if
     end subroutine parser_add_parser
 
@@ -978,7 +1004,7 @@ contains
         end do
     end subroutine parser_validate_mutex_groups
 
-    function parser_parse_args(self) result(args)
+    recursive function parser_parse_args(self) result(args)
         class(ArgumentParser), intent(inout) :: self
         type(Namespace) :: args
 
@@ -996,7 +1022,7 @@ contains
         deallocate(cmd_args)
     end function parser_parse_args
 
-    function parser_parse_args_array(self, cmd_args) result(args)
+    recursive function parser_parse_args_array(self, cmd_args) result(args)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: cmd_args(:)
         type(Namespace) :: args
@@ -1007,6 +1033,10 @@ contains
         integer :: num_values
         character(len=MAX_ARG_LEN) :: current_arg
         logical :: found_subparser
+        integer :: sub_idx
+        type(Namespace) :: sub_args
+        character(len=MAX_ARG_LEN), allocatable :: remaining_args(:)
+        integer :: num_remaining
 
         call args%init()
 
@@ -1062,16 +1092,42 @@ contains
             else
                 if (self%has_subparsers .and. positional_idx > num_positional) then
                     found_subparser = .false.
+                    sub_idx = 0
                     do i = 1, self%num_subparsers
                         if (trim(self%subparser_names(i)) == trim(current_arg)) then
                             found_subparser = .true.
+                            sub_idx = i
                             exit
                         end if
                     end do
 
                     if (found_subparser) then
-                        call args%set_string(self%subparser_dest, current_arg)
+                        ! Store the subcommand name in the namespace
+                        if (allocated(self%subparser_dest)) then
+                            call args%set_string(self%subparser_dest, current_arg)
+                        end if
                         arg_idx = arg_idx + 1
+
+                        ! Delegate remaining arguments to the subparser
+                        if (sub_idx > 0 .and. allocated(self%subparser_parsers)) then
+                            num_remaining = num_args - arg_idx + 1
+                            if (num_remaining > 0) then
+                                allocate(remaining_args(num_remaining))
+                                do i = 1, num_remaining
+                                    remaining_args(i) = cmd_args(arg_idx + i - 1)
+                                end do
+                                sub_args = self%subparser_parsers(sub_idx)%parse_args_array(remaining_args)
+                                deallocate(remaining_args)
+                            else
+                                allocate(remaining_args(0))
+                                sub_args = self%subparser_parsers(sub_idx)%parse_args_array(remaining_args)
+                                deallocate(remaining_args)
+                            end if
+                            ! Merge subparser results into main namespace
+                            call args%merge(sub_args)
+                        end if
+                        ! All remaining args consumed by subparser
+                        exit
                     else
                         call self%last_error%init("invalid choice", current_arg)
                         call self%error(self%last_error%message)

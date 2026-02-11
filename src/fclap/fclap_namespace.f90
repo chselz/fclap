@@ -156,6 +156,9 @@ module fclap_namespace
         procedure, private :: find_or_create => namespace_find_or_create
         !> @brief Find an entry by key (private).
         procedure, private :: find => namespace_find
+        !> @brief Merge entries from another Namespace into this one.
+        !> @param other The Namespace to merge from (overrides existing keys)
+        procedure :: merge => namespace_merge
     end type Namespace
 
 contains
@@ -699,5 +702,29 @@ contains
 
         call self%get_integer_list(key, values, count)
     end subroutine namespace_get_sub_integer_list
+
+    !> @brief Merge entries from another namespace into this one.
+    !>
+    !> @details Copies all entries from the other namespace into this one.
+    !> If a key already exists, its value will be overwritten. Keys that
+    !> only exist in the other namespace will be added. This is used
+    !> to merge subparser results into the main namespace.
+    !>
+    !> @param self The target Namespace
+    !> @param other The source Namespace to merge from
+    subroutine namespace_merge(self, other)
+        class(Namespace), intent(inout) :: self
+        type(Namespace), intent(in) :: other
+        integer :: i, idx
+
+        do i = 1, other%num_entries
+            if (allocated(other%entries(i)%key)) then
+                ! Skip internal keys like __help__
+                if (other%entries(i)%key(1:2) == '__') cycle
+                idx = self%find_or_create(other%entries(i)%key)
+                self%entries(idx)%value = other%entries(i)%value
+            end if
+        end do
+    end subroutine namespace_merge
 
 end module fclap_namespace

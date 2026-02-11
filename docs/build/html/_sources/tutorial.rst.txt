@@ -90,8 +90,8 @@ Positional arguments are required and must appear in order:
        args = parser%parse_args()
        
        ! Retrieve values
-       call args%get_string("input", input_file)
-       call args%get_string("output", output_file)
+       call args%get("input", input_file)
+       call args%get("output", output_file)
        
        print '(A,A)', "Input:  ", trim(input_file)
        print '(A,A)', "Output: ", trim(output_file)
@@ -129,9 +129,11 @@ Optional arguments start with ``-`` or ``--`` and can appear in any order:
        
        type(ArgumentParser) :: parser
        type(Namespace) :: args
-       character(len=256) :: filename, output
-       logical :: verbose
-       integer :: count
+       type :: argsholder
+         character(len=256) :: filename, output
+         logical :: verbose
+         integer :: count
+       end type argsholder
        
        call parser%init(prog="processor")
        
@@ -148,15 +150,15 @@ Optional arguments start with ``-`` or ``--`` and can appear in any order:
        
        args = parser%parse_args()
        
-       call args%get_string("filename", filename)
-       call args%get_string("output", output)
-       call args%get_logical("verbose", verbose)
-       call args%get_integer("count", count)
+       call args%get("filename", argsholder%filename)
+       call args%get("output", argsholder%output)
+       call args%get("verbose", argsholder%verbose)
+       call args%get("count", argsholder%count)
        
-       if (verbose) print *, "Verbose mode enabled"
-       print '(A,A)', "Processing: ", trim(filename)
-       print '(A,A)', "Output to:  ", trim(output)
-       print '(A,I0,A)', "Running ", count, " iterations"
+       if (argsholder%verbose) print *, "Verbose mode enabled"
+       print '(A,A)', "Processing: ", trim(argsholder%filename)
+       print '(A,A)', "Output to:  ", trim(argsholder%output)
+       print '(A,I0,A)', "Running ", argsholder%count, " iterations"
    end program optional_example
 
 Running this program:
@@ -207,10 +209,10 @@ fclap supports four value types specified with the ``type`` parameter:
        
        args = parser%parse_args()
        
-       call args%get_string("name", name)
-       call args%get_integer("iterations", iterations)
-       call args%get_real("threshold", threshold)
-       call args%get_logical("debug", debug)
+       call args%get("name", name)
+       call args%get("iterations", iterations)
+       call args%get("threshold", threshold)
+       call args%get("debug", debug)
    end program types_example
 
 Nargs: Consuming Multiple Values
@@ -218,9 +220,9 @@ Nargs: Consuming Multiple Values
 
 The ``nargs`` parameter controls how many command-line arguments are consumed:
 
-- ``nargs="?"`` (ARG_OPTIONAL): Zero or one argument
-- ``nargs="*"`` (ARG_ZERO_OR_MORE): Zero or more arguments
-- ``nargs="+"`` (ARG_ONE_OR_MORE): One or more arguments (required)
+- ARG_OPTIONAL: Zero or one argument
+- ARG_ZERO_OR_MORE: Zero or more arguments
+- ARG_ONE_OR_MORE: One or more arguments (required)
 - Positive integer: Exact number of arguments
 
 .. code-block:: fortran
@@ -303,7 +305,7 @@ Counts the number of times a flag appears:
 
 .. code-block:: bash
 
-   $ ./verbose_app -vvv
+   $ ./verbose_app -v -v -v
    Verbosity level: 3
 
 append
@@ -342,6 +344,34 @@ Appends values to a list (allows repeated use of the same flag):
      /usr/include
      ./src
      ../lib
+
+Special Actions
+~~~~~~~~~~~~~~~
+
+The ``not_less_than()`` and the ``not_bigger_than()`` actions allow to check that a ``int``, ``real`` and ``character`` is not smaller or bigger, respectively than a certain value.
+
+.. code-block:: fortran
+   
+   program nargs_example
+      use fclap, only: ArgumentParser, Namespace, not_bigger_than
+      implicit none
+
+      type(ArgumentParser) :: parser
+      type(Namespace) :: args
+      integer :: count_val
+
+      call parser%init(prog="multi_file")
+
+      ! Accept a count that must be >= 5
+      call parser%add_argument("count", data_type="int", action=not_bigger_than(5), &
+                              help="A count value (must be >= 5)")
+
+      args = parser%parse_args()
+
+      call args%get("count", count_val)
+
+      print '(A,I0)', "Count value: ", count_val
+   end program nargs_example
 
 Advanced Features
 -----------------
@@ -589,11 +619,11 @@ Here's a complete example combining multiple features:
        args = parser%parse_args()
        
        ! Retrieve all values
-       call args%get_string_list("files", files, num_files)
-       call args%get_string("output", output)
-       call args%get_string("format", format_str)
-       call args%get_integer("verbose", verbosity)
-       call args%get_logical("force", force)
+       call args%get("files", files, num_files)
+       call args%get("output", output)
+       call args%get("format", format_str)
+       call args%get("verbose", verbosity)
+       call args%get("force", force)
        
        ! Use the values
        if (verbosity >= 1) then
