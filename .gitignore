@@ -36,8 +36,8 @@
 /_*/
 
 # Sphinx documentation
-docs/build
-docs/_build
+docs/build/
+docs/_build/
 docs/source/_autosummary/
 
 # Python files
