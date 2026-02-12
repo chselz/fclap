@@ -1,10 +1,10 @@
 !> Unit tests for fclap argument parser
 program tester
-    use fclap
-    implicit none
+    use fclap, only: ArgumentParser, Namespace, STATUS_DEPRECATED
+    implicit none(type, external)
 
     logical :: all_passed
-    
+
     all_passed = .true.
 
     call test_basic_parsing(all_passed)
@@ -348,13 +348,15 @@ contains
         print *, "Test: mutually exclusive groups..."
 
         call parser%init(prog="test_prog", add_help=.false.)
-        
+
         ! Create a mutex group
         mutex_idx = parser%add_mutually_exclusive_group(required=.false.)
-        
+
         ! Add mutually exclusive options
-        call parser%add_argument("--foo", action="store_true", help="Foo option", mutex_group_idx=mutex_idx)
-        call parser%add_argument("--bar", action="store_true", help="Bar option", mutex_group_idx=mutex_idx)
+        call parser%add_argument("--foo", action="store_true", help="Foo option", &
+            mutex_group_idx=mutex_idx)
+        call parser%add_argument("--bar", action="store_true", help="Bar option", &
+            mutex_group_idx=mutex_idx)
 
         ! Test with only one option (should work)
         test_args(1) = "--foo"
@@ -422,10 +424,10 @@ contains
         print *, "Test: argument groups..."
 
         call parser%init(prog="test_prog", add_help=.false.)
-        
+
         ! Create an argument group
         group_idx = parser%add_argument_group("Input Options", "Options related to input files")
-        
+
         call parser%add_argument("-i", "--input", help="Input file", group_idx=group_idx)
         call parser%add_argument("-f", "--format", help="Input format", group_idx=group_idx)
 

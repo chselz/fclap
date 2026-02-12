@@ -1,8 +1,8 @@
 !> @file fclap_namespace.f90
 !> @brief Namespace module for fclap - stores parsed argument values.
 !>
-!> @details This module defines the Namespace type (similar to Python's 
-!> argparse.Namespace) which stores the results of parsing command-line 
+!> @details This module defines the Namespace type (similar to Python's
+!> argparse.Namespace) which stores the results of parsing command-line
 !> arguments. It provides getter methods for retrieving values by key.
 !>
 !> The Namespace acts like a dictionary, allowing you to retrieve
@@ -13,7 +13,7 @@
 !>   character(len=256) :: filename
 !>   integer :: count
 !>   logical :: verbose
-!>   
+!>
 !>   args = parser%parse_args()
 !>   call args%get("filename", filename)
 !>   call args%get("count", count, default=1)
@@ -22,7 +22,7 @@
 module fclap_namespace
     use fclap_constants, only: MAX_ACTIONS, MAX_ARG_LEN, MAX_LIST_VALUES, &
         TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL
-    implicit none
+    implicit none(type, external)
     private
 
     ! ============================================================================
@@ -522,7 +522,7 @@ contains
     subroutine namespace_get_string_list(self, key, values, count)
         class(Namespace), intent(in) :: self
         character(len=*), intent(in) :: key
-        character(len=*), intent(out) :: values(:)
+        character(len=MAX_ARG_LEN), intent(out) :: values(:)
         integer, intent(out) :: count
         integer :: idx, i
 
@@ -620,7 +620,7 @@ contains
     subroutine namespace_get_sub_string(self, key, value, default)
         class(Namespace), intent(in) :: self
         character(len=*), intent(in) :: key
-        character(len=*), intent(out) :: value
+        character(len=MAX_ARG_LEN), intent(out) :: value
         character(len=*), intent(in), optional :: default
         character(len=:), allocatable :: tmp
 
@@ -682,7 +682,7 @@ contains
     subroutine namespace_get_sub_string_list(self, key, values, count)
         class(Namespace), intent(in) :: self
         character(len=*), intent(in) :: key
-        character(len=*), intent(out) :: values(:)
+        character(len=MAX_ARG_LEN), intent(out) :: values(:)
         integer, intent(out) :: count
 
         call self%get_string_list(key, values, count)

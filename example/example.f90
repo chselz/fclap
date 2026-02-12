@@ -1,6 +1,6 @@
 program subcommand_example
     use fclap, only: ArgumentParser, Namespace
-    implicit none
+    implicit none(type, external)
 
     type(ArgumentParser) :: parser, clone_parser, commit_parser
     type(Namespace) :: args

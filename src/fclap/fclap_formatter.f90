@@ -10,7 +10,7 @@ module fclap_formatter
         ACT_STORE, ACT_APPEND, ACT_HELP, ACT_VERSION, &
         STATUS_DEPRECATED
     use fclap_actions, only: Action
-    implicit none
+    implicit none(type, external)
     private
 
     ! Public formatting procedures
@@ -101,7 +101,8 @@ contains
                                             if (.not. first_in_mutex) mutex_str = mutex_str // " | "
                                             first_in_mutex = .false.
                                             if (actions(m)%num_option_strings > 0) then
-                                                mutex_str = mutex_str // trim(actions(m)%option_strings(1))
+                mutex_str = mutex_str // &
+                    trim(actions(m)%option_strings(1))
                                             else
                                                 mutex_str = mutex_str // trim(actions(m)%dest)
                                             end if
@@ -230,7 +231,8 @@ contains
 
         do j = 1, num_groups
             if (groups(j)%num_actions > 0) then
-                help_text = help_text // new_line('A') // trim(groups(j)%title) // ":" // new_line('A')
+            help_text = help_text // new_line('A') // trim(groups(j)%title) // &
+                ":" // new_line('A')
                 if (allocated(groups(j)%description)) then
                     help_text = help_text // "  " // groups(j)%description // new_line('A')
                 end if
@@ -316,7 +318,8 @@ contains
 
         if (has_subparsers .and. num_subparsers > 0) then
             if (present(subparser_title)) then
-                help_text = help_text // new_line('A') // trim(subparser_title) // ":" // new_line('A')
+            help_text = help_text // new_line('A') // trim(subparser_title) // &
+                ":" // new_line('A')
             else
                 help_text = help_text // new_line('A') // "commands:" // new_line('A')
             end if

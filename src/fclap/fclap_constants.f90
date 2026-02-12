@@ -14,7 +14,7 @@
 !> - Group types: Argument group identifiers
 
 module fclap_constants
-    implicit none
+    implicit none(type, external)
     private
 
     ! ============================================================================

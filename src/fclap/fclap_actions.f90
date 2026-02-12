@@ -22,7 +22,7 @@ module fclap_actions
     use fclap_namespace, only: ValueContainer, Namespace
     use fclap_errors, only: fclap_error
     use fclap_utils_accuracy, only: wp
-    implicit none
+    implicit none(type, external)
     private
 
     ! ============================================================================
@@ -410,7 +410,9 @@ contains
                     return
                 end if
                 if (int_val < int_bound) then
-                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "value must not be less than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 call args%set_integer(self%dest, int_val)
@@ -427,7 +429,9 @@ contains
                     return
                 end if
                 if (real_val < real_bound) then
-                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "value must not be less than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 store_real_val = real(real_val)
@@ -442,7 +446,9 @@ contains
                     return
                 end if
                 if (str_len < int_bound) then
-                    call error%init("string length must not be less than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "string length must not be less than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 call args%set_string(self%dest, values(1))
@@ -468,7 +474,9 @@ contains
                     return
                 end if
                 if (int_val > int_bound) then
-                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "value must not be bigger than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 call args%set_integer(self%dest, int_val)
@@ -485,7 +493,9 @@ contains
                     return
                 end if
                 if (real_val > real_bound) then
-                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "value must not be bigger than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 store_real_val = real(real_val)
@@ -500,7 +510,9 @@ contains
                     return
                 end if
                 if (str_len > int_bound) then
-                    call error%init("string length must not be bigger than " // trim(self%bound_str), values(1))
+                            call error%init( &
+                                "string length must not be bigger than " // trim(self%bound_str), &
+                                values(1))
                     return
                 end if
                 call args%set_string(self%dest, values(1))

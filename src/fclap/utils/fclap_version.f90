@@ -1,6 +1,6 @@
 !> Version information on fclap
 module fclap_version
-   implicit none
+   implicit none(type, external)
    private
 
    public :: get_fclap_version

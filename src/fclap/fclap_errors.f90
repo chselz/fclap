@@ -6,7 +6,7 @@
 !> communicate parsing failures and invalid argument usage.
 
 module fclap_errors
-    implicit none
+    implicit none(type, external)
     private
 
     !> @brief Error type for fclap parsing and validation errors.

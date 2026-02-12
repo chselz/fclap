@@ -21,13 +21,18 @@
 !>   args = parser%parse_args()
 
 module fclap_parser
-    use fclap_constants
+    use fclap_constants, only: ARG_OPTIONAL, ARG_ZERO_OR_MORE, ARG_ONE_OR_MORE, &
+        ARG_REMAINDER, ARG_SINGLE, MAX_ARG_LEN, MAX_OPTION_STRINGS, MAX_CHOICES, &
+        MAX_ACTIONS, MAX_SUBPARSERS, MAX_GROUPS, MAX_GROUP_ACTIONS, MAX_LIST_VALUES, &
+        TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL, ACT_STORE, ACT_STORE_TRUE, &
+        ACT_STORE_FALSE, ACT_COUNT, ACT_APPEND, ACT_HELP, ACT_VERSION, &
+        ACT_NOT_LESS_THAN, ACT_NOT_BIGGER_THAN, STATUS_ACTIVE, GROUP_STANDARD
     use fclap_errors, only: fclap_error
     use fclap_namespace, only: Namespace, ValueContainer
     use fclap_actions, only: Action, not_less_than, not_bigger_than
     use fclap_formatter, only: format_usage_string, format_help_text, &
         GroupInfo, MutexGroupInfo
-    implicit none
+    implicit none(type, external)
     private
 
     ! ============================================================================
@@ -255,10 +260,10 @@ contains
         if (status == 0 .and. length > 0) then
             allocate(character(len=length) :: arg0)
             call get_command_argument(0, value=arg0, status=status)
-            
+
             idx = scan(arg0, '/', back=.true.)
             if (idx == 0) idx = scan(arg0, '\', back=.true.)
-            
+
             if (idx > 0) then
                 prog_name = arg0(idx+1:)
             else
@@ -962,9 +967,11 @@ contains
                 if (j > 1) mutex_names = trim(mutex_names) // " "
                 do k = 1, self%num_actions
                     if (allocated(self%actions(k)%dest)) then
-                        if (trim(self%actions(k)%dest) == trim(self%mutex_groups(i)%action_dests(j))) then
+                    if (trim(self%actions(k)%dest) == &
+                        trim(self%mutex_groups(i)%action_dests(j))) then
                             if (self%actions(k)%num_option_strings > 0) then
-                                mutex_names = trim(mutex_names) // trim(self%actions(k)%option_strings(1))
+                            mutex_names = trim(mutex_names) // &
+                                trim(self%actions(k)%option_strings(1))
                             else
                                 mutex_names = trim(mutex_names) // trim(self%actions(k)%dest)
                             end if
@@ -1116,11 +1123,13 @@ contains
                                 do i = 1, num_remaining
                                     remaining_args(i) = cmd_args(arg_idx + i - 1)
                                 end do
-                                sub_args = self%subparser_parsers(sub_idx)%parse_args_array(remaining_args)
+                    sub_args = self%subparser_parsers(sub_idx)% &
+                        parse_args_array(remaining_args)
                                 deallocate(remaining_args)
                             else
                                 allocate(remaining_args(0))
-                                sub_args = self%subparser_parsers(sub_idx)%parse_args_array(remaining_args)
+                    sub_args = self%subparser_parsers(sub_idx)% &
+                        parse_args_array(remaining_args)
                                 deallocate(remaining_args)
                             end if
                             ! Merge subparser results into main namespace

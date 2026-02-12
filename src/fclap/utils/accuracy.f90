@@ -1,6 +1,6 @@
 !> Numerical storage size parameters for real and integer values
 module fclap_utils_accuracy
-   implicit none
+   implicit none(type, external)
    public
 
    !> Single precision real numbers
