@@ -101,8 +101,8 @@ contains
                                             if (.not. first_in_mutex) mutex_str = mutex_str // " | "
                                             first_in_mutex = .false.
                                             if (actions(m)%num_option_strings > 0) then
-                mutex_str = mutex_str // &
-                    trim(actions(m)%option_strings(1))
+                                                mutex_str = mutex_str // &
+                                                    trim(actions(m)%option_strings(1))
                                             else
                                                 mutex_str = mutex_str // trim(actions(m)%dest)
                                             end if
