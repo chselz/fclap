@@ -67,24 +67,36 @@ contains
         logical, intent(in) :: has_subparsers
         character(len=:), allocatable :: usage
 
+        ! Buffer for a single mutually-exclusive usage fragment
         character(len=:), allocatable :: mutex_str
+        ! Loop indices:
+        ! i = actions, j = mutex groups, k = group entries, m = action lookup
         integer :: i, j, k, m
+        ! first_in_mutex controls " | " insertion while building a mutex fragment
+        ! is_in_any_mutex avoids emitting standalone options for mutex members
         logical :: first_in_mutex, is_in_any_mutex
+        ! Marks mutex groups already rendered in the usage line
         logical :: mutex_shown(MAX_GROUPS)
 
+        ! Start with command name prefix
         usage = "usage: " // trim(prog)
+        mutex_str = ""
 
         mutex_shown = .false.
 
+        ! Pass 1: append visible optional actions and mutex groups
         do i = 1, num_actions
             if (.not. actions(i)%is_positional .and. actions(i)%visible) then
                 if (actions(i)%action_type == ACT_HELP .or. &
                     actions(i)%action_type == ACT_VERSION) cycle
 
+                ! Detect whether this action belongs to any mutex group
                 is_in_any_mutex = .false.
                 do j = 1, num_mutex_groups
                     if (mutex_has_action(mutex_groups(j), actions(i)%dest)) then
                         is_in_any_mutex = .true.
+
+                        ! Render each mutex group only once
                         if (.not. mutex_shown(j)) then
                             mutex_shown(j) = .true.
                             if (mutex_groups(j)%required) then
@@ -92,8 +104,11 @@ contains
                             else
                                 mutex_str = " ["
                             end if
+
+                            ! Build mutex content in declared group order
                             first_in_mutex = .true.
                             do k = 1, mutex_groups(j)%num_actions
+                                ! Find the concrete Action entry for each group dest
                                 do m = 1, num_actions
                                     if (allocated(actions(m)%dest)) then
                                         if (trim(actions(m)%dest) == &
@@ -110,23 +125,31 @@ contains
                                     end if
                                 end do
                             end do
-                            if (mutex_groups(j)%required) then
-                                mutex_str = mutex_str // ")"
+
+                            ! Append fragment only if at least one member was resolved
+                            if (.not. first_in_mutex) then
+                                if (mutex_groups(j)%required) then
+                                    mutex_str = mutex_str // ")"
+                                else
+                                    mutex_str = mutex_str // "]"
+                                end if
+                                usage = usage // mutex_str
                             else
-                                mutex_str = mutex_str // "]"
+                                mutex_shown(j) = .false.
                             end if
-                            usage = usage // mutex_str
                         end if
                         exit
                     end if
                 end do
 
+                ! Standalone optional action (not in any mutex group)
                 if (.not. is_in_any_mutex) then
                     usage = usage // " [" // trim(actions(i)%option_strings(1)) // "]"
                 end if
             end if
         end do
 
+        ! Pass 2: append positional arguments
         do i = 1, num_actions
             if (actions(i)%is_positional) then
                 if (allocated(actions(i)%metavar)) then
@@ -137,6 +160,7 @@ contains
             end if
         end do
 
+        ! Add subcommand placeholder when subparsers exist
         if (has_subparsers) then
             usage = usage // " {command}"
         end if
