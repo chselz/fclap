@@ -1,7 +1,7 @@
 !> Unit tests for fclap argument parser
 program tester
     use fclap, only: ArgumentParser, Namespace, STATUS_DEPRECATED
-    implicit none(type, external)
+    implicit none
 
     logical :: all_passed
 

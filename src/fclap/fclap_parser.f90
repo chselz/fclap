@@ -32,7 +32,7 @@ module fclap_parser
     use fclap_actions, only: Action, not_less_than, not_bigger_than
     use fclap_formatter, only: format_usage_string, format_help_text, &
         GroupInfo, MutexGroupInfo
-    implicit none(type, external)
+    implicit none
     private
 
     ! ============================================================================

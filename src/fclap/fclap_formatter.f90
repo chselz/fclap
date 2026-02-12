@@ -10,7 +10,7 @@ module fclap_formatter
         ACT_STORE, ACT_APPEND, ACT_HELP, ACT_VERSION, &
         STATUS_DEPRECATED
     use fclap_actions, only: Action
-    implicit none(type, external)
+    implicit none
     private
 
     ! Public formatting procedures

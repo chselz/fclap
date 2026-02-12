@@ -22,7 +22,7 @@
 module fclap_namespace
     use fclap_constants, only: MAX_ACTIONS, MAX_ARG_LEN, MAX_LIST_VALUES, &
         TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL
-    implicit none(type, external)
+    implicit none
     private
 
     ! ============================================================================

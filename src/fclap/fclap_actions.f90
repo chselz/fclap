@@ -22,7 +22,7 @@ module fclap_actions
     use fclap_namespace, only: ValueContainer, Namespace
     use fclap_errors, only: fclap_error
     use fclap_utils_accuracy, only: wp
-    implicit none(type, external)
+    implicit none
     private
 
     ! ============================================================================
