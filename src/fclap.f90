@@ -57,7 +57,7 @@ module fclap
     use fclap_version, only: get_fclap_version, fclap_version_compact, &
         fclap_version_string
 
-    implicit none(type, external)
+    implicit none(type)
     private
 
     ! Public types - main user-facing API
