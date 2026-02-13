@@ -34,7 +34,7 @@ program tester
     call test_subparsers(all_passed)
 
     !> The following tests have to be activated/revised when the error handling of
-    !> fclap was revised; right now there are hard exists which do not work with
+    !> fclap was revised; right now there are hard exits which do not work with
     !> the current test infrastructure
     if (RUN_DEFERRED_FAILURE_TESTS) then
         call test_fail_missing_required_positional(all_passed)
