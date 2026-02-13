@@ -994,7 +994,7 @@ contains
 
     !* ================================================================================ *!
     !*                   The following tests have to be added when the                  *!
-    !*                   error handling in fclap is revised so they is                  *!
+    !*                   error handling in fclap is revised so there is                 *!
     !*                               no hard exit anymore                               *!
     !* ================================================================================ *!
 
