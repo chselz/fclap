@@ -86,12 +86,16 @@ module fclap_actions
         type(ValueContainer) :: default_value
         !> Flag indicating whether a default value has been set
         logical :: has_default = .false.
+        !> Whether default value should be shown in help text when set
+        logical :: print_default = .true.
         !> Metavar for display in usage/help (e.g., "FILE" instead of "filename")
         character(len=:), allocatable :: metavar
         !> Array of valid choices that constrain acceptable values
         character(len=MAX_ARG_LEN) :: choices(MAX_CHOICES)
         !> Number of choices defined for this argument
         integer :: num_choices = 0
+        !> Whether choices should be shown in help text
+        logical :: print_choices = .false.
         !> Expected value type (TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL)
         integer :: value_type = TYPE_STRING
         !> Whether this is a positional argument (vs optional/flag)
@@ -260,6 +264,19 @@ contains
         end select
     end function action_check_status
 
+    !> @brief Add argument context to an error message.
+    !>
+    !> @param message Base error message
+    !> @param display_name Argument display name
+    !> @return Message including argument context
+    function with_argument_context(message, display_name) result(context_message)
+        character(len=*), intent(in) :: message
+        character(len=*), intent(in) :: display_name
+        character(len=:), allocatable :: context_message
+
+        context_message = trim(message) // " for argument '" // trim(display_name) // "'"
+    end function with_argument_context
+
     !> @brief Execute action based on action type.
     !>
     !> @details Performs the action's behavior based on its action_type:
@@ -283,7 +300,9 @@ contains
         type(fclap_error), intent(inout) :: error
         integer :: int_val, ios, i, int_bound, str_len
         real(wp) :: real_val, real_bound
-        real :: store_real_val
+        character(len=:), allocatable :: display_name
+
+        display_name = self%get_display_name()
 
         select case(self%action_type)
         case(ACT_STORE)
@@ -294,7 +313,8 @@ contains
                 ! Store all values as a list
                 do i = 1, num_values
                     if (.not. self%is_valid_choice(values(i))) then
-                        call error%init("invalid choice", values(i))
+                        call error%init( &
+                            with_argument_context("invalid choice", display_name), values(i))
                         return
                     end if
 
@@ -302,7 +322,9 @@ contains
                     case(TYPE_INTEGER)
                         read(values(i), *, iostat=ios) int_val
                         if (ios /= 0) then
-                            call error%init("invalid integer value", values(i))
+                            call error%init( &
+                                with_argument_context("invalid integer value", display_name), &
+                                values(i))
                             return
                         end if
                         call args%append_integer(self%dest, int_val)
@@ -314,12 +336,13 @@ contains
             else
                 ! Single-value storage
                 if (num_values < 1) then
-                    call error%init("expected one argument", self%dest)
+                    call error%init(with_argument_context("expected one argument", display_name))
                     return
                 end if
 
                 if (.not. self%is_valid_choice(values(1))) then
-                    call error%init("invalid choice", values(1))
+                    call error%init( &
+                        with_argument_context("invalid choice", display_name), values(1))
                     return
                 end if
 
@@ -327,7 +350,9 @@ contains
                 case(TYPE_INTEGER)
                     read(values(1), *, iostat=ios) int_val
                     if (ios /= 0) then
-                        call error%init("invalid integer value", values(1))
+                        call error%init( &
+                            with_argument_context("invalid integer value", display_name), &
+                            values(1))
                         return
                     end if
                     call args%set_integer(self%dest, int_val)
@@ -335,11 +360,11 @@ contains
                 case(TYPE_REAL)
                     read(values(1), *, iostat=ios) real_val
                     if (ios /= 0) then
-                        call error%init("invalid real value", values(1))
+                        call error%init( &
+                            with_argument_context("invalid real value", display_name), values(1))
                         return
                     end if
-                    store_real_val = real(real_val)
-                    call args%set_real(self%dest, store_real_val)
+                    call args%set_real(self%dest, real_val)
 
                 case default
                     call args%set_string(self%dest, values(1))
@@ -357,13 +382,15 @@ contains
 
         case(ACT_APPEND)
             if (num_values < 1) then
-                call error%init("expected at least one argument", self%dest)
+                call error%init( &
+                    with_argument_context("expected at least one argument", display_name))
                 return
             end if
 
             do i = 1, num_values
                 if (.not. self%is_valid_choice(values(i))) then
-                    call error%init("invalid choice", values(i))
+                    call error%init( &
+                        with_argument_context("invalid choice", display_name), values(i))
                     return
                 end if
 
@@ -371,7 +398,9 @@ contains
                 case(TYPE_INTEGER)
                     read(values(i), *, iostat=ios) int_val
                     if (ios /= 0) then
-                        call error%init("invalid integer value", values(i))
+                        call error%init( &
+                            with_argument_context("invalid integer value", display_name), &
+                            values(i))
                         return
                     end if
                     call args%append_integer(self%dest, int_val)
@@ -393,7 +422,7 @@ contains
         case(ACT_NOT_LESS_THAN)
             ! Store value and validate it is >= bound
             if (num_values < 1) then
-                call error%init("expected one argument", self%dest)
+                call error%init(with_argument_context("expected one argument", display_name))
                 return
             end if
 
@@ -401,16 +430,22 @@ contains
             case(TYPE_INTEGER)
                 read(values(1), *, iostat=ios) int_val
                 if (ios /= 0) then
-                    call error%init("invalid integer value", values(1))
+                    call error%init( &
+                        with_argument_context("invalid integer value", display_name), values(1))
                     return
                 end if
                 read(self%bound_str, *, iostat=ios) int_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (int_val < int_bound) then
-                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "value must not be less than " // trim(self%bound_str), display_name), &
+                        values(1))
                     return
                 end if
                 call args%set_integer(self%dest, int_val)
@@ -418,31 +453,41 @@ contains
             case(TYPE_REAL)
                 read(values(1), *, iostat=ios) real_val
                 if (ios /= 0) then
-                    call error%init("invalid real value", values(1))
+                    call error%init( &
+                        with_argument_context("invalid real value", display_name), values(1))
                     return
                 end if
                 read(self%bound_str, *, iostat=ios) real_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (real_val < real_bound) then
-                    call error%init("value must not be less than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "value must not be less than " // trim(self%bound_str), display_name), &
+                        values(1))
                     return
                 end if
-                store_real_val = real(real_val)
-                call args%set_real(self%dest, store_real_val)
+                call args%set_real(self%dest, real_val)
 
             case default
                 ! String type: compare len(trim(value)) against integer bound
                 str_len = len(trim(values(1)))
                 read(self%bound_str, *, iostat=ios) int_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (str_len < int_bound) then
-                    call error%init("string length must not be less than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "string length must not be less than " // trim(self%bound_str), &
+                            display_name), values(1))
                     return
                 end if
                 call args%set_string(self%dest, values(1))
@@ -451,7 +496,7 @@ contains
         case(ACT_NOT_BIGGER_THAN)
             ! Store value and validate it is <= bound
             if (num_values < 1) then
-                call error%init("expected one argument", self%dest)
+                call error%init(with_argument_context("expected one argument", display_name))
                 return
             end if
 
@@ -459,16 +504,23 @@ contains
             case(TYPE_INTEGER)
                 read(values(1), *, iostat=ios) int_val
                 if (ios /= 0) then
-                    call error%init("invalid integer value", values(1))
+                    call error%init( &
+                        with_argument_context("invalid integer value", display_name), values(1))
                     return
                 end if
                 read(self%bound_str, *, iostat=ios) int_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (int_val > int_bound) then
-                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "value must not be bigger than " // &
+                            trim(self%bound_str), display_name), &
+                        values(1))
                     return
                 end if
                 call args%set_integer(self%dest, int_val)
@@ -476,31 +528,42 @@ contains
             case(TYPE_REAL)
                 read(values(1), *, iostat=ios) real_val
                 if (ios /= 0) then
-                    call error%init("invalid real value", values(1))
+                    call error%init( &
+                        with_argument_context("invalid real value", display_name), values(1))
                     return
                 end if
                 read(self%bound_str, *, iostat=ios) real_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (real_val > real_bound) then
-                    call error%init("value must not be bigger than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "value must not be bigger than " // &
+                            trim(self%bound_str), display_name), &
+                        values(1))
                     return
                 end if
-                store_real_val = real(real_val)
-                call args%set_real(self%dest, store_real_val)
+                call args%set_real(self%dest, real_val)
 
             case default
                 ! String type: compare len(trim(value)) against integer bound
                 str_len = len(trim(values(1)))
                 read(self%bound_str, *, iostat=ios) int_bound
                 if (ios /= 0) then
-                    call error%init("invalid bound value", self%bound_str)
+                    call error%init( &
+                        with_argument_context("invalid bound value", display_name), &
+                        self%bound_str)
                     return
                 end if
                 if (str_len > int_bound) then
-                    call error%init("string length must not be bigger than " // trim(self%bound_str), values(1))
+                    call error%init( &
+                        with_argument_context( &
+                            "string length must not be bigger than " // trim(self%bound_str), &
+                            display_name), values(1))
                     return
                 end if
                 call args%set_string(self%dest, values(1))
