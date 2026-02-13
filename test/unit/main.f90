@@ -477,6 +477,7 @@ contains
         call parser%add_argument("--neg-small", data_type="real", default_val=-0.25_wp, &
                                  help="Neg small")
         call parser%add_argument("--trim", data_type="real", default_val=3.140000_wp, help="Trim")
+        call parser%add_argument("--huge", data_type="real", default_val=1.0e9_wp, help="Huge")
 
         help_text = parser%format_help()
 
@@ -494,6 +495,9 @@ contains
             passed = .false.
         else if (index(help_text, "Trim (default: 3.14)") == 0) then
             print *, "  FAILED: fixed format should trim trailing zeros"
+            passed = .false.
+        else if (index(help_text, "Huge (default: 1.0E+09)") == 0) then
+            print *, "  FAILED: very large values should render in exponential format"
             passed = .false.
         else
             print *, "  PASSED"

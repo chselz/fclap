@@ -241,6 +241,14 @@ contains
         end if
     end subroutine value_append_real
 
+    !> @brief Trim trailing zeros from a decimal string while preserving float notation.
+    !>
+    !> @details Removes trailing zeros after the decimal point. If all fractional
+    !> digits are removed, keeps one digit (`.0`) so the value remains clearly
+    !> represented as floating-point text.
+    !>
+    !> @param text Input numeric string to normalize
+    !> @return Normalized numeric string with trimmed fractional zeros
     function trim_real_fraction(text) result(trimmed)
         character(len=*), intent(in) :: text
         character(len=:), allocatable :: trimmed
@@ -265,6 +273,15 @@ contains
         trimmed = trimmed(:i)
     end function trim_real_fraction
 
+    !> @brief Format a real(wp) value for user-facing help/default display.
+    !>
+    !> @details Uses exponential formatting for magnitudes smaller than 1.0
+    !> (except zero) and for very large magnitudes (>= 1.0e9), while using
+    !> fixed formatting for intermediate values. Trailing zeros are trimmed
+    !> while keeping at least one decimal place.
+    !>
+    !> @param value Real value to format
+    !> @return Formatted real string suitable for help/default text
     function format_real_for_display(value) result(str)
         real(wp), intent(in) :: value
         character(len=:), allocatable :: str
@@ -283,9 +300,18 @@ contains
             else
                 str = trim_real_fraction(compact)
             end if
-        else
+        else if (abs(value) < 1.0e9_wp) then
             write(tmp, '(F16.6)') value
             str = trim_real_fraction(trim(adjustl(tmp)))
+        else
+            write(tmp, '(ES16.6)') value
+            compact = trim(adjustl(tmp))
+            exp_pos = index(compact, "E")
+            if (exp_pos > 0) then
+                str = trim_real_fraction(compact(:exp_pos - 1)) // compact(exp_pos:)
+            else
+                str = trim_real_fraction(compact)
+            end if
         end if
     end function format_real_for_display
 

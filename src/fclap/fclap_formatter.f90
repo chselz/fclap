@@ -355,6 +355,14 @@ contains
         end if
     end function format_help_text
 
+    !> @brief Build help text for a single action, including optional default.
+    !>
+    !> @details Returns the action help description and appends a
+    !> `(default: ...)` suffix when a default is set and `print_default`
+    !> is enabled for the action.
+    !>
+    !> @param act Action metadata used to construct help text
+    !> @return Final help description for this action
     function format_action_help(act) result(help_desc)
         type(Action), intent(in) :: act
         character(len=:), allocatable :: help_desc
@@ -374,6 +382,14 @@ contains
         end if
     end function format_action_help
 
+    !> @brief Build formatted choices annotation for a single action.
+    !>
+    !> @details Returns an empty string unless `print_choices` is enabled and
+    !> the action has one or more choices. String choices are quoted while
+    !> non-string choices are emitted without quotes.
+    !>
+    !> @param act Action metadata containing choice values and display flags
+    !> @return Formatted choices text, e.g. `[choices: 'a', 'b']`, or empty
     function format_action_choices(act) result(choices_desc)
         type(Action), intent(in) :: act
         character(len=:), allocatable :: choices_desc
