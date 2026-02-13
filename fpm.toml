@@ -22,7 +22,6 @@ test-drive.git = "https://github.com/fortran-lang/test-drive.git"
 
 [install]
 library = false
-test = false
 
 [fortran]
 implicit-typing = false
