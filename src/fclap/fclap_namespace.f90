@@ -128,7 +128,6 @@ module fclap_namespace
         ! Private specific getter subroutines (backing the generic interface)
         procedure, private :: get_sub_string => namespace_get_sub_string
         procedure, private :: get_sub_integer => namespace_get_sub_integer
-        procedure, private :: get_sub_real_sp => namespace_get_sub_real_sp
         procedure, private :: get_sub_real_wp => namespace_get_sub_real_wp
         procedure, private :: get_sub_logical => namespace_get_sub_logical
         procedure, private :: get_sub_string_list => namespace_get_sub_string_list
@@ -138,8 +137,8 @@ module fclap_namespace
         !> Resolves based on the type of the output value argument.
         !> Supported types: character, integer, real, logical.
         !> Also supports list forms: call args%get(key, values_array, count)
-        generic :: get => get_sub_string, get_sub_integer, get_sub_real_sp, get_sub_real_wp, &
-                          get_sub_logical, get_sub_string_list, get_sub_integer_list
+        generic :: get => get_sub_string, get_sub_integer, get_sub_real_wp, &
+                           get_sub_logical, get_sub_string_list, get_sub_integer_list
         !> @brief Retrieve a string list by key.
         !> @param key The argument destination name
         !> @param values Output array for the values
@@ -716,27 +715,6 @@ contains
 
         value = self%get_integer(key, default)
     end subroutine namespace_get_sub_integer
-
-    !> @brief Retrieve a real value by key (subroutine form for generic interface).
-    !>
-    !> @param self The Namespace instance
-    !> @param key The argument destination name
-    !> @param value Output variable receiving the real value
-    !> @param default Optional default if key not found
-    subroutine namespace_get_sub_real_sp(self, key, value, default)
-        class(Namespace), intent(in) :: self
-        character(len=*), intent(in) :: key
-        real, intent(out) :: value
-        real, intent(in), optional :: default
-        real(wp) :: default_wp
-
-        if (present(default)) then
-            default_wp = real(default, kind=wp)
-            value = real(self%get_real(key, default_wp))
-        else
-            value = real(self%get_real(key))
-        end if
-    end subroutine namespace_get_sub_real_sp
 
     !> @brief Retrieve a real(wp) value by key (subroutine form for generic interface).
     !>

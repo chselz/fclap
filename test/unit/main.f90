@@ -21,7 +21,6 @@ program tester
     call test_choices_format_by_type(all_passed)
     call test_real_default_format_edges(all_passed)
     call test_wp_real_precision_display(all_passed)
-    call test_real_get_overload_compat(all_passed)
     call test_mismatched_default_rejected(all_passed)
     call test_type_conversion(all_passed)
     call test_append(all_passed)
@@ -537,54 +536,6 @@ contains
         end if
     end subroutine test_wp_real_precision_display
 
-    !> Verifies real getter overloads for both real and real(wp).
-    subroutine test_real_get_overload_compat(passed)
-        logical, intent(inout) :: passed
-        type(ArgumentParser) :: parser
-        type(Namespace) :: args
-        character(len=256) :: test_args(2)
-        real :: tmp_sp
-        real(wp) :: tmp_wp
-        real(wp) :: tol_wp, tol_sp
-
-        print *, "Test: real get overload compatibility..."
-
-        call parser%init(prog="test_prog", add_help=.false.)
-        call parser%add_argument("-f", "--factor", data_type="float", help="Factor")
-
-        test_args(1) = "-f"
-        test_args(2) = "4.5"
-        args = parser%parse_args_array(test_args)
-
-        call args%get("factor", tmp_sp)
-        call args%get("factor", tmp_wp)
-        call args%get("missing", tmp_sp, default=2.5)
-        call args%get("missing", tmp_wp, default=2.5_wp)
-
-        tol_wp = 100.0_wp * epsilon(1.0_wp)
-        tol_sp = 100.0_wp * real(epsilon(1.0), kind=wp)
-
-        if (abs(real(tmp_sp, kind=wp) - 2.5_wp) > tol_sp) then
-            print *, "  FAILED: missing real default (sp) should be 2.5"
-            passed = .false.
-        else if (abs(tmp_wp - 2.5_wp) > tol_wp) then
-            print *, "  FAILED: missing real default (wp) should be 2.5"
-            passed = .false.
-        else
-            call args%get("factor", tmp_sp)
-            call args%get("factor", tmp_wp)
-            if (abs(real(tmp_sp, kind=wp) - 4.5_wp) > tol_sp) then
-                print *, "  FAILED: factor (sp) should be ~4.5"
-                passed = .false.
-            else if (abs(tmp_wp - 4.5_wp) > tol_wp) then
-                print *, "  FAILED: factor (wp) should be ~4.5"
-                passed = .false.
-            else
-                print *, "  PASSED"
-            end if
-        end if
-    end subroutine test_real_get_overload_compat
-
     !> Verifies mismatched defaults are rejected with parser errors.
     subroutine test_mismatched_default_rejected(passed)
         logical, intent(inout) :: passed
@@ -654,7 +605,6 @@ contains
         character(len=256) :: test_args(4)
         integer :: tmp_number
         real(wp) :: tmp_factor
-        real :: tmp_factor_sp
 
         print *, "Test: type conversion (integer, real)..."
 
@@ -671,16 +621,12 @@ contains
 
         call args%get("number", tmp_number)
         call args%get("factor", tmp_factor)
-        call args%get("factor", tmp_factor_sp)
 
         if (tmp_number /= 42) then
             print *, "  FAILED: number should be 42, got: ", tmp_number
             passed = .false.
         else if (abs(tmp_factor - 3.14_wp) > 0.01_wp) then
             print *, "  FAILED: factor should be ~3.14, got: ", tmp_factor
-            passed = .false.
-        else if (abs(real(tmp_factor_sp, kind=wp) - 3.14_wp) > 0.01_wp) then
-            print *, "  FAILED: factor (sp get) should be ~3.14, got: ", tmp_factor_sp
             passed = .false.
         else
             print *, "  PASSED"
