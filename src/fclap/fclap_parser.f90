@@ -640,8 +640,6 @@ contains
         if (present(metavar)) self%actions(self%num_actions)%metavar = trim(metavar)
 
         if (present(default_val)) then
-            self%actions(self%num_actions)%has_default = .true.
-
             expected_type = "string"
             select case(actual_type)
             case(TYPE_INTEGER)
@@ -723,6 +721,8 @@ contains
                 self%num_actions = self%num_actions - 1
                 return
             end if
+
+            self%actions(self%num_actions)%has_default = .true.
         end if
 
         if (present(print_default)) then

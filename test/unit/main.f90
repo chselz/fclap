@@ -22,6 +22,7 @@ program tester
     call test_real_default_format_edges(all_passed)
     call test_wp_real_precision_display(all_passed)
     call test_mismatched_default_rejected(all_passed)
+    call test_rejected_default_does_not_leak(all_passed)
     call test_type_conversion(all_passed)
     call test_append(all_passed)
     call test_nargs(all_passed)
@@ -597,6 +598,49 @@ contains
 
         print *, "  PASSED"
     end subroutine test_mismatched_default_rejected
+
+    !> Regression: rejecting an invalid default must not leave stale default state:
+    !> A failed add should not affect the next argument slot
+    !> In particular, help text for a clean argument must not show a leaked default
+    subroutine test_rejected_default_does_not_leak(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: rejected default does not leak..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+
+        call parser%add_argument("--bad", data_type="int", default_val=1.5_wp, &
+                                 help="Bad argument")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: setup should reject invalid default"
+            passed = .false.
+            return
+        end if
+
+        if (parser%num_actions /= 0) then
+            print *, "  FAILED: rejected argument should not remain registered"
+            passed = .false.
+            return
+        end if
+
+        call parser%add_argument("--clean", help="Should stay clean")
+        if (parser%last_error%has_error) then
+            print *, "  FAILED: valid follow-up argument should not fail"
+            passed = .false.
+            return
+        end if
+
+        help_text = parser%format_help()
+        if (index(help_text, "Should stay clean (default:") > 0) then
+            print *, "  FAILED: default state leaked from rejected argument"
+            passed = .false.
+            return
+        end if
+
+        print *, "  PASSED"
+    end subroutine test_rejected_default_does_not_leak
 
     subroutine test_type_conversion(passed)
         logical, intent(inout) :: passed
