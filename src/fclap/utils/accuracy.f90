@@ -9,7 +9,7 @@ module fclap_utils_accuracy
    !> Double precision real numbers
    integer, parameter :: dp = selected_real_kind(15)
 
-   !> Wanted precision
+   !> Working precision for real numbers
    integer, parameter :: wp = dp
 
    !> Char length for integers
@@ -24,5 +24,7 @@ module fclap_utils_accuracy
    !> Long length for integers
    integer, parameter :: i8 = selected_int_kind(18)
 
+   !> Working precision for integers
+   integer, parameter :: ip = i4
 
 end module fclap_utils_accuracy
