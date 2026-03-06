@@ -22,6 +22,7 @@
 
 module fclap_parser
     use fclap_constants
+    use fclap_utils_accuracy, only: wp
     use fclap_errors, only: fclap_error
     use fclap_namespace, only: Namespace, ValueContainer
     use fclap_actions, only: Action, not_less_than, not_bigger_than
@@ -170,6 +171,8 @@ module fclap_parser
         !> @param nargs Number of arguments to consume
         !> @param data_type Value type (string, int, real, logical)
         !> @param default_val Default value if not provided
+        !> @param print_default Whether to show default in help text when set
+        !> @param print_choices Whether to show choices list in help text
         !> @param choices Array of valid choices
         !> @param required Whether argument is required
         !> @param help Help text for the argument
@@ -388,6 +391,7 @@ contains
         self%num_groups = 0
         self%num_mutex_groups = 0
         self%num_seen_dests = 0
+        call self%last_error%clear()
 
         if (self%add_help) then
             call self%add_argument("-h", "--help", action="help", &
@@ -490,14 +494,14 @@ contains
                                    action, nargs, data_type, default_val, &
                                    choices, required, help, metavar, dest, &
                                    status, visible, deprecated_msg, removed_msg, &
-                                   group_idx, mutex_group_idx)
+                                   group_idx, mutex_group_idx, print_default, print_choices)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name1
         character(len=*), intent(in), optional :: name2, name3, name4
         character(len=*), intent(in), optional :: action
         integer, intent(in), optional :: nargs
         character(len=*), intent(in), optional :: data_type
-        character(len=*), intent(in), optional :: default_val
+        class(*), intent(in), optional :: default_val
         character(len=*), intent(in), optional :: choices(:)
         logical, intent(in), optional :: required
         character(len=*), intent(in), optional :: help
@@ -509,11 +513,19 @@ contains
         character(len=*), intent(in), optional :: removed_msg
         integer, intent(in), optional :: group_idx
         integer, intent(in), optional :: mutex_group_idx
+        logical, intent(in), optional :: print_default
+        logical, intent(in), optional :: print_choices
 
         character(len=MAX_ARG_LEN) :: option_strings(MAX_OPTION_STRINGS)
         integer :: num_options, num_choices, i, act_type, actual_nargs, actual_type
+        integer :: ios, default_int
+        real(wp) :: default_real
+        logical :: default_logical
         character(len=:), allocatable :: actual_dest
+        character(len=:), allocatable :: expected_type
         logical :: is_positional, is_required
+
+        call self%last_error%clear()
 
         num_options = 1
         option_strings = ""
@@ -628,8 +640,97 @@ contains
         if (present(metavar)) self%actions(self%num_actions)%metavar = trim(metavar)
 
         if (present(default_val)) then
+            expected_type = "string"
+            select case(actual_type)
+            case(TYPE_INTEGER)
+                expected_type = "integer"
+            case(TYPE_REAL)
+                expected_type = "real"
+            case(TYPE_LOGICAL)
+                expected_type = "logical"
+            end select
+
+            select type(default_val)
+            type is (character(len=*))
+                select case(actual_type)
+                case(TYPE_INTEGER)
+                    read(default_val, *, iostat=ios) default_int
+                    if (ios == 0) then
+                        call self%actions(self%num_actions)%default_value%set_integer(default_int)
+                    else
+                        call self%last_error%init("invalid default value for argument '" // &
+                                                  trim(actual_dest) // "': expected " // &
+                                                  expected_type)
+                    end if
+                case(TYPE_REAL)
+                    read(default_val, *, iostat=ios) default_real
+                    if (ios == 0) then
+                        call self%actions(self%num_actions)%default_value%set_real(default_real)
+                    else
+                        call self%last_error%init("invalid default value for argument '" // &
+                                                  trim(actual_dest) // "': expected " // &
+                                                  expected_type)
+                    end if
+                case(TYPE_LOGICAL)
+                    read(default_val, *, iostat=ios) default_logical
+                    if (ios == 0) then
+                        call self%actions(self%num_actions)%default_value%set_logical(default_logical)
+                    else
+                        ! TODO: Add permissive logical default parsing (1/0, yes/no, on/off).
+                        call self%last_error%init("invalid default value for argument '" // &
+                                                  trim(actual_dest) // "': expected " // &
+                                                  expected_type)
+                    end if
+                case default
+                    call self%actions(self%num_actions)%default_value%set_string(default_val)
+                end select
+            type is (integer)
+                if (actual_type == TYPE_INTEGER) then
+                    call self%actions(self%num_actions)%default_value%set_integer(default_val)
+                else
+                    call self%last_error%init("invalid default type for argument '" // &
+                                              trim(actual_dest) // "': expected " // expected_type)
+                end if
+            type is (real)
+                if (actual_type == TYPE_REAL) then
+                    call self%actions(self%num_actions)%default_value%set_real(real(default_val, kind=wp))
+                else
+                    call self%last_error%init("invalid default type for argument '" // &
+                                              trim(actual_dest) // "': expected " // expected_type)
+                end if
+            type is (real(kind=wp))
+                if (actual_type == TYPE_REAL) then
+                    call self%actions(self%num_actions)%default_value%set_real(default_val)
+                else
+                    call self%last_error%init("invalid default type for argument '" // &
+                                              trim(actual_dest) // "': expected " // expected_type)
+                end if
+            type is (logical)
+                if (actual_type == TYPE_LOGICAL) then
+                    call self%actions(self%num_actions)%default_value%set_logical(default_val)
+                else
+                    call self%last_error%init("invalid default type for argument '" // &
+                                              trim(actual_dest) // "': expected " // expected_type)
+                end if
+            class default
+                call self%last_error%init("unsupported default type for argument '" // &
+                                          trim(actual_dest) // "'")
+            end select
+
+            if (self%last_error%has_error) then
+                self%num_actions = self%num_actions - 1
+                return
+            end if
+
             self%actions(self%num_actions)%has_default = .true.
-            call self%actions(self%num_actions)%default_value%set_string(default_val)
+        end if
+
+        if (present(print_default)) then
+            self%actions(self%num_actions)%print_default = print_default
+        end if
+
+        if (present(print_choices)) then
+            self%actions(self%num_actions)%print_choices = print_choices
         end if
 
         if (present(choices)) then
@@ -837,10 +938,22 @@ contains
                 call args%set_integer(self%actions(i)%dest, 0)
             case default
                 if (self%actions(i)%has_default) then
-                    if (allocated(self%actions(i)%default_value%string_value)) then
-                        call args%set_string(self%actions(i)%dest, &
-                                            self%actions(i)%default_value%string_value)
-                    end if
+                    select case(self%actions(i)%default_value%value_type)
+                    case(TYPE_INTEGER)
+                        call args%set_integer(self%actions(i)%dest, &
+                                              self%actions(i)%default_value%integer_value)
+                    case(TYPE_REAL)
+                        call args%set_real(self%actions(i)%dest, &
+                                           self%actions(i)%default_value%real_value)
+                    case(TYPE_LOGICAL)
+                        call args%set_logical(self%actions(i)%dest, &
+                                              self%actions(i)%default_value%logical_value)
+                    case default
+                        if (allocated(self%actions(i)%default_value%string_value)) then
+                            call args%set_string(self%actions(i)%dest, &
+                                                 self%actions(i)%default_value%string_value)
+                        end if
+                    end select
                 end if
             end select
         end do

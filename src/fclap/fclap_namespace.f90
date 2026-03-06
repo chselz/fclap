@@ -22,6 +22,7 @@
 module fclap_namespace
     use fclap_constants, only: MAX_ACTIONS, MAX_ARG_LEN, MAX_LIST_VALUES, &
         TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL
+    use fclap_utils_accuracy, only: wp
     implicit none
     private
 
@@ -42,7 +43,7 @@ module fclap_namespace
         !> Storage for integer values
         integer :: integer_value = 0
         !> Storage for real/float values
-        real :: real_value = 0.0
+        real(wp) :: real_value = 0.0_wp
         !> Storage for logical/boolean values
         logical :: logical_value = .false.
         !> Array storage for string list values (used with append action)
@@ -50,7 +51,7 @@ module fclap_namespace
         !> Array storage for integer list values (used with append action)
         integer :: integer_list(MAX_LIST_VALUES)
         !> Array storage for real list values (used with append action)
-        real :: real_list(MAX_LIST_VALUES)
+        real(wp) :: real_list(MAX_LIST_VALUES)
         !> Number of items currently stored in list arrays
         integer :: list_count = 0
         !> Flag indicating whether a value has been explicitly set
@@ -127,7 +128,7 @@ module fclap_namespace
         ! Private specific getter subroutines (backing the generic interface)
         procedure, private :: get_sub_string => namespace_get_sub_string
         procedure, private :: get_sub_integer => namespace_get_sub_integer
-        procedure, private :: get_sub_real => namespace_get_sub_real
+        procedure, private :: get_sub_real_wp => namespace_get_sub_real_wp
         procedure, private :: get_sub_logical => namespace_get_sub_logical
         procedure, private :: get_sub_string_list => namespace_get_sub_string_list
         procedure, private :: get_sub_integer_list => namespace_get_sub_integer_list
@@ -136,8 +137,8 @@ module fclap_namespace
         !> Resolves based on the type of the output value argument.
         !> Supported types: character, integer, real, logical.
         !> Also supports list forms: call args%get(key, values_array, count)
-        generic :: get => get_sub_string, get_sub_integer, get_sub_real, get_sub_logical, &
-                          get_sub_string_list, get_sub_integer_list
+        generic :: get => get_sub_string, get_sub_integer, get_sub_real_wp, &
+                           get_sub_logical, get_sub_string_list, get_sub_integer_list
         !> @brief Retrieve a string list by key.
         !> @param key The argument destination name
         !> @param values Output array for the values
@@ -187,7 +188,7 @@ contains
 
     subroutine value_set_real(self, val)
         class(ValueContainer), intent(inout) :: self
-        real, intent(in) :: val
+        real(wp), intent(in) :: val
 
         self%real_value = val
         self%value_type = TYPE_REAL
@@ -229,7 +230,7 @@ contains
 
     subroutine value_append_real(self, val)
         class(ValueContainer), intent(inout) :: self
-        real, intent(in) :: val
+        real(wp), intent(in) :: val
 
         if (self%list_count < MAX_LIST_VALUES) then
             self%list_count = self%list_count + 1
@@ -238,6 +239,80 @@ contains
             self%is_set = .true.
         end if
     end subroutine value_append_real
+
+    !> @brief Trim trailing zeros from a decimal string while preserving float notation.
+    !>
+    !> @details Removes trailing zeros after the decimal point. If all fractional
+    !> digits are removed, keeps one digit (`.0`) so the value remains clearly
+    !> represented as floating-point text.
+    !>
+    !> @param text Input numeric string to normalize
+    !> @return Normalized numeric string with trimmed fractional zeros
+    function trim_real_fraction(text) result(trimmed)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable :: trimmed
+        integer :: dot_pos, i
+
+        trimmed = trim(text)
+        dot_pos = index(trimmed, ".")
+        if (dot_pos == 0) then
+            trimmed = trim(trimmed) // ".0"
+            return
+        end if
+
+        i = len_trim(trimmed)
+        do while (i > dot_pos .and. trimmed(i:i) == "0")
+            i = i - 1
+        end do
+
+        if (i == dot_pos) then
+            i = dot_pos + 1
+        end if
+
+        trimmed = trimmed(:i)
+    end function trim_real_fraction
+
+    !> @brief Format a real(wp) value for user-facing help/default display.
+    !>
+    !> @details Uses exponential formatting for magnitudes smaller than 1.0
+    !> (except zero) and for very large magnitudes (>= 1.0e9), while using
+    !> fixed formatting for intermediate values. Trailing zeros are trimmed
+    !> while keeping at least one decimal place.
+    !>
+    !> @param value Real value to format
+    !> @return Formatted real string suitable for help/default text
+    function format_real_for_display(value) result(str)
+        real(wp), intent(in) :: value
+        character(len=:), allocatable :: str
+        character(len=64) :: tmp
+        character(len=:), allocatable :: compact
+        integer :: exp_pos
+
+        if (value == 0.0_wp) then
+            str = "0.0"
+        else if (abs(value) < 1.0_wp) then
+            write(tmp, '(ES16.6)') value
+            compact = trim(adjustl(tmp))
+            exp_pos = index(compact, "E")
+            if (exp_pos > 0) then
+                str = trim_real_fraction(compact(:exp_pos - 1)) // compact(exp_pos:)
+            else
+                str = trim_real_fraction(compact)
+            end if
+        else if (abs(value) < 1.0e9_wp) then
+            write(tmp, '(F16.6)') value
+            str = trim_real_fraction(trim(adjustl(tmp)))
+        else
+            write(tmp, '(ES16.6)') value
+            compact = trim(adjustl(tmp))
+            exp_pos = index(compact, "E")
+            if (exp_pos > 0) then
+                str = trim_real_fraction(compact(:exp_pos - 1)) // compact(exp_pos:)
+            else
+                str = trim_real_fraction(compact)
+            end if
+        end if
+    end function format_real_for_display
 
     function value_to_string(self) result(str)
         class(ValueContainer), intent(in) :: self
@@ -261,8 +336,7 @@ contains
                     write(tmp, '(I0)') self%integer_list(i)
                     str = str // trim(tmp)
                 case(TYPE_REAL)
-                    write(tmp, '(G0)') self%real_list(i)
-                    str = str // trim(tmp)
+                    str = str // format_real_for_display(self%real_list(i))
                 end select
             end do
             str = str // "]"
@@ -278,8 +352,7 @@ contains
                 write(tmp, '(I0)') self%integer_value
                 str = trim(tmp)
             case(TYPE_REAL)
-                write(tmp, '(G0)') self%real_value
-                str = trim(tmp)
+                str = format_real_for_display(self%real_value)
             case(TYPE_LOGICAL)
                 if (self%logical_value) then
                     str = "True"
@@ -363,7 +436,7 @@ contains
     subroutine namespace_set_real(self, key, value)
         class(Namespace), intent(inout) :: self
         character(len=*), intent(in) :: key
-        real, intent(in) :: value
+        real(wp), intent(in) :: value
         integer :: idx
 
         idx = self%find_or_create(key)
@@ -472,8 +545,8 @@ contains
     function namespace_get_real(self, key, default) result(value)
         class(Namespace), intent(in) :: self
         character(len=*), intent(in) :: key
-        real, intent(in), optional :: default
-        real :: value
+        real(wp), intent(in), optional :: default
+        real(wp) :: value
         integer :: idx
         logical :: found
 
@@ -489,7 +562,7 @@ contains
             if (present(default)) then
                 value = default
             else
-                value = 0.0
+                value = 0.0_wp
             end if
         end if
     end function namespace_get_real
@@ -643,20 +716,20 @@ contains
         value = self%get_integer(key, default)
     end subroutine namespace_get_sub_integer
 
-    !> @brief Retrieve a real value by key (subroutine form for generic interface).
+    !> @brief Retrieve a real(wp) value by key (subroutine form for generic interface).
     !>
     !> @param self The Namespace instance
     !> @param key The argument destination name
-    !> @param value Output variable receiving the real value
+    !> @param value Output variable receiving the real(wp) value
     !> @param default Optional default if key not found
-    subroutine namespace_get_sub_real(self, key, value, default)
+    subroutine namespace_get_sub_real_wp(self, key, value, default)
         class(Namespace), intent(in) :: self
         character(len=*), intent(in) :: key
-        real, intent(out) :: value
-        real, intent(in), optional :: default
+        real(wp), intent(out) :: value
+        real(wp), intent(in), optional :: default
 
         value = self%get_real(key, default)
-    end subroutine namespace_get_sub_real
+    end subroutine namespace_get_sub_real_wp
 
     !> @brief Retrieve a logical value by key (subroutine form for generic interface).
     !>

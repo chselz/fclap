@@ -8,7 +8,7 @@
 module fclap_formatter
     use fclap_constants, only: MAX_ARG_LEN, MAX_ACTIONS, MAX_GROUPS, &
         ACT_STORE, ACT_APPEND, ACT_HELP, ACT_VERSION, &
-        STATUS_DEPRECATED
+        STATUS_DEPRECATED, TYPE_STRING
     use fclap_actions, only: Action
     implicit none
     private
@@ -181,8 +181,8 @@ contains
         integer, intent(in) :: max_help_position
         character(len=:), allocatable :: help_text
 
-        character(len=:), allocatable :: line, opt_str
-        integer :: i, j, k, padding
+        character(len=:), allocatable :: line, opt_str, help_desc, choices_desc
+        integer :: i, j, k, padding, help_start
         logical :: has_positional, has_optional, in_group
         logical :: action_shown(MAX_ACTIONS)
 
@@ -215,14 +215,20 @@ contains
             do i = 1, num_actions
                 if (actions(i)%is_positional .and. actions(i)%visible) then
                     line = "  " // actions(i)%dest
-                    if (allocated(actions(i)%help_text)) then
+                    help_start = len(line) + max(2, max_help_position - len(line))
+                    help_desc = format_action_help(actions(i))
+                    if (len_trim(help_desc) > 0) then
                         padding = max(2, max_help_position - len(line))
-                        line = line // repeat(" ", padding) // actions(i)%help_text
+                        line = line // repeat(" ", padding) // help_desc
                     end if
                     if (actions(i)%status == STATUS_DEPRECATED) then
                         line = line // " (DEPRECATED)"
                     end if
                     help_text = help_text // line // new_line('A')
+                    choices_desc = format_action_choices(actions(i))
+                    if (len_trim(choices_desc) > 0) then
+                        help_text = help_text // repeat(" ", help_start) // choices_desc // new_line('A')
+                    end if
                     action_shown(i) = .true.
                 end if
             end do
@@ -255,14 +261,20 @@ contains
                             end if
 
                             line = opt_str
-                            if (allocated(actions(i)%help_text)) then
+                            help_start = len(line) + max(2, max_help_position - len(line))
+                            help_desc = format_action_help(actions(i))
+                            if (len_trim(help_desc) > 0) then
                                 padding = max(2, max_help_position - len(line))
-                                line = line // repeat(" ", padding) // actions(i)%help_text
+                                line = line // repeat(" ", padding) // help_desc
                             end if
                             if (actions(i)%status == STATUS_DEPRECATED) then
                                 line = line // " (DEPRECATED)"
                             end if
                             help_text = help_text // line // new_line('A')
+                            choices_desc = format_action_choices(actions(i))
+                            if (len_trim(choices_desc) > 0) then
+                                help_text = help_text // repeat(" ", help_start) // choices_desc // new_line('A')
+                            end if
                             action_shown(i) = .true.
                         end if
                     end do
@@ -301,14 +313,20 @@ contains
                         end if
 
                         line = opt_str
-                        if (allocated(actions(i)%help_text)) then
+                        help_start = len(line) + max(2, max_help_position - len(line))
+                        help_desc = format_action_help(actions(i))
+                        if (len_trim(help_desc) > 0) then
                             padding = max(2, max_help_position - len(line))
-                            line = line // repeat(" ", padding) // actions(i)%help_text
+                            line = line // repeat(" ", padding) // help_desc
                         end if
                         if (actions(i)%status == STATUS_DEPRECATED) then
                             line = line // " (DEPRECATED)"
                         end if
                         help_text = help_text // line // new_line('A')
+                        choices_desc = format_action_choices(actions(i))
+                        if (len_trim(choices_desc) > 0) then
+                            help_text = help_text // repeat(" ", help_start) // choices_desc // new_line('A')
+                        end if
                     end if
                 end do
             end if
@@ -336,5 +354,61 @@ contains
             end if
         end if
     end function format_help_text
+
+    !> @brief Build help text for a single action, including optional default.
+    !>
+    !> @details Returns the action help description and appends a
+    !> `(default: ...)` suffix when a default is set and `print_default`
+    !> is enabled for the action.
+    !>
+    !> @param act Action metadata used to construct help text
+    !> @return Final help description for this action
+    function format_action_help(act) result(help_desc)
+        type(Action), intent(in) :: act
+        character(len=:), allocatable :: help_desc
+        character(len=:), allocatable :: default_str
+
+        help_desc = ""
+        if (allocated(act%help_text)) then
+            help_desc = act%help_text
+        end if
+
+        if (act%has_default .and. act%print_default) then
+            default_str = act%default_value%to_string()
+            if (len_trim(help_desc) > 0) then
+                help_desc = trim(help_desc) // " "
+            end if
+            help_desc = trim(help_desc) // " (default: " // trim(default_str) // ")"
+        end if
+    end function format_action_help
+
+    !> @brief Build formatted choices annotation for a single action.
+    !>
+    !> @details Returns an empty string unless `print_choices` is enabled and
+    !> the action has one or more choices. String choices are quoted while
+    !> non-string choices are emitted without quotes.
+    !>
+    !> @param act Action metadata containing choice values and display flags
+    !> @return Formatted choices text, e.g. `[choices: 'a', 'b']`, or empty
+    function format_action_choices(act) result(choices_desc)
+        type(Action), intent(in) :: act
+        character(len=:), allocatable :: choices_desc
+        integer :: i
+
+        choices_desc = ""
+        if (.not. act%print_choices) return
+        if (act%num_choices <= 0) return
+
+        choices_desc = "[choices: "
+        do i = 1, act%num_choices
+            if (i > 1) choices_desc = choices_desc // ", "
+            if (act%value_type == TYPE_STRING) then
+                choices_desc = choices_desc // "'" // trim(act%choices(i)) // "'"
+            else
+                choices_desc = choices_desc // trim(act%choices(i))
+            end if
+        end do
+        choices_desc = choices_desc // "]"
+    end function format_action_choices
 
 end module fclap_formatter

@@ -4,6 +4,7 @@ program tester
     implicit none
 
     logical :: all_passed
+    logical, parameter :: RUN_DEFERRED_FAILURE_TESTS = .false.
     
     all_passed = .true.
 
@@ -11,7 +12,17 @@ program tester
     call test_store_true_false(all_passed)
     call test_count_action(all_passed)
     call test_default_values(all_passed)
+    call test_default_roundtrip_types(all_passed)
     call test_help_generation(all_passed)
+    call test_help_default_display(all_passed)
+    call test_help_choices_display(all_passed)
+    call test_print_default_matrix(all_passed)
+    call test_print_choices_matrix(all_passed)
+    call test_choices_format_by_type(all_passed)
+    call test_real_default_format_edges(all_passed)
+    call test_wp_real_precision_display(all_passed)
+    call test_mismatched_default_rejected(all_passed)
+    call test_rejected_default_does_not_leak(all_passed)
     call test_type_conversion(all_passed)
     call test_append(all_passed)
     call test_nargs(all_passed)
@@ -21,6 +32,29 @@ program tester
     call test_parent_parsers(all_passed)
     call test_argument_groups(all_passed)
     call test_subparsers(all_passed)
+
+    !> The following tests have to be activated/revised when the error handling of
+    !> fclap was revised; right now there are hard exits which do not work with
+    !> the current test infrastructure
+    if (RUN_DEFERRED_FAILURE_TESTS) then
+        call test_fail_missing_required_positional(all_passed)
+        call test_fail_missing_required_optional(all_passed)
+        call test_fail_option_missing_value(all_passed)
+        call test_fail_invalid_int_value(all_passed)
+        call test_fail_invalid_real_value(all_passed)
+        call test_fail_invalid_logical_value(all_passed)
+        call test_fail_invalid_choice_string(all_passed)
+        call test_fail_invalid_choice_integer(all_passed)
+        call test_fail_mutex_conflict(all_passed)
+        call test_fail_required_mutex_missing(all_passed)
+        call test_fail_not_less_than_violation(all_passed)
+        call test_fail_not_bigger_than_violation(all_passed)
+        call test_fail_unknown_option(all_passed)
+        call test_fail_extra_positional(all_passed)
+        call test_fail_unknown_subcommand(all_passed)
+        call test_fail_removed_argument_used(all_passed)
+        call test_fail_append_missing_value(all_passed)
+    end if
 
     if (all_passed) then
         print *, ""
@@ -135,11 +169,20 @@ contains
         type(Namespace) :: args
         character(len=256) :: test_args(1)
         character(len=256) :: tmp_output
+        integer :: tmp_retries
+        real(wp) :: tmp_threshold
+        logical :: tmp_enabled
 
         print *, "Test: default values..."
 
         call parser%init(prog="test_prog", add_help=.false.)
         call parser%add_argument("-o", "--output", default_val="default.txt", help="Output file")
+        call parser%add_argument("-r", "--retries", data_type="int", default_val=3, &
+                                 help="Number of retries")
+        call parser%add_argument("-t", "--threshold", data_type="float", default_val=1.25_wp, &
+                                 help="Threshold value")
+        call parser%add_argument("-e", "--enabled", data_type="bool", default_val=.true., &
+                                 help="Enable feature")
         call parser%add_argument("input", help="Input file")
 
         test_args(1) = "input.txt"
@@ -147,14 +190,77 @@ contains
         args = parser%parse_args_array(test_args)
 
         call args%get("output", tmp_output)
+        call args%get("retries", tmp_retries)
+        call args%get("threshold", tmp_threshold)
+        call args%get("enabled", tmp_enabled)
 
         if (tmp_output /= "default.txt") then
             print *, "  FAILED: output should be 'default.txt', got: ", trim(tmp_output)
+            passed = .false.
+        else if (tmp_retries /= 3) then
+            print *, "  FAILED: retries should be 3, got: ", tmp_retries
+            passed = .false.
+        else if (abs(tmp_threshold - 1.25_wp) > 0.01_wp) then
+            print *, "  FAILED: threshold should be ~1.25, got: ", tmp_threshold
+            passed = .false.
+        else if (.not. tmp_enabled) then
+            print *, "  FAILED: enabled should be .true."
             passed = .false.
         else
             print *, "  PASSED"
         end if
     end subroutine test_default_values
+
+    !> Verifies default values roundtrip correctly for all scalar types.
+    subroutine test_default_roundtrip_types(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=64) :: expected_name, got_name
+        integer :: expected_count, got_count
+        real(wp) :: expected_temp, got_temp
+        logical :: expected_enabled, got_enabled
+        character(len=1) :: empty_args(1)
+
+        print *, "Test: default roundtrip for all types..."
+
+        expected_name = "cpcm"
+        expected_count = 7
+        expected_temp = 298.15_wp
+        expected_enabled = .true.
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--name", default_val=expected_name, help="Name")
+        call parser%add_argument("--count", data_type="int", default_val=expected_count, &
+                                 help="Count")
+        call parser%add_argument("--temp", data_type="real", default_val=expected_temp, &
+                                 help="Temperature")
+        call parser%add_argument("--enabled", data_type="bool", default_val=expected_enabled, &
+                                 help="Enabled")
+
+        args = parser%parse_args_array(empty_args(1:0))
+
+        call args%get("name", got_name)
+        call args%get("count", got_count)
+        call args%get("temp", got_temp)
+        call args%get("enabled", got_enabled)
+
+        if (trim(got_name) /= trim(expected_name)) then
+            print *, "  FAILED: string default mismatch"
+            passed = .false.
+        else if (got_count /= expected_count) then
+            print *, "  FAILED: integer default mismatch"
+            passed = .false.
+        else if (abs(got_temp - expected_temp) > 1.0e-12_wp) then
+            print *, "  FAILED: real default mismatch"
+            passed = .false.
+        else if (got_enabled .neqv. expected_enabled) then
+            print *, "  FAILED: logical default mismatch"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_default_roundtrip_types
 
     subroutine test_help_generation(passed)
         logical, intent(inout) :: passed
@@ -184,13 +290,365 @@ contains
         end if
     end subroutine test_help_generation
 
+    !> Solvation inspired test for checking that default values are displayed in help
+    !> with correct formatting and that print_default toggle works
+    subroutine test_help_default_display(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: help default display toggle..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--retries", data_type="int", default_val=3, &
+                                 help="Number of retries")
+        call parser%add_argument("--proj-tol", data_type="real", default_val=1.0d-10, &
+                                 action=not_less_than(0.0d0), metavar="REAL", &
+                                 help="Projection convergence tolerance")
+        call parser%add_argument("--ratio", data_type="real", default_val=0.25, &
+                                 help="Ratio")
+        call parser%add_argument("--scale", data_type="real", default_val=3.0, &
+                                 help="Scale")
+        call parser%add_argument("--token", default_val="secret", print_default=.false., &
+                                 help="Auth token")
+        call parser%add_argument("--plain", help="No default here")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "default: 3") == 0) then
+            print *, "  FAILED: help should contain integer default"
+            passed = .false.
+        else if (index(help_text, "Projection convergence tolerance (default: 1.0E-10)") == 0) then
+            print *, "  FAILED: help should contain proj-tol default"
+            passed = .false.
+        else if (index(help_text, "Ratio (default: 2.5E-01)") == 0) then
+            print *, "  FAILED: help should format <1 real defaults exponentially"
+            passed = .false.
+        else if (index(help_text, "Scale (default: 3.0)") == 0) then
+            print *, "  FAILED: help should format >=1 real defaults in fixed format"
+            passed = .false.
+        else if (index(help_text, "default: 'secret'") > 0) then
+            print *, "  FAILED: help should hide default when print_default=.false."
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_help_default_display
+
+    subroutine test_help_choices_display(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+        character(len=:), allocatable :: expected_choices_line
+        integer :: help_col
+
+        print *, "Test: help choices display toggle..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--radii", default_val="cpcm", &
+                                 choices=[character(len=5) :: "cpcm", "smd", "d3", "cosmo", "bondi"], &
+                                 metavar="RADII", help="Atomic radii set", print_choices=.true.)
+        call parser%add_argument("--method", default_val="r2scan", &
+                                 choices=[character(len=6) :: "r2scan", "pbe"], &
+                                 help="Method")
+
+        help_text = parser%format_help()
+        help_col = parser%max_help_position
+        expected_choices_line = new_line('A') // repeat(" ", help_col) // &
+                                "[choices: 'cpcm', 'smd', 'd3', 'cosmo', 'bondi']"
+
+        if (index(help_text, "Atomic radii set") == 0) then
+            print *, "  FAILED: help should contain radii help text"
+            passed = .false.
+        else if (index(help_text, expected_choices_line) == 0) then
+            print *, "  FAILED: choices should be on aligned new line"
+            passed = .false.
+        else if (index(help_text, "[choices: r2scan, pbe]") > 0) then
+            print *, "  FAILED: choices should be hidden by default"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_help_choices_display
+
+    !> Verifies print_default combinations (shown, hidden, missing default).
+    subroutine test_print_default_matrix(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: print_default matrix..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--shown", data_type="int", default_val=11, print_default=.true., &
+                                 help="Shown default")
+        call parser%add_argument("--hidden", data_type="int", default_val=22, print_default=.false., &
+                                 help="Hidden default")
+        call parser%add_argument("--nodef", print_default=.true., &
+                                 help="No default value")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "Shown default (default: 11)") == 0) then
+            print *, "  FAILED: shown default should be printed"
+            passed = .false.
+        else if (index(help_text, "Hidden default (default: 22)") > 0) then
+            print *, "  FAILED: hidden default should not be printed"
+            passed = .false.
+        else if (index(help_text, "No default value (default:") > 0) then
+            print *, "  FAILED: default should not be printed when unset"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_print_default_matrix
+
+    !> Verifies print_choices combinations (shown, hidden, and empty choices).
+    subroutine test_print_choices_matrix(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: print_choices matrix..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--shown", choices=[character(len=2) :: "a", "b"], &
+                                 print_choices=.true., help="Shown choices")
+        call parser%add_argument("--hidden", choices=[character(len=2) :: "c", "d"], &
+                                 help="Hidden choices")
+        call parser%add_argument("--empty", print_choices=.true., help="Empty choices")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "[choices: 'a', 'b']") == 0) then
+            print *, "  FAILED: shown choices should be printed"
+            passed = .false.
+        else if (index(help_text, "[choices: 'c', 'd']") > 0) then
+            print *, "  FAILED: hidden choices should not be printed"
+            passed = .false.
+        else if (index(help_text, "[choices: ]") > 0) then
+            print *, "  FAILED: empty choices should not print placeholder"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_print_choices_matrix
+
+    !> Verifies string choices are quoted while numeric choices are unquoted.
+    subroutine test_choices_format_by_type(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: choices formatting by type..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--color", choices=[character(len=4) :: "red", "blue"], &
+                                 print_choices=.true., help="Color")
+        call parser%add_argument("--level", data_type="int", &
+                                 choices=[character(len=1) :: "1", "2"], &
+                                 print_choices=.true., help="Level")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "[choices: 'red', 'blue']") == 0) then
+            print *, "  FAILED: string choices should be quoted"
+            passed = .false.
+        else if (index(help_text, "[choices: 1, 2]") == 0) then
+            print *, "  FAILED: integer choices should be unquoted"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_choices_format_by_type
+
+    !> Verifies edge-case formatting for real defaults.
+    subroutine test_real_default_format_edges(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: real default formatting edges..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--zero", data_type="real", default_val=0.0_wp, help="Zero")
+        call parser%add_argument("--one", data_type="real", default_val=1.0_wp, help="One")
+        call parser%add_argument("--small", data_type="real", default_val=0.25_wp, help="Small")
+        call parser%add_argument("--neg-small", data_type="real", default_val=-0.25_wp, &
+                                 help="Neg small")
+        call parser%add_argument("--trim", data_type="real", default_val=3.140000_wp, help="Trim")
+        call parser%add_argument("--huge", data_type="real", default_val=1.0e9_wp, help="Huge")
+
+        help_text = parser%format_help()
+
+        if (index(help_text, "Zero (default: 0.0)") == 0) then
+            print *, "  FAILED: zero should render as 0.0"
+            passed = .false.
+        else if (index(help_text, "One (default: 1.0)") == 0) then
+            print *, "  FAILED: one should render as 1.0"
+            passed = .false.
+        else if (index(help_text, "Small (default: 2.5E-01)") == 0) then
+            print *, "  FAILED: small should render in exponential format"
+            passed = .false.
+        else if (index(help_text, "Neg small (default: -2.5E-01)") == 0) then
+            print *, "  FAILED: negative small should render in exponential format"
+            passed = .false.
+        else if (index(help_text, "Trim (default: 3.14)") == 0) then
+            print *, "  FAILED: fixed format should trim trailing zeros"
+            passed = .false.
+        else if (index(help_text, "Huge (default: 1.0E+09)") == 0) then
+            print *, "  FAILED: very large values should render in exponential format"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_real_default_format_edges
+
+    !> Verifies wp defaults avoid single-precision display artifacts.
+    subroutine test_wp_real_precision_display(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: empty_args(1)
+        character(len=:), allocatable :: help_text
+        real(wp) :: tmp_temp
+
+        print *, "Test: wp real precision display..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--temp", data_type="real", default_val=298.15_wp, &
+                                 help="Temperature")
+
+        help_text = parser%format_help()
+        args = parser%parse_args_array(empty_args(1:0))
+        call args%get("temp", tmp_temp)
+
+        if (index(help_text, "Temperature (default: 298.15)") == 0) then
+            print *, "  FAILED: expected clean wp default in help"
+            passed = .false.
+        else if (index(help_text, "298.149994") > 0) then
+            print *, "  FAILED: should not show single-precision artifacts"
+            passed = .false.
+        else if (abs(tmp_temp - 298.15_wp) > 1.0e-12_wp) then
+            print *, "  FAILED: parsed wp default should preserve precision"
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine test_wp_real_precision_display
+
+    !> Verifies mismatched defaults are rejected with parser errors.
+    subroutine test_mismatched_default_rejected(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: err
+
+        print *, "Test: mismatched default rejection..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--ival", data_type="int", default_val=1.5_wp, help="Integer")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: int argument should reject real default"
+            passed = .false.
+            return
+        end if
+        err = parser%last_error%message
+        if (index(err, "invalid default") == 0) then
+            print *, "  FAILED: rejection should set default-related parser error"
+            passed = .false.
+            return
+        end if
+        if (parser%num_actions /= 0) then
+            print *, "  FAILED: rejected argument should not be registered"
+            passed = .false.
+            return
+        end if
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--rval", data_type="real", default_val=2, help="Real")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: real argument should reject integer default"
+            passed = .false.
+            return
+        end if
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--flag", data_type="bool", default_val=1, help="Flag")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: logical argument should reject integer default"
+            passed = .false.
+            return
+        end if
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--count", data_type="int", default_val="abc", help="Count")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: int argument should reject non-numeric string default"
+            passed = .false.
+            return
+        end if
+
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--valid", data_type="real", default_val=2.5_wp, help="Valid")
+        if (parser%last_error%has_error) then
+            print *, "  FAILED: valid default should not set parser error"
+            passed = .false.
+            return
+        end if
+
+        print *, "  PASSED"
+    end subroutine test_mismatched_default_rejected
+
+    !> Regression: rejecting an invalid default must not leave stale default state:
+    !> A failed add should not affect the next argument slot
+    !> In particular, help text for a clean argument must not show a leaked default
+    subroutine test_rejected_default_does_not_leak(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: help_text
+
+        print *, "Test: rejected default does not leak..."
+
+        call parser%init(prog="test_prog", add_help=.false.)
+
+        call parser%add_argument("--bad", data_type="int", default_val=1.5_wp, &
+                                 help="Bad argument")
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: setup should reject invalid default"
+            passed = .false.
+            return
+        end if
+
+        if (parser%num_actions /= 0) then
+            print *, "  FAILED: rejected argument should not remain registered"
+            passed = .false.
+            return
+        end if
+
+        call parser%add_argument("--clean", help="Should stay clean")
+        if (parser%last_error%has_error) then
+            print *, "  FAILED: valid follow-up argument should not fail"
+            passed = .false.
+            return
+        end if
+
+        help_text = parser%format_help()
+        if (index(help_text, "Should stay clean (default:") > 0) then
+            print *, "  FAILED: default state leaked from rejected argument"
+            passed = .false.
+            return
+        end if
+
+        print *, "  PASSED"
+    end subroutine test_rejected_default_does_not_leak
+
     subroutine test_type_conversion(passed)
         logical, intent(inout) :: passed
         type(ArgumentParser) :: parser
         type(Namespace) :: args
         character(len=256) :: test_args(4)
         integer :: tmp_number
-        real :: tmp_factor
+        real(wp) :: tmp_factor
 
         print *, "Test: type conversion (integer, real)..."
 
@@ -211,7 +669,7 @@ contains
         if (tmp_number /= 42) then
             print *, "  FAILED: number should be 42, got: ", tmp_number
             passed = .false.
-        else if (abs(tmp_factor - 3.14) > 0.01) then
+        else if (abs(tmp_factor - 3.14_wp) > 0.01_wp) then
             print *, "  FAILED: factor should be ~3.14, got: ", tmp_factor
             passed = .false.
         else
@@ -527,5 +985,294 @@ contains
 
         print *, "  PASSED"
     end subroutine test_subparsers
+
+    !* ================================================================================ *!
+    !*                   The following tests have to be added when the                  *!
+    !*                   error handling in fclap is revised so there is                 *!
+    !*                               no hard exit anymore                               *!
+    !* ================================================================================ *!
+
+    !> Helper check for deferred expected-failure tests.
+    subroutine assert_expected_failure(parser, passed, context)
+        type(ArgumentParser), intent(in) :: parser
+        logical, intent(inout) :: passed
+        character(len=*), intent(in) :: context
+
+        if (.not. parser%last_error%has_error) then
+            print *, "  FAILED: expected parser error for ", trim(context)
+            passed = .false.
+        else
+            print *, "  PASSED"
+        end if
+    end subroutine assert_expected_failure
+
+    !> Fails when required positional argument is missing.
+    subroutine test_fail_missing_required_positional(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=1) :: empty_args(1)
+
+        print *, "Deferred fail test: missing required positional..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("input", help="Input")
+        args = parser%parse_args_array(empty_args(1:0))
+        call assert_expected_failure(parser, passed, "missing required positional")
+    end subroutine test_fail_missing_required_positional
+
+    !> Fails when required optional argument is missing.
+    subroutine test_fail_missing_required_optional(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=1) :: empty_args(1)
+
+        print *, "Deferred fail test: missing required optional..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--output", required=.true., help="Output")
+        args = parser%parse_args_array(empty_args(1:0))
+        call assert_expected_failure(parser, passed, "missing required optional")
+    end subroutine test_fail_missing_required_optional
+
+    !> Fails when option value is missing.
+    subroutine test_fail_option_missing_value(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(1)
+
+        print *, "Deferred fail test: option missing value..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--output", help="Output")
+        bad_args(1) = "--output"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "option missing value")
+    end subroutine test_fail_option_missing_value
+
+    !> Fails when integer argument receives non-integer input.
+    subroutine test_fail_invalid_int_value(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: invalid integer value..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--n", data_type="int", help="Count")
+        bad_args(1) = "--n"
+        bad_args(2) = "abc"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "invalid integer value")
+    end subroutine test_fail_invalid_int_value
+
+    !> Fails when real argument receives non-real input.
+    subroutine test_fail_invalid_real_value(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: invalid real value..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--x", data_type="real", help="Real value")
+        bad_args(1) = "--x"
+        bad_args(2) = "abc"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "invalid real value")
+    end subroutine test_fail_invalid_real_value
+
+    !> Fails when logical argument receives invalid token.
+    subroutine test_fail_invalid_logical_value(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: invalid logical value..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--flag", data_type="bool", help="Flag")
+        bad_args(1) = "--flag"
+        bad_args(2) = "maybe"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "invalid logical value")
+    end subroutine test_fail_invalid_logical_value
+
+    !> Fails when string argument receives disallowed choice.
+    subroutine test_fail_invalid_choice_string(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: invalid string choice..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--radii", choices=[character(len=5) :: "cpcm", "bondi"], help="Radii")
+        bad_args(1) = "--radii"
+        bad_args(2) = "smd"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "invalid string choice")
+    end subroutine test_fail_invalid_choice_string
+
+    !> Fails when integer argument receives value outside allowed choices.
+    subroutine test_fail_invalid_choice_integer(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: invalid integer choice..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--level", data_type="int", &
+                                 choices=[character(len=1) :: "1", "2"], help="Level")
+        bad_args(1) = "--level"
+        bad_args(2) = "3"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "invalid integer choice")
+    end subroutine test_fail_invalid_choice_integer
+
+    !> Fails when both options in mutex group are provided.
+    subroutine test_fail_mutex_conflict(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+        integer :: mutex_idx
+
+        print *, "Deferred fail test: mutex conflict..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        mutex_idx = parser%add_mutually_exclusive_group(required=.false.)
+        call parser%add_argument("--foo", action="store_true", mutex_group_idx=mutex_idx)
+        call parser%add_argument("--bar", action="store_true", mutex_group_idx=mutex_idx)
+        bad_args(1) = "--foo"
+        bad_args(2) = "--bar"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "mutex conflict")
+    end subroutine test_fail_mutex_conflict
+
+    !> Fails when required mutex group has no selected option.
+    subroutine test_fail_required_mutex_missing(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=1) :: empty_args(1)
+        integer :: mutex_idx
+
+        print *, "Deferred fail test: required mutex missing..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        mutex_idx = parser%add_mutually_exclusive_group(required=.true.)
+        call parser%add_argument("--foo", action="store_true", mutex_group_idx=mutex_idx)
+        call parser%add_argument("--bar", action="store_true", mutex_group_idx=mutex_idx)
+        args = parser%parse_args_array(empty_args(1:0))
+        call assert_expected_failure(parser, passed, "required mutex missing")
+    end subroutine test_fail_required_mutex_missing
+
+    !> Fails when value violates not_less_than bound.
+    subroutine test_fail_not_less_than_violation(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: not_less_than violation..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--x", data_type="real", action=not_less_than(0.0_wp))
+        bad_args(1) = "--x"
+        bad_args(2) = "-0.1"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "not_less_than violation")
+    end subroutine test_fail_not_less_than_violation
+
+    !> Fails when value violates not_bigger_than bound.
+    subroutine test_fail_not_bigger_than_violation(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: not_bigger_than violation..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--x", data_type="real", action=not_bigger_than(1.0_wp))
+        bad_args(1) = "--x"
+        bad_args(2) = "1.1"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "not_bigger_than violation")
+    end subroutine test_fail_not_bigger_than_violation
+
+    !> Fails when unknown option is provided.
+    subroutine test_fail_unknown_option(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(1)
+
+        print *, "Deferred fail test: unknown option..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        bad_args(1) = "--does-not-exist"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "unknown option")
+    end subroutine test_fail_unknown_option
+
+    !> Fails when too many positional arguments are provided.
+    subroutine test_fail_extra_positional(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(2)
+
+        print *, "Deferred fail test: extra positional argument..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("input", help="Input")
+        bad_args(1) = "a"
+        bad_args(2) = "b"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "extra positional argument")
+    end subroutine test_fail_extra_positional
+
+    !> Fails when unknown subcommand is used.
+    subroutine test_fail_unknown_subcommand(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser, sub_a
+        type(Namespace) :: args
+        character(len=256) :: bad_args(1)
+
+        print *, "Deferred fail test: unknown subcommand..."
+        call parser%init(prog="PROG", add_help=.false.)
+        call parser%add_subparsers(dest="command")
+        call sub_a%init(prog="PROG a", add_help=.false.)
+        call parser%add_parser("a", sub_a, help_text="a help")
+        bad_args(1) = "z"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "unknown subcommand")
+    end subroutine test_fail_unknown_subcommand
+
+    !> Fails when removed argument is used.
+    subroutine test_fail_removed_argument_used(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(1)
+
+        print *, "Deferred fail test: removed argument used..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("--old", action="store_true", status=STATUS_REMOVED)
+        bad_args(1) = "--old"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "removed argument used")
+    end subroutine test_fail_removed_argument_used
+
+    !> Fails when append action is missing its value.
+    subroutine test_fail_append_missing_value(passed)
+        logical, intent(inout) :: passed
+        type(ArgumentParser) :: parser
+        type(Namespace) :: args
+        character(len=256) :: bad_args(1)
+
+        print *, "Deferred fail test: append missing value..."
+        call parser%init(prog="test_prog", add_help=.false.)
+        call parser%add_argument("-f", action="append", help="File")
+        bad_args(1) = "-f"
+        args = parser%parse_args_array(bad_args)
+        call assert_expected_failure(parser, passed, "append missing value")
+    end subroutine test_fail_append_missing_value
 
 end program tester

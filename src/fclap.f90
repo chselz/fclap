@@ -54,6 +54,7 @@ module fclap
     use fclap_actions, only: Action, not_less_than, not_bigger_than
     use fclap_parser, only: ArgumentParser, ArgumentGroup, MutuallyExclusiveGroup, &
         get_prog_name
+    use fclap_utils_accuracy, only: wp
     use fclap_version, only: get_fclap_version, fclap_version_compact, &
         fclap_version_string
 
@@ -117,5 +118,6 @@ module fclap
     public :: get_fclap_version   ! Get version components
     public :: fclap_version_compact ! Compact version string
     public :: fclap_version_string  ! Full version string
+    public :: wp                    ! Working precision kind for reals
 
 end module fclap
