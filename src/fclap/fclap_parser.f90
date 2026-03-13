@@ -352,7 +352,7 @@ contains
     !>
     !> @details Sets up the parser with the given configuration options.
     !> By default, -h/--help is automatically added. If version is provided,
-    !> -V/--version is also added.
+    !> --version is also added.
     !>
     !> @param self The ArgumentParser instance
     !> @param prog Optional program name (defaults to argv(0))
@@ -399,7 +399,7 @@ contains
         end if
 
         if (present(version)) then
-            call self%add_argument("-V", "--version", action="version", &
+            call self%add_argument("--version", action="version", &
                                    help="show program's version number and exit")
         end if
     end subroutine parser_init
@@ -407,7 +407,7 @@ contains
     !> @brief Initialize parser with inherited arguments from parent parsers.
     !>
     !> @details Creates a new parser that inherits all arguments (except -h/--help
-    !> and -V/--version) from the specified parent parsers. This is useful for
+    !> and --version) from the specified parent parsers. This is useful for
     !> sharing common arguments across multiple parsers.
     !>
     !> @param self The ArgumentParser instance
@@ -1384,6 +1384,9 @@ contains
 
         call self%print_usage()
         write(*, '(A,A,A)') trim(self%prog), ": error: ", trim(message)
+        ! critical line !!! no stop should be thrown per default this could however be enabled by user but in priciple the user should just check if error is allocated (this needs to be output of parsing function)
+        ! in python the definiton of the argparser has an argument (exit_on_error) which is set to true per default
+        ! maybe its better to just return with an allocated error type
         error stop 2
     end subroutine parser_error
 

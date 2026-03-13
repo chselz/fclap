@@ -6,15 +6,19 @@
 !> communicate parsing failures and invalid argument usage.
 
 module fclap_errors
+    ! TODO use iso fortran env for stderr
+    use, intrinsic :: iso_fortran_env, only : stderr => error_unit
     implicit none
     private
+
+    public :: fclap_error
 
     !> @brief Error type for fclap parsing and validation errors.
     !>
     !> @details Stores error information including a message, the related
     !> argument name, and a flag indicating whether an error has occurred.
     !> Used throughout fclap to report and handle errors.
-    type, public :: fclap_error
+    type :: fclap_error
         !> The error message describing what went wrong
         character(len=:), allocatable :: message
         !> The argument name or value that caused the error
@@ -59,9 +63,9 @@ contains
 
         if (self%has_error) then
             if (allocated(self%argument)) then
-                write(*, '(A,A,A,A)') "error: ", trim(self%message), " -- ", trim(self%argument)
+                write(stderr, '(A,A,A,A)') "error: ", trim(self%message), " -- ", trim(self%argument)
             else
-                write(*, '(A,A)') "error: ", trim(self%message)
+                write(stderr, '(A,A)') "error: ", trim(self%message)
             end if
         end if
     end subroutine error_report

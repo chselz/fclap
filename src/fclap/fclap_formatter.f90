@@ -72,6 +72,8 @@ contains
         logical :: first_in_mutex, is_in_any_mutex
         logical :: mutex_shown(MAX_GROUPS)
 
+        ! TODO there should be like in python the possibility to give at the init stage
+        ! the possibility to write a custom usage message
         usage = "usage: " // trim(prog)
 
         mutex_shown = .false.
