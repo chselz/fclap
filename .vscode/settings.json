@@ -1,0 +1,5 @@
+{
+    "mesonbuild.configureOnOpen": false,
+    "fortran.fortls.path": "/home/selzer/miniforge3/envs/fpm/bin/fortls"
+
+}

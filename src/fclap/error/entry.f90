@@ -4,10 +4,10 @@ module fclap_error_entry
     implicit none
 
     private
-    public :: error_entry
+    public :: ErrorEntry
 
     !> A single error instance
-    type :: error_entry
+    type :: ErrorEntry
         !> 
         integer :: code = 0
         !> severity of the error (default fatal)
@@ -18,12 +18,12 @@ module fclap_error_entry
         character(len=:), allocatable :: arg_name
     contains
         procedure :: to_string => error_entry_to_string
-    end type
+    end type ErrorEntry
 
 contains
 
     function error_entry_to_string(self) result(str)
-        class(error_entry), intent(in) :: self
+        class(ErrorEntry), intent(in) :: self
         character(len=:), allocatable :: str
         character(len=20) :: sev_str
 

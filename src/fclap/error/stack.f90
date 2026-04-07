@@ -1,20 +1,20 @@
 module fclap_error_stack
     use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
-    use fclap_error_entry, only : error_entry
+    use fclap_error_entry, only : ErrorEntry
 
     implicit none
 
     private
-    public :: error_stack
+    public :: ErrorStack
 
     !> A container for one or more errors
-    type :: error_stack
+    type :: ErrorStack
         !> list of errors that came up during parsing
-        type(error_entry), allocatable :: items(:)
+        type(ErrorEntry), allocatable :: items(:)
         !> number of errors contained in the items list
         integer :: count = 0
     contains
-        !> add an error of type(error_entry) to the items list
+        !> add an error of type(ErrorEntry) to the items list
         procedure :: add_error
         !> check if the error stack contains any errors
         procedure :: has_errors
@@ -22,19 +22,19 @@ module fclap_error_stack
         procedure :: print_all
         procedure :: clear
         final :: destruct_stack
-    end type
+    end type ErrorStack
     
 contains
 
     !> Add an error to the stack (dynamic array resizing)
     subroutine add_error(self, message, code, severity, arg_name)
-        class(error_stack), intent(inout) :: self
+        class(ErrorStack), intent(inout) :: self
         character(len=*), intent(in) :: message
         integer, intent(in), optional :: code, severity
         character(len=*), intent(in), optional :: arg_name
         
-        type(error_entry), allocatable :: temp(:)
-        type(error_entry) :: new_err
+        type(ErrorEntry), allocatable :: temp(:)
+        type(ErrorEntry) :: new_err
         
         ! Set defaults
         new_err%message = trim(message)
@@ -55,15 +55,15 @@ contains
         self%items(self%count) = new_err
     end subroutine
 
-    !> check if the error_stack contains errors
+    !> check if the ErrorStack contains errors
     !> returns a logical
     logical function has_errors(self)
-        class(error_stack), intent(in) :: self
+        class(ErrorStack), intent(in) :: self
         has_errors = (self%count > 0)
     end function
 
     subroutine print_all(self, unit)
-        class(error_stack), intent(in) :: self
+        class(ErrorStack), intent(in) :: self
         integer, intent(in), optional :: unit
         integer :: i
         integer :: lun = stderr
@@ -82,7 +82,7 @@ contains
     end subroutine
 
     subroutine clear(self)
-        class(error_stack), intent(inout) :: self
+        class(ErrorStack), intent(inout) :: self
         
         ! Deallocate the array of error items
         if (allocated(self%items)) then
@@ -94,12 +94,8 @@ contains
     end subroutine clear
 
     subroutine destruct_stack(self)
-        type(error_stack), intent(inout) :: self
+        type(ErrorStack), intent(inout) :: self
         if (allocated(self%items)) deallocate(self%items)
     end subroutine
     
 end module fclap_error_stack
-    
-    
-    
-    
