@@ -18,8 +18,11 @@ module fclap_error_stack
         procedure :: add_error
         !> check if the error stack contains any errors
         procedure :: has_errors
+        !> check if the error stack contains any fatal errors
+        procedure :: has_fatal_errors
         !> print all errors of the error_stack
         procedure :: print_all
+        !> reset the error_stack
         procedure :: clear
         final :: destruct_stack
     end type ErrorStack
@@ -60,6 +63,20 @@ contains
     logical function has_errors(self)
         class(ErrorStack), intent(in) :: self
         has_errors = (self%count > 0)
+    end function
+
+    !> check if the ErrorStack contains fatal errors
+    !> returns a logical
+    logical function has_fatal_errors(self)
+        class(ErrorStack), intent(in) :: self
+        integer :: i
+        has_fatal_errors = .false.
+        do i = 1, self%count
+            if (self%items(i)%severity == 1) then
+                has_fatal_errors = .true.
+                return
+            end if
+        end do
     end function
 
     subroutine print_all(self, unit)

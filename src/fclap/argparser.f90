@@ -47,6 +47,8 @@ module fclap_argparser
         logical :: add_help = .true.
         !> @brief Whether to exit automatically when an error occurs (default .true.)
         logical :: exit_on_error = .true.
+        !> @brief A type to collect and manage parsing errors
+        type(ErrorStack) :: error_stack
     contains
         !> @brief Initialize the parser with optional configuration.
         !> @param prog Optional program name (defaults to argv(0))
@@ -59,9 +61,6 @@ module fclap_argparser
         procedure :: add_argument => parser_add_argument
     end type ArgumentParser
 contains
-    ! in der init function from argparser
-    ! if(not present(formatter)) then
-    !    formatter = StandardFormatter
 
     subroutine parser_init(self, prog, usage, description, epilog, version, help_formatter, add_help, exit_on_error, parents)
         class(ArgumentParser), intent(inout) :: self
@@ -103,7 +102,6 @@ contains
                                    help="show program's version number and exit")
         end if
 
-        ! We can implement copy_arguments_from later
         ! if (present(parents)) then
         !    do i = 1, size(parents)
         !        call self%copy_arguments_from(parents(i))
@@ -149,32 +147,16 @@ contains
 
     recursive function parser_parse_args(self, err_stack) result(args)
         class(ArgumentParser), intent(inout) :: self
-        type(ErrorStack), intent(inout), optional :: err_stack
+        type(ErrorStack), intent(inout), optional, target :: err_stack
         type(Namespace) :: args
-        
-        type(ErrorStack) :: local_stack
-        logical :: use_local
-        
-        use_local = .not. present(err_stack)
-        
-        ! Initialize namespace
+
         call args%init()
-        
-        ! Try parsing (dummy skeleton for now)
-        ! This is where we would iterate over arguments
-        ! call local_stack%add_error("dummy check", 1)
-        
-        ! If fatal errors, print & abort
-        if (use_local) then
-            if (local_stack%has_errors() .and. self%exit_on_error) then
-                call local_stack%print_all()
-                error stop "Parsing terminated with errors."
-            end if
-        else
-            if (err_stack%has_errors() .and. self%exit_on_error) then
-                call err_stack%print_all()
-                error stop "Parsing terminated with errors."
-            end if
+
+        if (stack%has_fatal_errors() .and. self%exit_on_error) then
+            call stack%print_all()
+            error stop "Parsing terminated with fatal errors."
+        else if (stack%has_errors()) then
+            call stack%print_all()
         end if
     end function parser_parse_args
 

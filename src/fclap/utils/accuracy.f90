@@ -9,6 +9,9 @@ module fclap_utils_accuracy
    !> Double precision real numbers
    integer, parameter :: dp = selected_real_kind(15)
 
+   !> Quadruple precision real numbers (if supported)
+   integer, parameter :: qp = selected_real_kind(33)
+
    !> Working precision for real numbers
    integer, parameter :: wp = dp
 
