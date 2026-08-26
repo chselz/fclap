@@ -1,16 +1,15 @@
 !> Numerical storage size parameters for real and integer values
 module fclap_utils_accuracy
    implicit none
-   public
+   private
+
+   public :: sp, wp, i1, i2, i4, i8, ip
 
    !> Single precision real numbers
    integer, parameter :: sp = selected_real_kind(6)
 
    !> Double precision real numbers
    integer, parameter :: dp = selected_real_kind(15)
-
-   !> Quadruple precision real numbers (if supported)
-   integer, parameter :: qp = selected_real_kind(33)
 
    !> Working precision for real numbers
    integer, parameter :: wp = dp
