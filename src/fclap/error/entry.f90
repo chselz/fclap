@@ -6,38 +6,64 @@ module fclap_error_entry
     private
     public :: ErrorEntry
 
-    !> A single error instance
+    !> A single structured diagnostic produced by configuration or parsing.
     type :: ErrorEntry
-        !> 
+        !> Description of what exact failed e.g. invalid choice
         integer :: code = 0
-        !> severity of the error (default fatal)
+        !> severity of the error (fatal/warning)
         integer :: severity = ERROR_FATAL
-        !> error message of a single occured error
+        !> Error message
         character(len=:), allocatable :: message
-        !> Optional: Which arg caused the error
         character(len=:), allocatable :: arg_name
+        character(len=:), allocatable :: flag
+        integer :: flag_index = 0
     contains
+        procedure :: init => error_entry_init
         procedure :: to_string => error_entry_to_string
     end type ErrorEntry
 
 contains
 
+    subroutine error_entry_init(self, message, code, severity, arg_name, flag, flag_index)
+        class(ErrorEntry), intent(out) :: self
+        character(len=*), intent(in) :: message
+        integer, intent(in), optional :: code, severity
+        character(len=*), intent(in), optional :: arg_name, flag
+        integer, intent(in), optional :: flag_index
+
+        self%message = trim(message)
+        if (present(code)) self%code = code
+        if (present(severity)) self%severity = severity
+        if (present(arg_name)) self%arg_name = trim(arg_name)
+        if (present(flag)) self%flag = trim(flag)
+        if (present(flag_index)) self%flag_index = flag_index
+    end subroutine error_entry_init
+
     function error_entry_to_string(self) result(str)
         class(ErrorEntry), intent(in) :: self
         character(len=:), allocatable :: str
-        character(len=20) :: sev_str
+        character(len=32) :: prefix
+        character(len=32) :: number
 
         if (self%severity == ERROR_FATAL) then
-            sev_str = "[FATAL]"
+            prefix = "FATAL"
         else if (self%severity == ERROR_WARNING) then
-            sev_str = "[WARNING] "
+            prefix = "WARNING"
         else
-            sev_str = "[ERR]"
+            prefix = "ERROR"
         end if
 
-        str = trim(sev_str) // " " // self%message
+        str = "[" // trim(prefix) // "]"
+        if (allocated(self%message)) str = str // " " // self%message
         if (allocated(self%arg_name)) then
-            str = str // " (arg: " // trim(self%arg_name) // ")"
+            str = str // " (argument: " // trim(self%arg_name) // ")"
+        end if
+        if (allocated(self%flag)) then
+            str = str // " (flag: " // trim(self%flag) // ")"
+        end if
+        if (self%flag_index > 0) then
+            write(number, '(i0)') self%flag_index
+            str = str // " (index: " // trim(number) // ")"
         end if
     end function
     

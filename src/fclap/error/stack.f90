@@ -1,118 +1,148 @@
+!> Ordered collection of structured fclap diagnostics.
 module fclap_error_stack
-    use, intrinsic :: iso_fortran_env, only : stderr=>error_unit
+    use, intrinsic :: iso_fortran_env, only : error_unit
+    use fclap_error_codes, only : ERROR_FATAL, ERROR_WARNING
     use fclap_error_entry, only : ErrorEntry
-
     implicit none
-
     private
+
     public :: ErrorStack
 
-    !> A container for one or more errors
     type :: ErrorStack
-        !> list of errors that came up during parsing
+        private
+        !> List of error entries in the stack
         type(ErrorEntry), allocatable :: items(:)
-        !> number of errors contained in the items list
-        integer :: count = 0
     contains
-        !> add an error of type(ErrorEntry) to the items list
-        procedure :: add_error
-        !> check if the error stack contains any errors
+        procedure :: add       => error_stack_add
+        procedure :: add_error => error_stack_add
+        procedure :: append    => error_stack_append_entry
+        procedure :: merge     => error_stack_merge
+        procedure :: count     => error_stack_count
+        procedure :: get       => error_stack_get
         procedure :: has_errors
-        !> check if the error stack contains any fatal errors
         procedure :: has_fatal_errors
-        !> print all errors of the error_stack
+        procedure :: has_warnings
+        procedure :: format_all
         procedure :: print_all
-        !> reset the error_stack
         procedure :: clear
-        final :: destruct_stack
     end type ErrorStack
-    
+
 contains
 
-    !> Add an error to the stack (dynamic array resizing)
-    subroutine add_error(self, message, code, severity, arg_name)
+    subroutine error_stack_add(self, message, code, severity, arg_name, token, token_index)
         class(ErrorStack), intent(inout) :: self
         character(len=*), intent(in) :: message
         integer, intent(in), optional :: code, severity
-        character(len=*), intent(in), optional :: arg_name
-        
-        type(ErrorEntry), allocatable :: temp(:)
-        type(ErrorEntry) :: new_err
-        
-        ! Set defaults
-        new_err%message = trim(message)
-        if (present(code)) new_err%code = code
-        if (present(severity)) new_err%severity = severity
-        if (present(arg_name)) new_err%arg_name = trim(arg_name)
+        character(len=*), intent(in), optional :: arg_name, token
+        integer, intent(in), optional :: token_index
+        type(ErrorEntry) :: entry
 
-        ! Resize logic
-        if (.not. allocated(self%items)) then
-            allocate(self%items(1))
+        call entry%init(message, code, severity, arg_name, token, token_index)
+        call self%append(entry)
+    end subroutine error_stack_add
+
+    subroutine error_stack_append_entry(self, entry)
+        class(ErrorStack), intent(inout) :: self
+        type(ErrorEntry), intent(in) :: entry
+        type(ErrorEntry), allocatable :: temporary(:)
+        integer :: current_size
+
+        current_size = self%count()
+        allocate(temporary(current_size + 1))
+        if (current_size > 0) temporary(:current_size) = self%items
+        temporary(current_size + 1) = entry
+        call move_alloc(temporary, self%items)
+    end subroutine error_stack_append_entry
+
+    subroutine error_stack_merge(self, other)
+        class(ErrorStack), intent(inout) :: self
+        type(ErrorStack), intent(in) :: other
+        integer :: index
+
+        do index = 1, other%count()
+            call self%append(other%items(index))
+        end do
+    end subroutine error_stack_merge
+
+    pure integer function error_stack_count(self) result(number)
+        class(ErrorStack), intent(in) :: self
+
+        if (allocated(self%items)) then
+            number = size(self%items)
         else
-            call move_alloc(self%items, temp)
-            allocate(self%items(self%count + 1))
-            self%items(1:self%count) = temp
+            number = 0
         end if
+    end function error_stack_count
 
-        self%count = self%count + 1
-        self%items(self%count) = new_err
-    end subroutine
-
-    !> check if the ErrorStack contains errors
-    !> returns a logical
-    logical function has_errors(self)
+    function error_stack_get(self, index) result(entry)
         class(ErrorStack), intent(in) :: self
-        has_errors = (self%count > 0)
-    end function
+        integer, intent(in) :: index
+        type(ErrorEntry) :: entry
 
-    !> check if the ErrorStack contains fatal errors
-    !> returns a logical
-    logical function has_fatal_errors(self)
+        if (index >= 1 .and. index <= self%count()) entry = self%items(index)
+    end function error_stack_get
+
+    pure logical function has_errors(self)
         class(ErrorStack), intent(in) :: self
-        integer :: i
+
+        has_errors = self%count() > 0
+    end function has_errors
+
+    pure logical function has_fatal_errors(self)
+        class(ErrorStack), intent(in) :: self
+        integer :: index
+
         has_fatal_errors = .false.
-        do i = 1, self%count
-            if (self%items(i)%severity == 1) then
+        do index = 1, self%count()
+            if (self%items(index)%severity == ERROR_FATAL) then
                 has_fatal_errors = .true.
                 return
             end if
         end do
-    end function
+    end function has_fatal_errors
+
+    pure logical function has_warnings(self)
+        class(ErrorStack), intent(in) :: self
+        integer :: index
+
+        has_warnings = .false.
+        do index = 1, self%count()
+            if (self%items(index)%severity == ERROR_WARNING) then
+                has_warnings = .true.
+                return
+            end if
+        end do
+    end function has_warnings
+
+    function format_all(self) result(text)
+        class(ErrorStack), intent(in) :: self
+        character(len=:), allocatable :: text
+        integer :: index
+
+        text = ""
+        do index = 1, self%count()
+            if (index > 1) text = text // new_line('a')
+            text = text // self%items(index)%to_string()
+        end do
+    end function format_all
 
     subroutine print_all(self, unit)
         class(ErrorStack), intent(in) :: self
         integer, intent(in), optional :: unit
-        integer :: i
-        integer :: lun = stderr
+        integer :: output, index
 
-        if (present(unit)) lun = unit
+        output = error_unit
+        if (present(unit)) output = unit
 
-        if (self%count == 0) then
-            write(lun, '(A)') "No errors found."
-            return
-        end if
-
-        write(lun, '(A,I0,A)') "=== Found ", self%count, " errors ==="
-        do i = 1, self%count
-            write(lun, '(A)') self%items(i)%to_string()
+        do index = 1, self%count()
+            write(output, '(a)') self%items(index)%to_string()
         end do
-    end subroutine
+    end subroutine print_all
 
     subroutine clear(self)
         class(ErrorStack), intent(inout) :: self
-        
-        ! Deallocate the array of error items
-        if (allocated(self%items)) then
-            deallocate(self%items)
-        end if
-        
-        ! Reset the counter
-        self%count = 0
+
+        if (allocated(self%items)) deallocate(self%items)
     end subroutine clear
 
-    subroutine destruct_stack(self)
-        type(ErrorStack), intent(inout) :: self
-        if (allocated(self%items)) deallocate(self%items)
-    end subroutine
-    
 end module fclap_error_stack
