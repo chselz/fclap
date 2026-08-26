@@ -1,0 +1,5 @@
+sphinx>=4.0
+pydata-sphinx-theme
+sphinx-fortran
+myst-parser
+six
