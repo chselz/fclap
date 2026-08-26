@@ -1,14 +1,25 @@
+!> Ordinary argument group that contributes a section to formatted help.
 module fclap_groups_helppage
-    use fclap_groups_abstract, only: GroupType
+    use fclap_formatter_model, only : HelpGroup
+    use fclap_groups_abstract, only : GroupType
     implicit none
     private
 
-    public :: HelpPage
-    
-    type, extends(GroupType) :: HelpPage
-        !> @brief List of argument names that belong to this help page
-        character(len=:), allocatable :: arg_names(:)
-    end type HelpPage
+    public :: ArgumentGroup
+
+    type, extends(GroupType) :: ArgumentGroup
+    contains
+        procedure :: help_snapshot => argument_group_help_snapshot
+    end type ArgumentGroup
+
 contains
-    
+
+    !> Build the formatter-facing representation of an ordinary group.
+    function argument_group_help_snapshot(self) result(snapshot)
+        class(ArgumentGroup), intent(in) :: self
+        type(HelpGroup) :: snapshot
+
+        snapshot = self%make_help_snapshot(.false.)
+    end function argument_group_help_snapshot
+
 end module fclap_groups_helppage
