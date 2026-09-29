@@ -1,369 +1,281 @@
-!> @file argument.f90
-!> @brief Derived type representing a single registered argument.
-!>
-!> @details An Argument is the internal record created for every call to
-!> add_argument. It holds everything the parser needs at parse-time and
-!> everything the formatter needs at help-time. It is intentionally a plain
-!> data type (no parsing logic lives here) so that it can be held in
-!> polymorphic arrays and passed across the actions/groups/formatter layers
-!> without circular dependencies.
-!>
-!> Ownership model:
-!>   - The ArgumentParser owns an allocatable array of Argument.
-!>   - Groups hold integer index lists into that array (no copies).
-!>   - Actions are stored on the Argument itself via class(ActionType).
-
+!> Normalized, owned definition of one registered argument.
 module fclap_argument
-    use fclap_nargs,           only : NARGS_ONE, nargs_is_valid, nargs_to_string
     use fclap_actions_abstract, only : ActionType
+    use fclap_nargs, only : NargsSpec
+    use fclap_validators_abstract, only : ValidatorType
+    use fclap_value_abstract, only : ValueBox
     implicit none
     private
 
     public :: Argument
-    public :: MAX_NAMES
+    public :: derive_dest_from_names
 
-    !> Maximum number of aliases a single argument may have (e.g. -v, --verbose).
-    !> Four covers every realistic case; adjust if truly needed.
-    integer, parameter :: MAX_NAMES = 4
-
-    ! =========================================================================
-    !> @brief A single registered command-line argument.
-    !>
-    !> Populated once during add_argument and afterwards treated as read-only
-    !> by the parser, formatter, and action layer.
-    ! =========================================================================
     type :: Argument
-        ! -----------------------------------------------------------------
-        ! Identity
-        ! -----------------------------------------------------------------
-
-        !> All flag strings for this argument, e.g. ["-v", "--verbose", ""].
-        !> Entries beyond the last alias are empty strings; use name_count
-        !> to know how many are active.
         character(len=:), allocatable :: names(:)
-
-        !> Number of active entries in names (1 .. MAX_NAMES).
-        integer :: name_count = 0
-
-        !> The key used to store the parsed value in the Namespace.
-        !> Derived automatically from the longest --flag name if not set
-        !> explicitly (leading dashes stripped, interior dashes become
-        !> underscores so --dry-run becomes dest="dry_run").
         character(len=:), allocatable :: dest
-
-        !> .true. when every name starts with '-' (i.e. this is an optional
-        !> argument / flag).  .false. for positional arguments.
         logical :: is_optional = .false.
 
-        ! -----------------------------------------------------------------
-        ! Consumption / nargs
-        ! -----------------------------------------------------------------
-
-        !> Internal normalised nargs value.  Always one of the NARGS_*
-        !> sentinels or a positive integer.  Set via the nargs_* constructors
-        !> in fclap_nargs so that no other module needs to do select type.
-        integer :: nargs = NARGS_ONE
-
-        ! -----------------------------------------------------------------
-        ! Type and value
-        ! -----------------------------------------------------------------
-
-        !> The expected value type: "string" (default), "integer", "real",
-        !> "logical".  Used by the default StoreAction to coerce parsed
-        !> tokens.
+        type(NargsSpec) :: nargs
         character(len=:), allocatable :: data_type
-
-        !> Default value, stored polymorphically so it can hold integer,
-        !> real, logical, or character without a wrapper type.
-        class(*), allocatable :: default_val
-
-        !> Constant value used by store_const / store_true / store_false.
-        !> Kept separate from default_val for clarity in action dispatch.
-        class(*), allocatable :: const_val
-
-        !> Allowed values.  If allocated and non-empty, the parser rejects
-        !> any token not found in this list.
-        character(len=:), allocatable :: choices(:)
-
-        !> The action to run when this argument is matched.
-        !> Defaults to a StoreAction when not supplied by the caller.
         class(ActionType), allocatable :: action
+        class(ValidatorType), allocatable :: validator
 
-        ! -----------------------------------------------------------------
-        ! Help / display metadata
-        ! -----------------------------------------------------------------
+        type(ValueBox) :: default_value
+        type(ValueBox) :: const_value
+        type(ValueBox) :: choices
+        logical :: has_default = .false.
+        logical :: has_const = .false.
+        logical :: has_choices = .false.
 
-        !> Human-readable description for the help page.
         character(len=:), allocatable :: help
-
-        !> Metavariable name shown in usage strings (e.g. FILE, N).
-        !> Defaults to dest in upper-case when not provided.
         character(len=:), allocatable :: metavar
-
-        !> .true. when the argument must appear on the command line.
-        !> Positionals are always required; optional flags default to .false.
         logical :: required = .false.
-
-        !> .true. when the argument should appear in help output.
-        !> Set to .false. to hide internal/developer flags.
         logical :: visible = .true.
-
-        !> If non-empty, printed as a deprecation notice when this argument
-        !> is encountered during parsing.
+        logical :: print_default = .true.
+        logical :: print_choices = .false.
         character(len=:), allocatable :: deprecated_msg
-
-        !> If non-empty, the argument is treated as removed: the parser
-        !> emits a fatal error with this message if the flag is used.
         character(len=:), allocatable :: removed_msg
-
     contains
-        ! -----------------------------------------------------------------
-        ! Initialisation
-        ! -----------------------------------------------------------------
-        procedure :: init               => argument_init
-
-        ! -----------------------------------------------------------------
-        ! Derived-value helpers (pure, no side effects)
-        ! -----------------------------------------------------------------
-
-        !> Return .true. if no name starts with '-' (positional argument).
-        procedure :: is_positional      => argument_is_positional
-
-        !> Return the longest --flag name (or the sole positional name).
-        procedure :: primary_name       => argument_primary_name
-
-        !> Derive the dest key from the primary name: strip leading dashes,
-        !> replace interior '-' with '_'.
-        procedure :: derive_dest        => argument_derive_dest
-
-        !> Return the metavar string, defaulting to upper-case dest.
-        procedure :: effective_metavar  => argument_effective_metavar
-
-        !> Return a display-ready nargs annotation, e.g. "N", "?", "+".
-        procedure :: nargs_display      => argument_nargs_display
-
-        !> Return .true. when this argument accepts zero or more values
-        !> (i.e. its result type is a list).
-        procedure :: produces_list      => argument_produces_list
-
+        procedure :: init => argument_init
+        procedure :: name_count => argument_name_count
+        procedure :: matches_name => argument_matches_name
+        procedure :: is_positional => argument_is_positional
+        procedure :: primary_name => argument_primary_name
+        procedure :: derive_dest => argument_derive_dest
+        procedure :: effective_metavar => argument_effective_metavar
+        procedure :: nargs_display => argument_nargs_display
+        procedure :: nargs_value => argument_nargs_value
+        procedure :: produces_list => argument_produces_list
     end type Argument
 
 contains
 
-    ! =========================================================================
-    ! Initialisation
-    ! =========================================================================
-
-    !> @brief Populate an Argument from the raw parameters of add_argument.
-    !>
-    !> @param self          The Argument to initialise.
-    !> @param names         Array of flag strings (e.g. ["-v","--verbose"]).
-    !> @param nargs_val     Already-normalised nargs integer from fclap_nargs.
-    !> @param data_type     Optional type hint; defaults to "string".
-    !> @param dest          Optional explicit dest key.
-    !> @param help          Optional help string.
-    !> @param metavar       Optional metavar override.
-    !> @param required      Optional required flag.
-    !> @param visible       Optional visibility flag.
-    !> @param deprecated_msg Optional deprecation message.
-    !> @param removed_msg   Optional removal message.
-    subroutine argument_init(self, names, nargs_val, data_type, dest, &
-                             help, metavar, required, visible,         &
-                             deprecated_msg, removed_msg)
-        class(Argument),  intent(inout)        :: self
-        character(len=*), intent(in)           :: names(:)
-        integer,          intent(in)           :: nargs_val
-        character(len=*), intent(in), optional :: data_type
+    subroutine argument_init(self, names, nargs, data_type, action, dest, &
+        default_value, const_value, choices, has_default, has_const, &
+        has_choices, validator, required, help, &
+        metavar, visible, deprecated_msg, removed_msg, print_default, &
+        print_choices)
+        class(Argument), intent(out) :: self
+        character(len=*), intent(in) :: names(:)
+        type(NargsSpec), intent(in) :: nargs
+        character(len=*), intent(in) :: data_type
+        class(ActionType), intent(in) :: action
         character(len=*), intent(in), optional :: dest
-        character(len=*), intent(in), optional :: help
-        character(len=*), intent(in), optional :: metavar
-        logical,          intent(in), optional :: required
-        logical,          intent(in), optional :: visible
-        character(len=*), intent(in), optional :: deprecated_msg
-        character(len=*), intent(in), optional :: removed_msg
+        type(ValueBox), intent(in) :: default_value, const_value, choices
+        logical, intent(in) :: has_default, has_const, has_choices
+        class(ValidatorType), intent(in), optional :: validator
+        logical, intent(in) :: required
+        character(len=*), intent(in), optional :: help, metavar
+        logical, intent(in), optional :: visible
+        character(len=*), intent(in), optional :: deprecated_msg, removed_msg
+        logical, intent(in), optional :: print_default, print_choices
+        integer :: index, name_length
 
-        integer :: i, n
-
-        ! ---- names ----------------------------------------------------------
-        n = min(size(names), MAX_NAMES)
-        self%name_count = n
-
-        ! Store as a fixed-rank allocatable; each element gets its own length.
-        ! We allocate as a deferred-length array of the longest name's length
-        ! so every slot is the same declared length — required by the standard.
-        ! Individual trimming is handled in accessor routines.
-        allocate(character(len=len(names(1))) :: self%names(n))
-        do i = 1, n
-            self%names(i) = trim(names(i))
+        name_length = maxval(len_trim(names))
+        allocate(character(len=name_length) :: self%names(size(names)))
+        do index = 1, size(names)
+            self%names(index) = trim(names(index))
         end do
 
-        ! ---- optional/positional classification -----------------------------
-        if (n > 0) then
-            self%is_optional = (len_trim(names(1)) > 0 .and. names(1)(1:1) == '-')
-        end if
+        self%is_optional = names_are_optional(names)
+        self%nargs = nargs
+        self%data_type = trim(data_type)
+        allocate(self%action, source=action)
+        if (present(validator)) allocate(self%validator, source=validator)
 
-        ! ---- nargs ----------------------------------------------------------
-        self%nargs = nargs_val   ! already validated by the caller
-
-        ! ---- data_type ------------------------------------------------------
-        if (present(data_type)) then
-            self%data_type = trim(data_type)
-        else
-            self%data_type = "string"
-        end if
-
-        ! ---- dest -----------------------------------------------------------
         if (present(dest)) then
             self%dest = trim(dest)
         else
-            self%dest = self%derive_dest()
+            self%dest = derive_dest_from_names(names)
         end if
 
-        ! ---- help / display -------------------------------------------------
-        if (present(help))           self%help           = trim(help)
-        if (present(metavar))        self%metavar        = trim(metavar)
-        if (present(deprecated_msg)) self%deprecated_msg = trim(deprecated_msg)
-        if (present(removed_msg))    self%removed_msg    = trim(removed_msg)
-
-        ! ---- flags ----------------------------------------------------------
-        if (present(required)) then
-            self%required = required
-        else
-            ! Positionals are always required unless the caller overrides
-            self%required = .not. self%is_optional
+        if (has_default) then
+            self%default_value = default_value%clone()
+            self%has_default = .true.
+        end if
+        if (has_const) then
+            self%const_value = const_value%clone()
+            self%has_const = .true.
+        end if
+        if (has_choices) then
+            self%choices = choices%clone()
+            self%has_choices = .true.
         end if
 
+        self%required = required
+        if (present(help)) self%help = trim(help)
+        if (present(metavar)) self%metavar = trim(metavar)
         if (present(visible)) self%visible = visible
-
+        if (present(deprecated_msg)) self%deprecated_msg = trim(deprecated_msg)
+        if (present(removed_msg)) self%removed_msg = trim(removed_msg)
+        if (present(print_default)) self%print_default = print_default
+        if (present(print_choices)) self%print_choices = print_choices
     end subroutine argument_init
 
-    ! =========================================================================
-    ! Pure derived-value helpers
-    ! =========================================================================
-
-    !> @brief Return .true. when this argument is positional (no leading dash).
-    pure logical function argument_is_positional(self)
+    pure integer function argument_name_count(self) result(number)
         class(Argument), intent(in) :: self
-        argument_is_positional = .not. self%is_optional
-    end function argument_is_positional
 
-    ! -------------------------------------------------------------------------
-
-    !> @brief Return the "primary" name used for dest derivation and display.
-    !>
-    !> For optional arguments this is the longest name (usually the --long
-    !> form).  For positionals it is the only name.
-    function argument_primary_name(self) result(name)
-        class(Argument),          intent(in) :: self
-        character(len=:), allocatable        :: name
-        integer :: i, best, best_len, cur_len
-
-        if (self%name_count == 0) then
-            name = ""
-            return
+        if (allocated(self%names)) then
+            number = size(self%names)
+        else
+            number = 0
         end if
+    end function argument_name_count
 
-        best     = 1
-        best_len = len_trim(self%names(1))
+    pure logical function argument_matches_name(self, name) result(matches)
+        class(Argument), intent(in) :: self
+        character(len=*), intent(in) :: name
+        integer :: index
 
-        do i = 2, self%name_count
-            cur_len = len_trim(self%names(i))
-            if (cur_len > best_len) then
-                best     = i
-                best_len = cur_len
+        matches = .false.
+        do index = 1, self%name_count()
+            if (trim(self%names(index)) == trim(name)) then
+                matches = .true.
+                return
             end if
         end do
+    end function argument_matches_name
 
-        name = trim(self%names(best))
+    pure logical function argument_is_positional(self) result(is_positional)
+        class(Argument), intent(in) :: self
+
+        is_positional = .not. self%is_optional
+    end function argument_is_positional
+
+    function argument_primary_name(self) result(name)
+        class(Argument), intent(in) :: self
+        character(len=:), allocatable :: name
+
+        if (self%name_count() == 0) then
+            name = ""
+        else
+            name = primary_name_from_names(self%names)
+        end if
     end function argument_primary_name
 
-    ! -------------------------------------------------------------------------
-
-    !> @brief Derive the dest key from the primary name.
-    !>
-    !> Leading '-' characters are stripped; interior '-' become '_'.
-    !> Examples:
-    !>   "--dry-run"  =>  "dry_run"
-    !>   "-v"         =>  "v"
-    !>   "filename"   =>  "filename"
     function argument_derive_dest(self) result(dest)
-        class(Argument),          intent(in) :: self
-        character(len=:), allocatable        :: dest
-        character(len=:), allocatable        :: raw
-        integer :: i, start
+        class(Argument), intent(in) :: self
+        character(len=:), allocatable :: dest
 
-        raw = self%primary_name()
-        if (len_trim(raw) == 0) then
+        if (self%name_count() == 0) then
             dest = ""
-            return
+        else
+            dest = derive_dest_from_names(self%names)
         end if
-
-        ! Skip leading dashes
-        start = 1
-        do while (start <= len_trim(raw) .and. raw(start:start) == '-')
-            start = start + 1
-        end do
-
-        dest = raw(start:len_trim(raw))
-
-        ! Replace interior '-' with '_'
-        do i = 1, len(dest)
-            if (dest(i:i) == '-') dest(i:i) = '_'
-        end do
     end function argument_derive_dest
 
-    ! -------------------------------------------------------------------------
-
-    !> @brief Return the metavar to display in usage strings.
-    !>
-    !> Uses the explicit metavar if set; otherwise upper-cases the dest.
-    function argument_effective_metavar(self) result(mv)
-        class(Argument),          intent(in) :: self
-        character(len=:), allocatable        :: mv
-        integer :: i
-        character :: c
+    function argument_effective_metavar(self) result(metavar)
+        class(Argument), intent(in) :: self
+        character(len=:), allocatable :: metavar
+        integer :: index, code
 
         if (allocated(self%metavar)) then
-            mv = self%metavar
+            metavar = self%metavar
             return
         end if
 
         if (.not. allocated(self%dest)) then
-            mv = "VALUE"
+            metavar = "VALUE"
             return
         end if
 
-        ! Upper-case the dest string character by character
-        mv = self%dest
-        do i = 1, len(mv)
-            c = mv(i:i)
-            if (c >= 'a' .and. c <= 'z') mv(i:i) = achar(iachar(c) - 32)
+        metavar = self%dest
+        do index = 1, len(metavar)
+            code = iachar(metavar(index:index))
+            if (code >= iachar('a') .and. code <= iachar('z')) then
+                metavar(index:index) = achar(code + iachar('A') - iachar('a'))
+            end if
         end do
     end function argument_effective_metavar
 
-    ! -------------------------------------------------------------------------
+    function argument_nargs_display(self) result(display)
+        class(Argument), intent(in) :: self
+        character(len=:), allocatable :: display
 
-    !> @brief Return the nargs annotation string used in usage output.
-    !>
-    !> Returns the result of nargs_to_string from fclap_nargs.
-    function argument_nargs_display(self) result(str)
-        class(Argument),          intent(in) :: self
-        character(len=:), allocatable        :: str
-        str = nargs_to_string(self%nargs)
+        display = self%nargs%to_string()
     end function argument_nargs_display
 
-    ! -------------------------------------------------------------------------
-
-    !> @brief Return .true. when the argument collects a variable-length list.
-    !>
-    !> This is used by the Namespace layer to decide whether to store a
-    !> scalar or an array under self%dest.
-    pure logical function argument_produces_list(self)
+    pure integer function argument_nargs_value(self) result(value)
         class(Argument), intent(in) :: self
-        argument_produces_list = (self%nargs == -3 .or.  &  ! NARGS_ZERO_OR_MORE
-                                  self%nargs == -4 .or.  &  ! NARGS_ONE_OR_MORE
-                                  self%nargs == -5 .or.  &  ! NARGS_REMAINDER
-                                  self%nargs >= 2)           ! exact count >= 2
+
+        value = self%nargs%value()
+    end function argument_nargs_value
+
+    pure logical function argument_produces_list(self) result(produces_list)
+        class(Argument), intent(in) :: self
+
+        if (allocated(self%action)) then
+            produces_list = self%action%produces_list(self%nargs)
+        else
+            produces_list = self%nargs%produces_list()
+        end if
     end function argument_produces_list
+
+    function derive_dest_from_names(names) result(dest)
+        character(len=*), intent(in) :: names(:)
+        character(len=:), allocatable :: dest
+        character(len=:), allocatable :: primary
+        integer :: index, first
+
+        primary = primary_name_from_names(names)
+        first = 1
+        do while (first <= len_trim(primary) .and. primary(first:first) == '-')
+            first = first + 1
+        end do
+        if (first > len_trim(primary)) then
+            dest = ""
+            return
+        end if
+
+        dest = primary(first:len_trim(primary))
+        do index = 1, len(dest)
+            if (dest(index:index) == '-') dest(index:index) = '_'
+        end do
+    end function derive_dest_from_names
+
+    function primary_name_from_names(names) result(name)
+        character(len=*), intent(in) :: names(:)
+        character(len=:), allocatable :: name
+        integer :: index, best, best_length
+        logical :: has_long_option
+
+        if (size(names) == 0) then
+            name = ""
+            return
+        end if
+        if (.not. names_are_optional(names)) then
+            name = trim(names(1))
+            return
+        end if
+
+        has_long_option = .false.
+        do index = 1, size(names)
+            if (len_trim(names(index)) > 2 .and. names(index)(1:2) == '--') then
+                has_long_option = .true.
+                exit
+            end if
+        end do
+
+        best = 1
+        best_length = -1
+        do index = 1, size(names)
+            if (has_long_option) then
+                if (len_trim(names(index)) <= 2) cycle
+                if (names(index)(1:2) /= '--') cycle
+            end if
+            if (len_trim(names(index)) > best_length) then
+                best = index
+                best_length = len_trim(names(index))
+            end if
+        end do
+        name = trim(names(best))
+    end function primary_name_from_names
+
+    pure logical function names_are_optional(names) result(optional_names)
+        character(len=*), intent(in) :: names(:)
+
+        optional_names = size(names) > 0 .and. len_trim(names(1)) > 0
+        if (optional_names) optional_names = names(1)(1:1) == '-'
+    end function names_are_optional
 
 end module fclap_argument

@@ -19,6 +19,7 @@ project(
   default_options: [
     'buildtype=debugoptimized',
     'default_library=both',
+    'fortran_std=f2018',
   ],
 )
 install = not (meson.is_subproject() and get_option('default_library') == 'static')
@@ -61,6 +62,7 @@ if install
   meson.add_install_script(
     find_program(files('config'/'install-mod.py')),
     get_option('includedir') / module_id,
+    meson.project_name(),
   )
 
   pkg = import('pkgconfig')
@@ -71,7 +73,7 @@ if install
   )
 endif
 
-# add the testsuite
+# Add the testsuite.
 if get_option('tests')
   fpm_toml = meson.current_source_dir()/'fpm.toml'
   subdir('test')

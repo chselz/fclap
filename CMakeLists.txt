@@ -39,10 +39,13 @@ add_library(
 set_target_properties(
   "${PROJECT_NAME}-lib"
   PROPERTIES
+  Fortran_STANDARD 2018
+  Fortran_STANDARD_REQUIRED TRUE
   POSITION_INDEPENDENT_CODE TRUE
   OUTPUT_NAME "${PROJECT_NAME}"
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${PROJECT_VERSION_MAJOR}"
+  EXPORT_NAME "${PROJECT_NAME}"
   Fortran_MODULE_DIRECTORY "${PROJECT_BINARY_DIR}/include"
 )
 target_include_directories(
@@ -56,12 +59,10 @@ if(NOT EXISTS "${PROJECT_BINARY_DIR}/include")
   file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/include")
 endif()
 
-# Export targets for other projects
-add_library("${PROJECT_NAME}" INTERFACE)
-target_link_libraries("${PROJECT_NAME}" INTERFACE "${PROJECT_NAME}-lib")
+# Use the same target spelling in the build tree and installed package.
+add_library("${PROJECT_NAME}" ALIAS "${PROJECT_NAME}-lib")
 install(
   TARGETS
-  "${PROJECT_NAME}"
   "${PROJECT_NAME}-lib"
   EXPORT
   "${PROJECT_NAME}-targets"
@@ -79,6 +80,9 @@ install(
   DIRECTORY
   "${PROJECT_BINARY_DIR}/include/"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/${module-dir}"
+  FILES_MATCHING
+  PATTERN "*.mod"
+  PATTERN "*.smod"
 )
 # Package license files
 install(
@@ -87,7 +91,7 @@ install(
   DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/${PROJECT_NAME}"
 )
 
-# add the testsuite
+# Add the testsuite.
 if(BUILD_TESTING)
   enable_testing()
   set(fpm-toml "${PROJECT_SOURCE_DIR}/fpm.toml")

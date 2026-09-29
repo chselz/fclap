@@ -1,7 +1,5 @@
-! in python there ar 5 formatters default, metavar, defaults, raw description, rawtext
-
-
-module flcap_formatter_abstract
+module fclap_formatter_abstract
+    use fclap_formatter_model, only : HelpModel
     implicit none
 
     private
@@ -15,21 +13,19 @@ module flcap_formatter_abstract
     end type FormatterType
 
     abstract interface 
-        function format_help_interface(self, parser) result(res)
-            import :: FormatterType
-            ! Can't import ArgumentParser easily as it would create circular dependency,
-            ! so we pass parser components or just class(*)
+        function format_help_interface(self, model) result(res)
+            import :: FormatterType, HelpModel
             class(FormatterType), intent(in) :: self
-            class(*), intent(in) :: parser
+            type(HelpModel), intent(in) :: model
             character(len=:), allocatable :: res
         end function format_help_interface
 
-        function format_usage_interface(self, parser) result(res)
-            import :: FormatterType
+        function format_usage_interface(self, model) result(res)
+            import :: FormatterType, HelpModel
             class(FormatterType), intent(in) :: self
-            class(*), intent(in) :: parser
+            type(HelpModel), intent(in) :: model
             character(len=:), allocatable :: res
         end function format_usage_interface
     end interface
     
-end module flcap_formatter_abstract
+end module fclap_formatter_abstract

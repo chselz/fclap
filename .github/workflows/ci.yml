@@ -1,155 +1,144 @@
-# name: CI
+name: CI
 
-# on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
 
-# env:
-#   BUILD_DIR: _build
-#   PIP_PACKAGES: >-
-#     meson!=1.8.0
-#     cmake
-#     ninja
+permissions:
+  contents: read
 
-# jobs:
-#   build:
-#     runs-on: ${{ matrix.os }}
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         os: [ubuntu-latest]
-#         build-type: [debug]
-#         toolchain:
-#           - {compiler: gcc, version: '14', build: meson}
-#           - {compiler: gcc, version: '14', build: cmake}
-#           - {compiler: gcc, version: '14', build: fpm}
-#           - {compiler: intel, version: '2024.2', build: meson}
-#           - {compiler: intel, version: '2024.2', build: cmake}
-#           - {compiler: intel, version: '2024.2', build: fpm}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
-#     defaults:
-#       run:
-#         shell: bash
+jobs:
+  fpm:
+    name: fpm (${{ matrix.profile }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - profile: debug
+            flags: -std=f2018 -fcheck=all -fbacktrace -Wall -Wextra
+          - profile: release
+            flags: -std=f2018 -O3
 
-#     env:
-#       PYTHON_V: 3.9
+    steps:
+      - uses: actions/checkout@v6
 
-#     steps:
-#     - name: Checkout code
-#       uses: actions/checkout@v4
+      - uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+          version: "14"
 
-#     - uses: actions/setup-python@v5
-#       with:
-#         python-version: ${{ env.PYTHON_V }}
+      - uses: fortran-lang/setup-fpm@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
 
-#     - name: Install fpm
-#       if: ${{ matrix.toolchain.build == 'fpm' }}
-#       uses: fortran-lang/setup-fpm@v7
-#       with:
-#         github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check source manifests
+        run: python3 config/check-manifests.py
 
-#     - name: Prepare for cache restore
-#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
-#       run: |
-#         sudo mkdir -p /opt/intel
-#         sudo chown $USER /opt/intel
+      - name: Build and run Test Drive suite
+        run: >-
+          fpm test
+          --profile ${{ matrix.profile }}
+          --flag "${{ matrix.flags }}"
 
-#     - name: Cache Intel installation
-#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
-#       id: cache-install
-#       uses: actions/cache@v4
-#       with:
-#         path: /opt/intel/oneapi
-#         key: install-${{ matrix.toolchain.compiler }}-${{ matrix.toolchain.version }}-${{ matrix.os }}
+      - name: Smoke-test public examples
+        run: |
+          fpm run --profile ${{ matrix.profile }} --example basic -- input.dat --threads 2 --verbose
+          fpm run --profile ${{ matrix.profile }} --example subcommands -- --verbose run input.dat --dry-run
+          fpm run --profile ${{ matrix.profile }} --example library_mode
 
-#     - name: Install GCC Compiler
-#       if: ${{ contains(matrix.toolchain.compiler, 'gcc') }}
-#       uses: fortran-lang/setup-fortran@v1
-#       with:
-#         compiler: ${{ matrix.toolchain.compiler }}
-#         version: ${{ matrix.toolchain.version }}
+  build-system:
+    name: ${{ matrix.system }} (GNU)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        system: [cmake, meson]
 
-#     - name: Install Intel Compiler
-#       if: ${{ contains(matrix.toolchain.compiler, 'intel') && steps.cache-install.outputs.cache-hit != 'true' }}
-#       uses: fortran-lang/setup-fortran@v1
-#       with:
-#         compiler: ${{ matrix.toolchain.compiler }}
-#         version: ${{ matrix.toolchain.version }}
+    steps:
+      - uses: actions/checkout@v6
 
-#     - name: Setup Intel oneAPI environment
-#       if: ${{ contains(matrix.toolchain.compiler, 'intel') }}
-#       run: |
-#         source /opt/intel/oneapi/setvars.sh --force
-#         printenv >> $GITHUB_ENV
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
 
-#     - name: Setup environment for Fortran and C compilers
-#       run: |
-#         if [ ! -n "$FC" ]; then
-#           if [ "${{ matrix.toolchain.compiler }}" = "gcc" ]; then
-#             FC="gfortran"
-#             CC="gcc"
-#           elif [ "${{ matrix.toolchain.compiler }}" = "intel" ]; then
-#             FC="ifx"
-#             CC="icx"
-#           elif [ "${{ matrix.toolchain.compiler }}" = "intel-classic" ]; then
-#             FC="ifort"
-#             CC="icc"
-#           fi
-#           echo "FC=$FC" >> $GITHUB_ENV
-#           echo "CC=$CC" >> $GITHUB_ENV
-#         fi
+      - uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+          version: "14"
 
-#     - name: Install build and test dependencies
-#       run: pip3 install ${{ env.PIP_PACKAGES }}
+      - name: Install build tools
+        run: python -m pip install cmake meson ninja
 
-#     - name: Configure build (meson)
-#       if: ${{ matrix.toolchain.build == 'meson' }}
-#       run: >-
-#         meson setup ${{ env.BUILD_DIR }}
-#         --buildtype=debug
-#         --prefix=$PWD/_dist
-#         --libdir=lib
-#         --warnlevel=0
+      - name: Check source manifests
+        run: python3 config/check-manifests.py
 
-#     - name: Configure build (CMake)
-#       if: ${{ matrix.toolchain.build == 'cmake' }}
-#       run: >-
-#         cmake -B${{ env.BUILD_DIR }}
-#         -GNinja
-#         -DCMAKE_BUILD_TYPE=Debug
-#         -DCMAKE_INSTALL_PREFIX=$PWD/_dist
-#         -DCMAKE_INSTALL_LIBDIR=lib
+      - name: Configure CMake
+        if: matrix.system == 'cmake'
+        run: >-
+          cmake -S . -B _build -GNinja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/_dist"
+          -DCMAKE_INSTALL_LIBDIR=lib
 
-#     - name: Build library (fpm)
-#       if: ${{ matrix.toolchain.build == 'fpm' }}
-#       run: |
-#         fpm --version
-#         fpm build
+      - name: Build, test, and install with CMake
+        if: matrix.system == 'cmake'
+        run: |
+          cmake --build _build --parallel 2
+          ctest --test-dir _build --output-on-failure
+          cmake --install _build
 
-#     - name: Build library
-#       if: ${{ matrix.toolchain.build != 'fpm' }}
-#       run: ninja -C ${{ env.BUILD_DIR }}
+      - name: Consume installed CMake package
+        if: matrix.system == 'cmake'
+        run: |
+          cmake -S test/package -B _consumer -GNinja -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/_dist"
+          cmake --build _consumer
+          ctest --test-dir _consumer --output-on-failure
 
-#     - name: Run unit tests (fpm)
-#       if: ${{ matrix.toolchain.build == 'fpm' }}
-#       run: fpm test
+      - name: Configure Meson
+        if: matrix.system == 'meson'
+        run: >-
+          meson setup _build
+          --buildtype=debug
+          --prefix="$GITHUB_WORKSPACE/_dist"
+          --libdir=lib
 
-#     - name: Run unit tests (meson)
-#       if: ${{ matrix.toolchain.build == 'meson' }}
-#       run: >-
-#          meson test
-#          -C ${{ env.BUILD_DIR }}
-#          --print-errorlogs
-#          --no-rebuild
-#          --num-processes 1
-#          -t 2
+      - name: Build, test, and install with Meson
+        if: matrix.system == 'meson'
+        run: |
+          meson compile -C _build
+          meson test -C _build --print-errorlogs
+          meson install -C _build
 
-#     - name: Run unit tests (ctest)
-#       if: ${{ matrix.toolchain.build == 'cmake' }}
-#       run: |
-#          ctest --output-on-failure --parallel 2
-#       working-directory: ${{ env.BUILD_DIR }}
+      - name: Consume installed pkg-config package
+        if: matrix.system == 'meson'
+        env:
+          PKG_CONFIG_PATH: ${{ github.workspace }}/_dist/lib/pkgconfig
+        run: |
+          meson setup test/package _consumer
+          meson compile -C _consumer
+          meson test -C _consumer --print-errorlogs
 
-#     - name: Install project
-#       if: ${{ matrix.toolchain.build != 'fpm' }}
-#       run: |
-#         ninja -C ${{ env.BUILD_DIR }} install
-#         echo "FCLAP_PREFIX=$PWD/_dist" >> $GITHUB_ENV
+  documentation:
+    name: documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: docs/requirements.txt
+
+      - name: Install documentation dependencies
+        run: python -m pip install -r docs/requirements.txt
+
+      - name: Build documentation
+        run: sphinx-build -W -b html docs/source docs/build/html

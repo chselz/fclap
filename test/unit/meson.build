@@ -10,12 +10,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-test_srcs = files('main.f90')
+test_srcs = files(
+  'main.f90',
+  'test_nargs.f90',
+  'test_errors.f90',
+  'test_values.f90',
+  'test_namespace.f90',
+  'test_registration.f90',
+  'test_actions.f90',
+  'test_parse_engine.f90',
+  'test_parse_nargs.f90',
+  'test_parse_actions.f90',
+  'test_validators.f90',
+  'test_formatter.f90',
+  'test_groups.f90',
+  'test_subparsers.f90',
+)
 
 tester = executable(
   'fclap-tester',
   sources: test_srcs,
-  dependencies: [fclap_dep],
+  dependencies: [fclap_dep, testdrive_dep],
 )
 
 test(

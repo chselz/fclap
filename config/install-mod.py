@@ -23,6 +23,7 @@ else:
     install_dir = environ["MESON_INSTALL_PREFIX"]
 
 include_dir = argv[1] if len(argv) > 1 else "include"
+module_prefix = argv[2].lower() if len(argv) > 2 else ""
 module_dir = join(install_dir, include_dir)
 
 modules = []
@@ -30,7 +31,14 @@ for d in listdir(build_dir):
     bd = join(build_dir, d)
     if isdir(bd):
         for f in listdir(bd):
-            if f.endswith(".mod"):
+            lowered = f.lower()
+            is_module = lowered.endswith((".mod", ".smod"))
+            belongs_to_project = (
+                not module_prefix
+                or lowered == f"{module_prefix}.mod"
+                or lowered.startswith(f"{module_prefix}_")
+            )
+            if is_module and belongs_to_project:
                 modules.append(join(bd, f))
 
 if not exists(module_dir):

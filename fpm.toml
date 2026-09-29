@@ -4,7 +4,7 @@ license = "MIT"
 author = ["Christian Selzer"]
 maintainer = ["@chselz"]
 copyright = "Copyright 2026, Christian Selzer"
-keywords = ["io", "cli"]
+keywords = ["arguments", "cli", "parser", "io"]
 description = "Command Line Argument Parser in Fortran"
 
 [library]
@@ -12,22 +12,16 @@ source-dir = "src"
 
 [build]
 auto-tests = false
-auto-examples = true
+auto-examples = false
 
-[dependencies]
-stdlib = { git="https://github.com/fortran-lang/stdlib", branch="stdlib-fpm" }
+[[example]]
+name = "basic"
+source-dir = "example"
+main = "basic.f90"
 
 [[test]]
 name = "tester"
 source-dir = "test/unit"
 [test.dependencies]
 test-drive.git = "https://github.com/fortran-lang/test-drive.git"
-
-[install]
-library = false
-
-[fortran]
-implicit-typing = false
-implicit-external = false
-source-form = "free"
-
+test-drive.tag = "v0.6.1"
