@@ -9,8 +9,9 @@ program subcommands
 
     call parser%init(prog="fclap-subcommands", &
         description="Run or clean a calculation")
+    ! A global option is also accepted after the command: `run -v in.dat`.
     call parser%add_argument("-v", "--verbose", action=store_true(), &
-        help="enable verbose output")
+        help="enable verbose output", global=.true.)
     call parser%add_subparsers(title="commands", dest="command", &
         required=.true.)
 
@@ -19,7 +20,8 @@ program subcommands
     call run%add_argument("input", help="input file")
     call run%add_argument("-n", "--dry-run", action=store_true(), &
         help="show what would be done")
-    call parser%add_parser("run", run, help_text="run a calculation")
+    call parser%add_parser("run", run, help_text="run a calculation", &
+        aliases=[character(len=1) :: "r"])
 
     call clean%init()
     call clean%add_argument("--all", action=store_true(), &

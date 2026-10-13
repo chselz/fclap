@@ -24,6 +24,12 @@ module fclap_formatter_model
         character(len=:), allocatable :: removed_msg
         !> Environment variable the option falls back to
         character(len=:), allocatable :: env
+        !> Separator between several values written as one token
+        character(len=:), allocatable :: delimiter
+        !> Spellings of the choices described by `choice_help`
+        character(len=:), allocatable :: choice_names(:)
+        !> Help line of each entry of `choice_names`
+        character(len=:), allocatable :: choice_help(:)
         integer :: nargs = 1
         logical :: is_optional = .false.
         logical :: required = .false.
@@ -48,6 +54,8 @@ module fclap_formatter_model
     !> Formatting-relevant view of one registered subcommand.
     type :: HelpCommand
         character(len=:), allocatable :: name
+        !> Alternative names, listed after the name in help
+        character(len=:), allocatable :: aliases(:)
         character(len=:), allocatable :: help
     end type HelpCommand
 

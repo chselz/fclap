@@ -26,6 +26,10 @@ module fclap_parse_context
         logical, allocatable :: from_env(:)
         !> Explicit `NAME=value` environment used instead of the process one
         character(len=:), allocatable :: environment(:)
+        !> Keep unknown options and surplus positionals instead of failing
+        logical :: collect_extras = .false.
+        !> Tokens kept by `collect_extras`, in command-line order
+        character(len=:), allocatable :: extra_tokens(:)
     contains
         procedure :: init => context_init
         procedure :: at_end => context_at_end
@@ -38,6 +42,7 @@ module fclap_parse_context
         procedure :: configure_subcommands => context_configure_subcommands
         procedure :: is_subcommand => context_is_subcommand
         procedure :: select_command => context_select_command
+        procedure :: add_extra => context_add_extra
     end type ParseContext
 
 contains
@@ -93,6 +98,26 @@ contains
         if (size(self%subcommand_names) == 0) return
         found = any(self%subcommand_names == trim(token))
     end function context_is_subcommand
+
+    !> Keep the current token as an extra token and move past it.
+    subroutine context_add_extra(self)
+        class(ParseContext), intent(inout) :: self
+        character(len=:), allocatable :: token, extras(:)
+        integer :: count, width
+
+        token = self%current_token()
+        count = 0
+        width = max(1, len(token))
+        if (allocated(self%extra_tokens)) then
+            count = size(self%extra_tokens)
+            width = max(width, len(self%extra_tokens))
+        end if
+        allocate(character(len=width) :: extras(count + 1))
+        if (count > 0) extras(:count) = self%extra_tokens
+        extras(count + 1) = token
+        call move_alloc(extras, self%extra_tokens)
+        call self%advance()
+    end subroutine context_add_extra
 
     subroutine context_select_command(self, name)
         class(ParseContext), intent(inout) :: self

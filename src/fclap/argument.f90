@@ -41,6 +41,12 @@ module fclap_argument
         character(len=:), allocatable :: removed_msg
         !> Environment variable read when the option is not given
         character(len=:), allocatable :: env
+        !> Also accepted after a subcommand, through copies in every child
+        logical :: global = .false.
+        !> Separator splitting one token into several values, e.g. `,`
+        character(len=:), allocatable :: delimiter
+        !> One help line per declared choice, in declaration order
+        character(len=:), allocatable :: choice_help(:)
     contains
         procedure :: init => argument_init
         procedure :: name_count => argument_name_count

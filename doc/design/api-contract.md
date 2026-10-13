@@ -55,9 +55,14 @@ call parser%init( &
     epilog="See the manual for examples", &
     version="solver 1.2.0", &
     formatter=StandardFormatter(help_width=100), &
-    add_help=.true. &
+    add_help=.true., &
+    help_on_empty=.false. &
 )
 ```
+
+`help_on_empty=.true.` answers an empty token list at this parser's level with
+`PARSE_FAILURE`, a single `ERR_NO_ARGUMENTS` entry, and the parser's help in
+`text`; `parse_args` prints only the help to `error_unit` with status 2.
 
 The conceptual signature is:
 
@@ -163,6 +168,9 @@ print_choices                 optional logical
 group                         optional GroupHandle
 case_insensitive_choices      optional logical
 env                           optional character
+global                        optional logical
+delimiter                     optional character
+choice_help                   optional character array
 ```
 
 The integer- and character-`nargs` forms are facade overloads that immediately
@@ -183,6 +191,24 @@ the value at blanks and must receive an accepted count. An environment value
 marks the argument as explicitly present for required checks, groups, and
 rules. Positionals and removed options cannot declare `env`
 (`ERR_INVALID_ENV`).
+
+`global=.true.` copies the option into every subcommand subtree when a
+command is registered and into existing subtrees when the global option is
+added later. Values merge by the hierarchical rule below, so a value given
+before the command survives unless the option is repeated after it. Global
+options must be optional, not required, outside mutex groups, and not part
+of rules (`ERR_INCOMPATIBLE_ACTION`, `ERR_INVALID_GROUP`,
+`ERR_INVALID_RULE`); a subtree defining the same name or destination is
+`ERR_DUPLICATE_OPTION`.
+
+`delimiter` (one non-blank character other than `-` and `=`) makes each
+occurrence read exactly one token and split it, keeping empty items; nargs
+must produce a list and bounds the item count (`ERR_MISSING_VALUE` with
+`expected N values separated by 'D' (got M)` otherwise). Environment values
+use the delimiter instead of blanks. Positionals cannot declare a delimiter.
+
+`choice_help` must have exactly one entry per choice (`ERR_INVALID_DEFAULT`)
+and is rendered one choice per line below the argument help.
 
 Only one explicit validator is accepted per argument. Choices are an independent
 built-in constraint. Multiple general validators will later use a composite
@@ -486,6 +512,14 @@ no description, and `command`. `required` defaults to false, matching modern
 Python `argparse`. Command names are exact, case-sensitive, nonempty tokens and
 must not begin with `-`.
 
+`add_parser(name, subparser, help_text, aliases)` accepts an optional rank-one
+array of aliases. Aliases follow the command-name rules, must not repeat any
+registered name or alias, and are validated before anything is registered.
+An alias resolves to its command: the destination and
+`selected_command_path` record the registered name. Help lists aliases after
+the name in parentheses; usage lists registered names only. Unknown-command
+suggestions consider aliases too.
+
 `add_parser` stores a deep snapshot of the supplied parser. It rebases that
 snapshot's program name, and all nested child program names, to `parent-prog
 command`. Later edits to the source parser do not affect the registered tree.
@@ -507,9 +541,12 @@ required-subcommand checks at the level where they occur.
 The returned namespace is flat for compatibility with the single-parser API.
 Each level first produces its own values, writes the selected name to that
 level's `dest`, then deep-merges the selected child's namespace. Incoming child
-values replace an existing value with the same key; unrelated parent values
-remain. Consequently, the deepest definition wins a destination collision,
-including when nested collections reuse `dest="command"`.
+values replace an existing value with the same key unless the existing value
+has a higher-precedence value source (command line > environment > default);
+unrelated parent values remain. Consequently, between equally sourced values
+the deepest definition wins a destination collision, including when nested
+collections reuse `dest="command"`, but a child default never hides a value
+the user supplied to a parent.
 
 The complete, unambiguous hierarchy is retained separately in
 `ParseResult%selected_command_path` in root-to-leaf order. Each child owns and
@@ -581,6 +618,16 @@ This delegates to `try_parse_args` and applies only the outer process policy:
   message`, produced by `ArgumentParser%format_diagnostic`.
 - When an entry carries a suggestion, the diagnostic ends with
   `(did you mean 'SUGGESTION'?)`.
+- A `help_on_empty` request prints only the selected parser's help to
+  `error_unit` and exits with status two.
+
+`parse_known_args(extras)`, `try_parse_known_args()`, and
+`parse_known_tokens(tokens, environment)` behave like their strict
+counterparts, except that unknown options and surplus positionals, at any
+command level, are appended in order to `extras` / `ParseResult%extra_tokens`
+(allocated, possibly empty) instead of failing. A known option still needs
+its values, and a value following an unknown option is treated like any
+other token. Strict parsing leaves `extra_tokens` unallocated.
 
 The exact Fortran mechanism used to provide a quiet portable exit status is an
 implementation detail. The observable status and selected output unit are part
@@ -819,6 +866,7 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_UNEXPECTED_VALUE` | 2012 | An attached value was given to an option that takes none. |
 | `ERR_MISSING_DEPENDENCY` | 2013 | An argument was given without an argument it requires. |
 | `ERR_ARGUMENT_CONFLICT` | 2014 | Two arguments declared as conflicting were given together. |
+| `ERR_NO_ARGUMENTS` | 2015 | Empty command line at a `help_on_empty` parser; `text` holds its help. |
 | `ERR_UNKNOWN_SUBCOMMAND` | 2101 | Unknown subcommand at the current parser level. |
 | `ERR_MISSING_SUBCOMMAND` | 2102 | Required subcommand missing at the current parser level. |
 | `ERR_NAMESPACE_MISSING_KEY` | 3001 | Namespace key not present. |

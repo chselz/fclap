@@ -11,7 +11,8 @@ module fclap_registration
     use fclap_error_codes, only : FCLAP_OK, ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, &
         ERR_INCOMPATIBLE_ACTION, ERR_INVALID_DEFAULT, ERR_INVALID_TYPE_NAME, &
-        ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR, ERR_INVALID_ENV
+        ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR, ERR_INVALID_ENV, &
+        ERR_INVALID_GROUP
     use fclap_nargs, only : NargsSpec, normalize_nargs, NARGS_SUCCESS, &
         NARGS_OPTIONAL, NARGS_REMAINDER
     use fclap_validators_abstract, only : ValidatorType
@@ -27,6 +28,8 @@ module fclap_registration
     public :: build_argument
     public :: any_registered_name
     public :: check_env_source
+    public :: check_global
+    public :: check_delimiter
 
 contains
 
@@ -582,5 +585,58 @@ contains
             message = ""
         end if
     end subroutine check_env_source
+
+    !> Check that an argument can be global, i.e. copied into every
+    !> subcommand so that it is also accepted after the command.
+    !>
+    !> Required options, mutex groups, and rules are checked by the parser
+    !> that owns them against its own part of the command line only, so a
+    !> global use after the command would silently escape them.
+    subroutine check_global(candidate, in_mutex_group, code, message)
+        type(Argument), intent(in) :: candidate
+        logical, intent(in) :: in_mutex_group
+        integer, intent(out) :: code
+        character(len=:), allocatable, intent(out) :: message
+
+        code = ERR_INCOMPATIBLE_ACTION
+        if (.not. candidate%is_optional) then
+            message = "only options can be global"
+        else if (candidate%required) then
+            message = "a global option cannot be required"
+        else if (in_mutex_group) then
+            code = ERR_INVALID_GROUP
+            message = "a global option cannot belong to a mutually " // &
+                "exclusive group"
+        else
+            code = FCLAP_OK
+            message = ""
+        end if
+    end subroutine check_global
+
+    !> Check that an option can split one token into several values.
+    !>
+    !> The number of values after splitting is constrained by nargs, so nargs
+    !> must describe a list: an exact count above one, `*`, or `+`.
+    subroutine check_delimiter(candidate, delimiter, code, message)
+        type(Argument), intent(in) :: candidate
+        character(len=*), intent(in) :: delimiter
+        integer, intent(out) :: code
+        character(len=:), allocatable, intent(out) :: message
+
+        code = ERR_INVALID_NARGS
+        if (len(delimiter) /= 1 .or. len_trim(delimiter) /= 1) then
+            message = "the delimiter must be a single non-blank character"
+        else if (delimiter == "-" .or. delimiter == "=") then
+            message = "the delimiter must not be '-' or '='"
+        else if (.not. candidate%is_optional) then
+            code = ERR_INCOMPATIBLE_ACTION
+            message = "only options can split values at a delimiter"
+        else if (.not. candidate%nargs%produces_list()) then
+            message = "a delimiter needs nargs of two or more, '*', or '+'"
+        else
+            code = FCLAP_OK
+            message = ""
+        end if
+    end subroutine check_delimiter
 
 end module fclap_registration

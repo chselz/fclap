@@ -33,6 +33,7 @@ module fclap_error_codes
     integer, parameter, public :: ERR_UNEXPECTED_VALUE    = 2012
     integer, parameter, public :: ERR_MISSING_DEPENDENCY  = 2013
     integer, parameter, public :: ERR_ARGUMENT_CONFLICT   = 2014
+    integer, parameter, public :: ERR_NO_ARGUMENTS        = 2015
 
     ! Reserved subparser errors (2100-2199)
     integer, parameter, public :: ERR_UNKNOWN_SUBCOMMAND = 2101

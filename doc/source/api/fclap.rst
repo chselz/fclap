@@ -39,15 +39,20 @@ Construction
 .. code-block:: fortran
 
    call parser%init(prog, usage, description, epilog, version, &
-                    formatter, add_help)
+                    formatter, add_help, help_on_empty)
 
 All arguments are optional. ``formatter`` is ``class(FormatterType)`` and is
-cloned. ``add_help`` defaults to true.
+cloned. ``add_help`` defaults to true. With ``help_on_empty=.true.`` an empty
+command line at this parser's level is answered with its help instead of
+being parsed: ``parse_tokens`` returns ``PARSE_FAILURE`` with one
+``ERR_NO_ARGUMENTS`` entry and the help in ``text``, and ``parse_args`` prints
+only that help to ``error_unit`` and stops with status 2. On a subcommand it
+applies to ``prog cmd`` without further tokens.
 
 .. code-block:: fortran
 
    call parser%init_with_parents(parents, prog, usage, description, epilog, &
-                                version, formatter, add_help)
+                                version, formatter, add_help, help_on_empty)
 
 ``parents`` is ``type(ArgumentParser) :: parents(:)``. Definitions are copied
 deeply in array order after the receiving parser is initialized.
@@ -60,7 +65,8 @@ Argument registration
    call parser%add_argument(name1, name2, name3, name4, action, nargs, &
        data_type, default, const, choices, validator, required, help, &
        metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
-       print_choices, group, case_insensitive_choices, env)
+       print_choices, group, case_insensitive_choices, env, global, &
+       delimiter, choice_help)
 
 ``name1`` is required; the other names are optional aliases. Important dummy
 argument types are:
@@ -90,8 +96,12 @@ argument types are:
      - logical scalar
    * - ``group``
      - ``type(GroupHandle)``
-   * - ``env``
+   * - ``env``, ``delimiter``
      - character scalar
+   * - ``global``
+     - logical scalar
+   * - ``choice_help``
+     - character rank-one array
 
 ``case_insensitive_choices=.true.`` matches string choices without regard to
 ASCII letter case and stores the declared spelling: with
@@ -112,6 +122,31 @@ counts as given for ``required``, groups, and rules. Help shows
 ``(env: NAME)``. Only options accept ``env``; positionals, removed options,
 empty names, and names containing ``=`` or blanks are rejected with
 ``ERR_INVALID_ENV``.
+
+``global=.true.`` also accepts an option after a subcommand (``prog run -v``).
+Each subcommand, including ones registered later and nested ones, receives a
+copy of the option, so its help lists it too. A value given before the
+command is kept unless the option is given again after it. Only optional,
+non-required options outside mutually exclusive groups and rules can be
+global, because those checks see only their own parser's part of the command
+line; a subcommand that already defines the name or destination is a
+``ERR_DUPLICATE_OPTION`` configuration error.
+
+``delimiter=","`` splits one value token into several values:
+``--grid 64,64,128`` or ``--grid=64,64,128``. Each occurrence reads exactly
+one token, so a following positional is never consumed, and ``nargs`` (two or
+more, ``*``, or ``+``) bounds the number of items after splitting. Empty
+items are kept and converted, so ``1,,3`` is an invalid integer. An
+environment value is split at the delimiter instead of at blanks. Usage
+shows ``GRID,GRID,GRID`` or ``SPECIES[,SPECIES...]``. Values beginning with
+``-`` must be attached: ``--offsets=-1,2``.
+
+``choice_help`` gives one help line per entry of ``choices``; help lists them
+below the argument::
+
+     --solver {cg,gmres}   linear solver
+                             cg     conjugate gradient
+                             gmres  generalized minimal residual
 
 Registration is transactional. Invalid definitions append a structured
 configuration error and are not partially committed.
@@ -168,12 +203,21 @@ Subcommands
 .. code-block:: fortran
 
    call parser%add_subparsers(title, description, dest, required)
-   call parser%add_parser(name, subparser, help_text)
+   call parser%add_parser(name, subparser, help_text, aliases)
 
 All ``add_subparsers`` arguments are optional. Defaults are title ``commands``,
 destination ``command``, and ``required=.false.``. ``name`` is required for
-``add_parser``; ``subparser`` and ``help_text`` are optional. A supplied child
-is deep-copied and its complete program path is rebased under the parent.
+``add_parser``; ``subparser``, ``help_text``, and ``aliases`` are optional. A
+supplied child is deep-copied and its complete program path is rebased under
+the parent.
+
+``aliases`` is a rank-one character array of alternative command spellings,
+for example ``[character(len=2) :: "r", "ex"]``. An alias selects the command
+under its registered name: the destination value and
+``selected_command_path`` hold ``name``. Help lists ``name (r, ex)``; usage
+shows registered names only. An alias that is not a valid command token, or
+that repeats any registered name or alias, is a configuration error and the
+command is not registered.
 
 .. important::
 
@@ -190,13 +234,26 @@ Parsing and output
    result = parser%try_parse_args()
    args = parser%parse_args()
 
+   result = parser%parse_known_tokens(tokens, environment)
+   result = parser%try_parse_known_args()
+   args = parser%parse_known_args(extras)
+
 ``tokens`` is a rank-one character array. The optional ``environment`` is a
 rank-one array of ``NAME=value`` entries that replaces the process
 environment for ``env=`` options, which makes them testable; the last entry
 for a name wins. The first two functions return
 ``ParseResult`` and never print or terminate. ``parse_args`` returns
 ``Namespace`` only on success and implements the process-level print/exit
-policy for help, version, warnings, and failures. Failures end with a normal
+policy for help, version, warnings, and failures.
+
+The ``known`` variants accept unknown options and surplus positionals and
+return them in order, in ``result%extra_tokens`` or the allocatable character
+array ``extras``, e.g. to leave options for MPI or PETSc. As in argparse, a
+separate value of an unknown option is not recognized: in
+``-ksp_type cg input.dat`` the positional receives ``cg``. Write such values
+attached (``-ksp_type=cg``) or after the program's own arguments. Unknown
+subcommands, clusters with an unknown letter, and invalid values are still
+errors. Failures end with a normal
 ``stop 2`` so compiler runtimes do not print a backtrace for user mistakes.
 
 If the parser definition itself is invalid (for example a duplicated option),
@@ -387,6 +444,8 @@ ParseResult
      - Optional help, version, or selected-child usage text.
    * - ``selected_command_path``
      - Optional root-to-leaf array of selected command names.
+   * - ``extra_tokens``
+     - Unknown tokens of a ``parse_known_*`` call; unallocated otherwise.
 
 ``result%value_source(dest)`` tells where the value stored under ``dest``
 came from: ``SOURCE_COMMAND_LINE``, ``SOURCE_ENVIRONMENT``,
@@ -394,6 +453,11 @@ came from: ``SOURCE_COMMAND_LINE``, ``SOURCE_ENVIRONMENT``,
 flag), or ``SOURCE_NONE`` when the namespace holds no value for it. A
 subcommand destination is ``SOURCE_COMMAND_LINE``. The constants are ordered
 by precedence.
+
+When a destination is stored both by a parser and by its selected
+subcommand, the subcommand's value is kept unless the parent's value has a
+higher-precedence source. A flag the user gave to the parent is therefore not
+hidden by the child's default, while between two defaults the deeper one wins.
 
 ``result%succeeded()`` is true for success, help, and version.
 ``result%failed()`` is true only for ``PARSE_FAILURE``.
@@ -496,7 +560,11 @@ Formatting
 
 ``StandardFormatter`` extends ``FormatterType`` and has configurable
 ``show_defaults``, ``show_choices``, ``raw_description``, ``raw_help_text``,
-and ``help_width`` components:
+``help_width``, and ``width_from_env`` components. With
+``width_from_env=.true.`` the width comes from the ``COLUMNS`` environment
+variable when it holds a whole number of at least 20, otherwise from
+``help_width``. Shells often do not export ``COLUMNS``, so the fallback is
+common; the default stays off so that help text is deterministic:
 
 .. code-block:: fortran
 

@@ -18,6 +18,9 @@ module fclap_formatter_standard
         logical :: raw_description = .false.
         logical :: raw_help_text = .false.
         integer :: help_width = 80
+        !> Take the width from the `COLUMNS` environment variable when it
+        !> holds a usable width, falling back to `help_width`
+        logical :: width_from_env = .false.
     contains
         procedure :: format_help => standard_format_help
         procedure :: format_usage => standard_format_usage
@@ -255,6 +258,11 @@ contains
         do index = 1, size(model%commands)
             if (.not. allocated(model%commands(index)%name)) cycle
             row = "  " // trim(model%commands(index)%name)
+            if (allocated(model%commands(index)%aliases)) then
+                if (size(model%commands(index)%aliases) > 0) &
+                    row = row // " (" // join_trimmed( &
+                        model%commands(index)%aliases, ", ") // ")"
+            end if
             help = ""
             if (allocated(model%commands(index)%help)) &
                 help = trim(model%commands(index)%help)
@@ -264,7 +272,7 @@ contains
                         wrap_text(help, help_column, help_column, width)
                 else
                     row = row // repeat(" ", help_column - len(row)) // &
-                        wrap_text(help, 0, help_column, width)
+                        wrap_from_column(help, help_column, width)
                 end if
             end if
             section = section // new_line('a') // row
@@ -282,9 +290,14 @@ contains
         label = argument_label(argument)
         body = argument_help(self, argument)
         row = "  " // label
-        if (len(body) == 0) return
-
         help_column = min(24, max(12, width / 3))
+        if (len(body) == 0) then
+            ! Choice lines go below the label even without help text.
+            if (allocated(argument%choice_help)) row = row // new_line('a') // &
+                choice_lines(argument, help_column + 2, width)
+            return
+        end if
+
         if (len(row) >= help_column) then
             if (self%raw_help_text) then
                 wrapped = indent_lines(body, help_column)
@@ -296,11 +309,31 @@ contains
             if (self%raw_help_text) then
                 wrapped = indent_continuations(body, help_column)
             else
-                wrapped = wrap_text(body, 0, help_column, width)
+                wrapped = wrap_from_column(body, help_column, width)
             end if
             row = row // repeat(" ", help_column - len(row)) // wrapped
         end if
+        if (allocated(argument%choice_help)) row = row // new_line('a') // &
+            choice_lines(argument, help_column + 2, width)
     end function format_argument
+
+    !> One line per described choice: the choice, then its aligned help.
+    function choice_lines(argument, indent, width) result(lines)
+        type(HelpArgument), intent(in) :: argument
+        integer, intent(in) :: indent, width
+        character(len=:), allocatable :: lines
+        integer :: index, name_width
+
+        lines = ""
+        name_width = maxval(len_trim(argument%choice_names))
+        do index = 1, size(argument%choice_names)
+            if (index > 1) lines = lines // new_line('a')
+            lines = lines // repeat(" ", indent) // &
+                argument%choice_names(index)(:name_width) // "  " // &
+                wrap_from_column(trim(argument%choice_help(index)), &
+                indent + name_width + 2, width)
+        end do
+    end function choice_lines
 
     function argument_help(self, argument) result(text)
         class(StandardFormatter), intent(in) :: self
@@ -341,7 +374,8 @@ contains
             return
         end if
 
-        suffix = value_pattern(argument%metavar, argument%nargs)
+        suffix = value_pattern(argument%metavar, argument%nargs, &
+            argument%delimiter)
         label = ""
         if (.not. allocated(argument%names)) return
         do index = 1, size(argument%names)
@@ -367,7 +401,8 @@ contains
         character(len=:), allocatable :: term
         character(len=:), allocatable :: suffix
 
-        suffix = value_pattern(argument%metavar, argument%nargs)
+        suffix = value_pattern(argument%metavar, argument%nargs, &
+            argument%delimiter)
         if (argument%is_optional) then
             if (.not. allocated(argument%names)) then
                 term = ""
@@ -457,10 +492,31 @@ contains
         end do
     end function argument_in_help_group
 
-    function value_pattern(metavar, nargs) result(pattern)
+    function value_pattern(metavar, nargs, delimiter) result(pattern)
         character(len=*), intent(in) :: metavar
         integer, intent(in) :: nargs
+        !> Separator of values written as one token, if any
+        character(len=:), allocatable, intent(in) :: delimiter
         character(len=:), allocatable :: pattern
+        integer :: index
+
+        if (allocated(delimiter)) then
+            ! One token holding the values, e.g. `N,N,N` or `N[,N...]`.
+            select case (nargs)
+            case (NARGS_ZERO_OR_MORE)
+                pattern = "[" // trim(metavar) // "[" // delimiter // &
+                    trim(metavar) // "...]]"
+            case (NARGS_ONE_OR_MORE)
+                pattern = trim(metavar) // "[" // delimiter // &
+                    trim(metavar) // "...]"
+            case default
+                pattern = trim(metavar)
+                do index = 2, nargs
+                    pattern = pattern // delimiter // trim(metavar)
+                end do
+            end select
+            return
+        end if
 
         select case (nargs)
         case (NARGS_ZERO)
@@ -490,6 +546,18 @@ contains
             text = text // metavar
         end do
     end function repeated_metavar
+
+    !> Wrap text that continues a line already filled up to `column`: the
+    !> first line is limited like every other, and later lines are indented
+    !> to `column`. The result omits the first line's indentation.
+    function wrap_from_column(input, column, width) result(output)
+        character(len=*), intent(in) :: input
+        integer, intent(in) :: column, width
+        character(len=:), allocatable :: output
+
+        output = wrap_text(input, column, column, width)
+        output = output(column + 1:)
+    end function wrap_from_column
 
     function wrap_text(input, first_indent, continuation_indent, width) &
         result(output)
@@ -577,6 +645,20 @@ contains
         text = text // "(" // trim(note) // ")"
     end subroutine append_note
 
+    !> Join the trimmed items of a list with a separator.
+    function join_trimmed(items, separator) result(text)
+        character(len=*), intent(in) :: items(:)
+        character(len=*), intent(in) :: separator
+        character(len=:), allocatable :: text
+        integer :: index
+
+        text = ""
+        do index = 1, size(items)
+            if (index > 1) text = text // separator
+            text = text // trim(items(index))
+        end do
+    end function join_trimmed
+
     subroutine append_block(text, block)
         character(len=:), allocatable, intent(inout) :: text
         character(len=*), intent(in) :: block
@@ -606,11 +688,21 @@ contains
         end if
     end function model_group_count
 
-    pure integer function effective_width(self) result(width)
+    integer function effective_width(self) result(width)
         class(StandardFormatter), intent(in) :: self
+        character(len=16) :: text
+        integer :: columns, length, stat
 
         width = self%help_width
         if (width < 20) width = 80
+        if (.not. self%width_from_env) return
+
+        ! Shells set COLUMNS but often do not export it; absence is normal.
+        call get_environment_variable("COLUMNS", text, length, stat)
+        if (stat /= 0 .or. length == 0 .or. length > len(text)) return
+        if (verify(trim(text), "0123456789") /= 0) return
+        read(text, *, iostat=stat) columns
+        if (stat == 0 .and. columns >= 20) width = columns
     end function effective_width
 
     function allocated_text(text) result(value)

@@ -3,7 +3,10 @@ module test_subparsers
         GroupHandle, HelpModel, ParseResult, FCLAP_OK, PARSE_SUCCESS, &
         PARSE_FAILURE, PARSE_HELP, ERR_DUPLICATE_DEST, ERR_MISSING_REQUIRED, &
         ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, &
-        ERR_VALIDATION_FAILED, not_less_than, store_true
+        ERR_VALIDATION_FAILED, ERR_DUPLICATE_OPTION, ERR_INVALID_ARGUMENT_NAME, &
+        SOURCE_DEFAULT, SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE, &
+        ERR_INCOMPATIBLE_ACTION, ERR_INVALID_GROUP, ERR_INVALID_RULE, &
+        not_less_than, store_true
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -41,7 +44,17 @@ contains
             new_unittest("parent definitions are deep copied", &
                 test_parent_copy), &
             new_unittest("parent destination conflicts are explicit", &
-                test_parent_conflict) &
+                test_parent_conflict), &
+            new_unittest("aliases select the canonical command", &
+                test_subcommand_aliases), &
+            new_unittest("invalid aliases are configuration errors", &
+                test_invalid_aliases), &
+            new_unittest("child defaults do not hide given parent values", &
+                test_shared_destination), &
+            new_unittest("global options are accepted after the command", &
+                test_global_options), &
+            new_unittest("invalid global options are configuration errors", &
+                test_invalid_globals) &
         ]
     end subroutine collect_subparsers
 
@@ -384,5 +397,254 @@ contains
 
         text = "child help: " // model%prog
     end function child_format_help
+
+    subroutine test_subcommand_aliases(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser, status_parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        character(len=:), allocatable :: value, help
+        integer :: stat
+
+        call run_parser%init(add_help=.false.)
+        call run_parser%add_argument("--force", action=store_true())
+        call status_parser%init(add_help=.false.)
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers(dest="command", required=.true.)
+        call parser%add_parser("run", run_parser, help_text="run a job", &
+            aliases=[character(len=7) :: "r", "execute"])
+        call parser%add_parser("status", status_parser)
+        call check(error, parser%is_valid())
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=7) :: "r", "--force"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("command", value, stat)
+        call check(error, value, "run")
+        if (allocated(error)) return
+        call check(error, trim(result%selected_command_path(1)), "run")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=7) :: "execute"])
+        call result%namespace%get("command", value, stat)
+        call check(error, value, "run")
+        if (allocated(error)) return
+
+        ! An alias is a command spelling, not an option of the child.
+        result = parser%parse_tokens([character(len=7) :: "status", "r"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+
+        ! Mistyped aliases are suggested like command names.
+        result = parser%parse_tokens([character(len=7) :: "exectue"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNKNOWN_SUBCOMMAND)
+        if (allocated(error)) return
+        call check(error, allocated(entry%suggestion))
+        if (allocated(error)) return
+        call check(error, entry%suggestion, "execute")
+        if (allocated(error)) return
+
+        help = parser%format_help()
+        call check(error, index(help, "  run (r, execute)") > 0, &
+            "help does not list the aliases: " // help)
+        if (allocated(error)) return
+        call check(error, index(help, "{run,status}") > 0, &
+            "usage should list only command names: " // help)
+        if (allocated(error)) return
+        call check(error, index(help, "status (") == 0, &
+            "a command without aliases has no parentheses: " // help)
+    end subroutine test_subcommand_aliases
+
+    subroutine test_invalid_aliases(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers()
+        call parser%add_parser("run", aliases=[character(len=1) :: "r"])
+        ! Clashes with a name, an alias, itself, or a sibling alias.
+        call parser%add_parser("stop", aliases=[character(len=3) :: "run"])
+        call parser%add_parser("ruin", aliases=[character(len=1) :: "r"])
+        call parser%add_parser("halt", aliases=[character(len=4) :: "halt"])
+        call parser%add_parser("kill", aliases=[character(len=1) :: "k", "k"])
+        call parser%add_parser("show", aliases=[character(len=2) :: "-s"])
+        ! A command name may not reuse an existing alias either.
+        call parser%add_parser("r")
+
+        call check(error, parser%subparser_count(), 1)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 6)
+        if (allocated(error)) return
+        entry = errors%get(5)
+        call check(error, entry%code, ERR_INVALID_ARGUMENT_NAME)
+        if (allocated(error)) return
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_DUPLICATE_OPTION)
+    end subroutine test_invalid_aliases
+
+    subroutine test_shared_destination(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser
+        type(ParseResult) :: result
+        logical :: verbose
+        integer :: level, stat
+
+        call run_parser%init(add_help=.false.)
+        call run_parser%add_argument("--verbose", action=store_true())
+        call run_parser%add_argument("--level", data_type="integer", default=1)
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--verbose", action=store_true())
+        call parser%add_argument("--level", data_type="integer", default=0, &
+            env="TOOL_LEVEL")
+        call parser%add_subparsers()
+        call parser%add_parser("run", run_parser)
+
+        ! The child's implicit `.false.` must not hide the parent flag.
+        result = parser%parse_tokens([character(len=9) :: "--verbose", "run"])
+        call result%namespace%get("verbose", verbose, stat)
+        call check(error, verbose)
+        if (allocated(error)) return
+        call check(error, result%value_source("verbose"), SOURCE_COMMAND_LINE)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=9) :: "run", "--verbose"])
+        call result%namespace%get("verbose", verbose, stat)
+        call check(error, verbose)
+        if (allocated(error)) return
+
+        ! Between two defaults the deeper one wins, as before; a parent
+        ! value from the environment beats a child default.
+        result = parser%parse_tokens([character(len=9) :: "run"], &
+            environment=[character(len=1) ::])
+        call result%namespace%get("level", level, stat)
+        call check(error, level, 1)
+        if (allocated(error)) return
+        call check(error, result%value_source("level"), SOURCE_DEFAULT)
+        if (allocated(error)) return
+        result = parser%parse_tokens([character(len=9) :: "run"], &
+            environment=[character(len=12) :: "TOOL_LEVEL=5"])
+        call result%namespace%get("level", level, stat)
+        call check(error, level, 5)
+        if (allocated(error)) return
+        call check(error, result%value_source("level"), SOURCE_ENVIRONMENT)
+    end subroutine test_shared_destination
+
+    subroutine test_global_options(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, remote_parser, add_parser, run_parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: value, help
+        logical :: verbose
+        integer :: stat
+
+        call add_parser%init(add_help=.false.)
+        call add_parser%add_argument("url")
+        call remote_parser%init(add_help=.false.)
+        call remote_parser%add_subparsers()
+        call remote_parser%add_parser("add", add_parser)
+        call run_parser%init()
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("-v", "--verbose", action=store_true(), &
+            global=.true.)
+        call parser%add_subparsers()
+        call parser%add_parser("remote", remote_parser)
+        ! A global option added after a command still reaches it.
+        call parser%add_argument("--config", default="tool.cfg", global=.true.)
+        call parser%add_parser("run", run_parser)
+        call check(error, parser%is_valid())
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "-v", "run"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("verbose", verbose, stat)
+        call check(error, verbose)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "run", "-v"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("verbose", verbose, stat)
+        call check(error, verbose)
+        if (allocated(error)) return
+        call check(error, result%value_source("verbose"), SOURCE_COMMAND_LINE)
+        if (allocated(error)) return
+
+        ! Nested commands inherit too, including options added later.
+        result = parser%parse_tokens([character(len=9) :: "remote", "add", &
+            "x.git", "--config", "a.cfg", "--verbose"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("config", value, stat)
+        call check(error, value, "a.cfg")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "run"])
+        call result%namespace%get("verbose", verbose, stat)
+        call check(error, verbose, .false.)
+        if (allocated(error)) return
+        call result%namespace%get("config", value, stat)
+        call check(error, value, "tool.cfg")
+        if (allocated(error)) return
+
+        ! Subcommand help documents the inherited options.
+        result = parser%parse_tokens([character(len=8) :: "run", "--help"])
+        call check(error, result%outcome, PARSE_HELP)
+        if (allocated(error)) return
+        help = result%text
+        call check(error, index(help, "--config CONFIG") > 0 .and. &
+            index(help, "-v, --verbose") > 0, "child help: " // help)
+    end subroutine test_global_options
+
+    subroutine test_invalid_globals(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, child
+        type(GroupHandle) :: group
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+
+        call child%init(add_help=.false.)
+        call child%add_argument("--verbose", action=store_true())
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("input", global=.true.)
+        call parser%add_argument("--token", required=.true., global=.true.)
+        group = parser%add_mutually_exclusive_group()
+        call parser%add_argument("--fast", action=store_true(), group=group, &
+            global=.true.)
+        call parser%add_argument("--verbose", action=store_true(), &
+            global=.true.)
+        call parser%add_argument("--quiet", action=store_true())
+        call parser%add_conflict("--verbose", "--quiet")
+        call parser%add_subparsers()
+        ! The child already has --verbose.
+        call parser%add_parser("run", child)
+
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 5)
+        if (allocated(error)) return
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_INCOMPATIBLE_ACTION)
+        if (allocated(error)) return
+        entry = errors%get(2)
+        call check(error, entry%code, ERR_INCOMPATIBLE_ACTION)
+        if (allocated(error)) return
+        entry = errors%get(3)
+        call check(error, entry%code, ERR_INVALID_GROUP)
+        if (allocated(error)) return
+        entry = errors%get(4)
+        call check(error, entry%code, ERR_INVALID_RULE)
+        if (allocated(error)) return
+        entry = errors%get(5)
+        call check(error, entry%code, ERR_DUPLICATE_OPTION)
+        if (allocated(error)) return
+        call check(error, parser%subparser_count(), 0)
+    end subroutine test_invalid_globals
 
 end module test_subparsers

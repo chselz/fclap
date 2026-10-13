@@ -279,6 +279,22 @@ standard formatter. Lifecycle messages are explicit:
 Using a deprecated argument succeeds with a warning. Using a removed argument
 returns a fatal structured error and does not execute its action.
 
+Sharing the command line with other libraries
+---------------------------------------------
+
+MPI implementations and libraries such as PETSc read options from the same
+command line. ``parse_known_args`` leaves what it does not know:
+
+.. code-block:: fortran
+
+   character(len=:), allocatable :: extras(:)
+
+   args = parser%parse_known_args(extras)
+
+Unknown options and surplus positionals end up in ``extras`` in their
+original order. Values of unknown options are only recognized when attached,
+as in ``-ksp_type=cg``.
+
 Non-terminating parsing
 -----------------------
 
@@ -293,6 +309,30 @@ Libraries, tests, and interactive applications should use ``parse_tokens`` or
 ``PARSE_HELP``, or ``PARSE_VERSION``. The result also owns its ``namespace``,
 ``errors``, optional help/version ``text``, and optional
 ``selected_command_path``.
+
+Several values in one token
+---------------------------
+
+Scientific inputs such as grid sizes read naturally as one comma-separated
+token:
+
+.. code-block:: fortran
+
+   call parser%add_argument("--grid", nargs=3, data_type="integer", &
+       delimiter=",", help="grid points per dimension")
+
+``--grid 64,64,128`` and ``--grid=64,64,128`` both store ``[64, 64, 128]``,
+and a positional after it is not consumed. ``nargs="+"`` accepts any
+non-empty list, ``nargs="*"`` also an empty one.
+
+Each choice can be explained in the help:
+
+.. code-block:: fortran
+
+   call parser%add_argument("--solver", choices=[character(len=5) :: &
+       "cg", "gmres"], help="linear solver", &
+       choice_help=[character(len=28) :: "conjugate gradient", &
+       "generalized minimal residual"])
 
 Environment variables
 ---------------------
@@ -422,8 +462,26 @@ parent:
 Only one subparser collection may be added to a parser. Its default
 destination is ``command``; ``required=.true.`` rejects a missing command.
 Child namespace values are deep-merged into the returned namespace and win on
-duplicate keys. ``ParseResult%selected_command_path`` records nested command
-names from root to leaf.
+duplicate keys, except that a child default never replaces a value given to
+the parent on the command line or through the environment.
+``ParseResult%selected_command_path`` records nested command names from root
+to leaf.
+
+An option declared with ``global=.true.`` on the parent is also accepted after
+the command, as the ``-v`` of the example shows: ``fclap-subcommands run -v
+in.dat`` works like ``fclap-subcommands -v run in.dat``. Use
+``init(help_on_empty=.true.)`` on a child to print its help when the command
+is given without arguments.
+
+Commands can have short aliases:
+
+.. code-block:: fortran
+
+   call parser%add_parser("checkout", checkout, help_text="switch branches", &
+       aliases=[character(len=2) :: "co"])
+
+``prog co main`` then runs ``checkout``; the command destination and path
+contain ``checkout``, and help lists ``checkout (co)``.
 
 Errors and configuration checks
 -------------------------------

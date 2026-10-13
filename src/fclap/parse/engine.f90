@@ -49,8 +49,8 @@ contains
 
     function parse_definitions(arguments, config_errors, tokens, groups, &
         version_text, subcommand_names, has_subcommands, &
-        subcommand_required, next_token_index, rules, environment) &
-        result(parsed)
+        subcommand_required, next_token_index, rules, environment, &
+        collect_extras) result(parsed)
         type(Argument), intent(in) :: arguments(:)
         type(ErrorStack), intent(in) :: config_errors
         character(len=*), intent(in) :: tokens(:)
@@ -62,6 +62,8 @@ contains
         type(ArgumentRule), intent(in), optional :: rules(:)
         !> `NAME=value` entries replacing the process environment
         character(len=*), intent(in), optional :: environment(:)
+        !> Return unknown options and surplus positionals as extra tokens
+        logical, intent(in), optional :: collect_extras
         type(ParseResult) :: parsed
         type(ParseContext) :: context
         character(len=:), allocatable :: token, attached
@@ -70,6 +72,9 @@ contains
         call context%init(tokens, size(arguments))
         call collect_option_names(arguments, context)
         if (present(environment)) context%environment = environment
+        if (present(collect_extras)) context%collect_extras = collect_extras
+        if (context%collect_extras) allocate(character(len=1) :: &
+            context%extra_tokens(0))
         if (present(has_subcommands)) then
             if (has_subcommands) then
                 if (present(subcommand_names)) then
@@ -126,9 +131,13 @@ contains
                             arguments(argument_index), token)) then
                             call consume_positional(arguments, argument_index, &
                                 context, action_outcome)
+                        else if (context%collect_extras) then
+                            call context%add_extra()
                         else
                             call add_unknown_option(context, token, context%cursor)
                         end if
+                    else if (context%collect_extras) then
+                        call context%add_extra()
                     else
                         call add_unknown_option(context, token, context%cursor)
                     end if
@@ -145,6 +154,8 @@ contains
                         code=ERR_UNKNOWN_SUBCOMMAND, arg_name=token, &
                         token=token, token_index=context%cursor, &
                         suggestion=suggest_subcommand(context, token))
+                else if (context%collect_extras) then
+                    call context%add_extra()
                 else
                     call context%errors%add("unexpected positional argument", &
                         code=ERR_EXTRA_POSITIONAL, token=token, &
@@ -304,6 +315,13 @@ contains
             return
         end if
 
+        if (allocated(definition%delimiter)) then
+            call convert_delimited(definition, context, text, 0, value, origin)
+            if (context%errors%has_fatal_errors()) return
+            call execute_action(definition, index, value, context, outcome, &
+                mark_explicit=.true.)
+            return
+        end if
         call split_words(text, words)
         if (size(words) < definition%nargs%min_count() .or. &
             size(words) > definition%nargs%max_count()) then
@@ -459,6 +477,12 @@ contains
         if (.not. continue_parsing) return
         call context%advance()
 
+        if (allocated(arguments(index)%delimiter)) then
+            call consume_delimited(arguments, index, context, action_outcome, &
+                option_token, option_token_index, name, attached)
+            return
+        end if
+
         if (present(attached)) then
             call consume_attached_value(arguments(index), index, context, &
                 action_outcome, option_token, option_token_index, attached, name)
@@ -478,7 +502,8 @@ contains
         count = min(available, maximum)
 
         if (count < minimum) then
-            if (boundary == BOUNDARY_UNKNOWN_OPTION) then
+            if (boundary == BOUNDARY_UNKNOWN_OPTION .and. &
+                .not. context%collect_extras) then
                 call add_unknown_at(context, context%cursor + available)
             else
                 call add_missing_value(context, arguments(index), option_token, &
@@ -500,6 +525,138 @@ contains
         if (context%errors%has_fatal_errors()) return
         call advance_values(context, count)
     end subroutine consume_option
+
+    !> Consume one token holding several values separated by the option's
+    !> delimiter, e.g. `--grid 64,64,128` or `--grid=64,64,128`.
+    !>
+    !> Exactly one token is read, so a following positional is never taken;
+    !> nargs constrains the number of values after splitting.
+    subroutine consume_delimited(arguments, index, context, action_outcome, &
+        option_token, option_token_index, option_name, attached)
+        type(Argument), intent(in) :: arguments(:)
+        integer, intent(in) :: index
+        type(ParseContext), intent(inout) :: context
+        integer, intent(out) :: action_outcome
+        character(len=*), intent(in) :: option_token, option_name
+        integer, intent(in) :: option_token_index
+        character(len=*), intent(in), optional :: attached
+        type(ValueBox) :: value
+        character(len=:), allocatable :: text
+        integer :: available, boundary, text_index
+
+        action_outcome = ACTION_CONTINUE
+        associate (definition => arguments(index))
+            if (present(attached)) then
+                text = attached
+                text_index = option_token_index
+            else
+                call scan_available_values(arguments, definition, context, 1, &
+                    .false., available, boundary)
+                if (available == 0) then
+                    if (definition%nargs%min_count() > 0) then
+                        if (boundary == BOUNDARY_UNKNOWN_OPTION .and. &
+                            .not. context%collect_extras) then
+                            call add_unknown_at(context, context%cursor)
+                        else
+                            call add_missing_value(context, definition, &
+                                option_token, option_token_index)
+                        end if
+                        return
+                    end if
+                    text = ""
+                else
+                    text = trim(context%tokens(context%cursor))
+                end if
+                text_index = context%cursor
+            end if
+
+            call convert_delimited(definition, context, text, text_index, &
+                value)
+            if (context%errors%has_fatal_errors()) return
+            call execute_action(definition, index, value, context, &
+                action_outcome, mark_explicit=.true., option_name=option_name)
+            if (context%errors%has_fatal_errors()) return
+            if (.not. present(attached) .and. len(text) > 0) &
+                call context%advance()
+        end associate
+    end subroutine consume_delimited
+
+    !> Split delimited text and convert every item into a list value.
+    !>
+    !> Empty text is an empty list. The item count must satisfy nargs.
+    subroutine convert_delimited(definition, context, text, text_index, &
+        value, origin)
+        type(Argument), intent(in) :: definition
+        type(ParseContext), intent(inout) :: context
+        character(len=*), intent(in) :: text
+        integer, intent(in) :: text_index
+        type(ValueBox), intent(out) :: value
+        character(len=*), intent(in), optional :: origin
+        character(len=:), allocatable :: items(:), prefix
+        type(ValueBox) :: item
+        type(ListValue) :: list
+        integer :: current, count
+        character(len=32) :: got, wanted
+
+        prefix = ""
+        if (present(origin)) prefix = origin
+        if (len(text) == 0) then
+            allocate(character(len=1) :: items(0))
+        else
+            call split_at(text, definition%delimiter, items)
+        end if
+        count = size(items)
+        if (count < definition%nargs%min_count() .or. &
+            count > definition%nargs%max_count()) then
+            if (definition%nargs%min_count() == definition%nargs%max_count()) &
+                then
+                write(wanted, '(i0)') definition%nargs%min_count()
+                wanted = trim(wanted) // " values"
+            else
+                wanted = "at least one value"
+            end if
+            write(got, '(i0)') count
+            call context%errors%add(prefix // "expected " // trim(wanted) // &
+                " separated by '" // definition%delimiter // "' (got " // &
+                trim(got) // ")", code=ERR_MISSING_VALUE, &
+                arg_name=definition%dest, token=text, token_index=text_index)
+            return
+        end if
+
+        call list%initialize(definition%data_type)
+        do current = 1, count
+            call convert_and_validate_text(definition, context, &
+                trim(items(current)), text_index, item, origin)
+            if (context%errors%has_fatal_errors()) return
+            call list%append(item)
+        end do
+        call value%set(list)
+    end subroutine convert_delimited
+
+    !> Split text at every occurrence of a one-character separator, keeping
+    !> empty items so that `1,,2` is reported instead of silently shortened.
+    subroutine split_at(text, separator, items)
+        character(len=*), intent(in) :: text
+        character(len=*), intent(in) :: separator
+        character(len=:), allocatable, intent(out) :: items(:)
+        integer :: first, position, count, current
+
+        count = 1
+        do position = 1, len(text)
+            if (text(position:position) == separator) count = count + 1
+        end do
+        allocate(character(len=max(1, len(text))) :: items(count))
+        first = 1
+        current = 0
+        do position = 1, len(text) + 1
+            if (position <= len(text)) then
+                if (text(position:position) /= separator) cycle
+            end if
+            current = current + 1
+            items(current) = text(first:position - 1)
+            first = position + 1
+        end do
+    end subroutine split_at
 
     !> Apply the single value written inside an option token.
     subroutine consume_attached_value(definition, index, context, &
@@ -670,7 +827,8 @@ contains
         end select
 
         if (count < minimum) then
-            if (boundary == BOUNDARY_UNKNOWN_OPTION .and. available < minimum) then
+            if (boundary == BOUNDARY_UNKNOWN_OPTION .and. available < minimum &
+                .and. .not. context%collect_extras) then
                 call add_unknown_at(context, context%cursor + available)
             else
                 call add_missing_positional_value(context, arguments(index))
@@ -1274,6 +1432,8 @@ contains
         parsed%namespace = context%namespace
         parsed%errors = context%errors
         parsed%outcome = outcome
+        if (allocated(context%extra_tokens)) &
+            parsed%extra_tokens = context%extra_tokens
         if (present(next_token_index)) next_token_index = context%cursor
         if (allocated(context%selected_command_path)) then
             parsed%selected_command_path = context%selected_command_path

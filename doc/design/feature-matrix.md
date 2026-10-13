@@ -144,7 +144,10 @@ every retained behavior was mapped to a named Test Drive case in
 | Attached value for a flag | Not present | Initial | `--flag=x` is a fatal `ERR_UNEXPECTED_VALUE`. |
 | Invalid parser definition at `parse_args` | Not present | Initial | Printed as `prog: invalid parser definition: ...` with exit status 70, distinct from user errors (status 2). |
 | Application-reported errors | Not present | Initial | `parser%error(message)` prints usage and `prog: error: message` and exits with status 2. |
-| Parse known arguments | Not present | Later | May return unmatched tokens without weakening strict `parse_tokens()`. |
+| Parse known arguments | Not present | Later | Implemented as `parse_known_tokens`, `try_parse_known_args`, and `parse_known_args(extras)`; strict `parse_tokens()` is unchanged. |
+| Global options | Not present | Later | Implemented after clap: `global=.true.` copies an option into every subcommand subtree. |
+| Value delimiter | Not present | Later | Implemented after clap: `delimiter=` splits one token into the values of a list option; nargs bounds the item count. |
+| Help on an empty command line | Not present | Later | Implemented after clap's `arg_required_else_help` as `init(help_on_empty=)`, reported as `ERR_NO_ARGUMENTS`. |
 | Parse a shell command string | Not present | Unsupported | Shell quoting is platform-dependent; callers supply an already-tokenized array. |
 
 ## Namespace
@@ -173,6 +176,8 @@ every retained behavior was mapped to a named Test Drive case in
 | Width and wrapping | Fields exist; behavior limited | Initial | Default width 80 and deterministic wrapping. |
 | Raw description formatter | Mentioned in skeleton | Initial | Implemented as `StandardFormatter(raw_description=.true.)`. |
 | Raw text formatter | Mentioned in skeleton | Initial | Implemented as `StandardFormatter(raw_help_text=.true.)`. |
+| Per-choice help | Not present | Later | Implemented after clap's `PossibleValue::help` as `choice_help=`, one line per choice. |
+| Width from the terminal | Not present | Later | `StandardFormatter(width_from_env=.true.)` reads `COLUMNS`, falling back to `help_width`; there is no portable terminal query. |
 | Metavar type formatter | Mentioned in skeleton | Later | Concrete formatter or configuration factory. |
 | Colored help | Absent | Unsupported | Reconsider only with explicit terminal-capability design. |
 
@@ -189,7 +194,8 @@ every retained behavior was mapped to a named Test Drive case in
 | One-level subparsers | Implemented and tested | Later | Implemented in Phase 7 with owned child-parser snapshots. |
 | Nested subparsers | Suggested in doc/design only | Later | Implemented in Phase 7 through recursive facade dispatch and `selected_command_path`. |
 | Required subparser | Not implemented | Later | Implemented as the explicit `required=` property of `add_subparsers`. |
-| Subparser namespace merge | Implemented | Later | Implemented with deeper/child values taking precedence on duplicate keys. |
+| Subparser namespace merge | Implemented | Later | Implemented with deeper/child values taking precedence on duplicate keys, unless the parent value has a higher-precedence source (a given parent flag is not hidden by a child default). |
+| Subcommand aliases | Not present | Later | Implemented after clap: `add_parser(..., aliases=)`; aliases resolve to the registered name in the namespace and command path and are listed in help. |
 | Callback dispatch | Not implemented | Later | Convenience layer after hierarchical parsing. |
 
 ## Python argparse features deliberately not promised
@@ -208,9 +214,7 @@ The following syntax was deferred from the initial release and is now
 implemented: `--option=value`, combined short flags such as `-vvv` or `-abc`,
 and attached short-option values such as `-I/usr/include`.
 
-The following remains deferred rather than rejected permanently:
-
-- `parse_known_args`
+Nothing from this list remains deferred: `parse_known_args` is implemented.
 
 ## Legacy test migration inventory
 

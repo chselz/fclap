@@ -20,6 +20,9 @@ program tester
     use test_suggestions, only : collect_suggestions
     use test_rules, only : collect_rules
     use test_environment, only : collect_environment
+    use test_delimiters, only : collect_delimiters
+    use test_known_args, only : collect_known_args
+    use test_help_options, only : collect_help_options
     implicit none
 
     type(testsuite_type), allocatable :: suites(:)
@@ -45,7 +48,10 @@ program tester
         new_testsuite("usability", collect_usability), &
         new_testsuite("suggestions", collect_suggestions), &
         new_testsuite("rules", collect_rules), &
-        new_testsuite("environment", collect_environment) &
+        new_testsuite("environment", collect_environment), &
+        new_testsuite("delimiters", collect_delimiters), &
+        new_testsuite("known args", collect_known_args), &
+        new_testsuite("help options", collect_help_options) &
     ]
 
     do index = 1, size(suites)

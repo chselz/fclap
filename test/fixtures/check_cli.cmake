@@ -122,6 +122,39 @@ if(NOT env_stderr MATCHES "fixture: error: argument --jobs: environment variable
   message(FATAL_ERROR "invalid environment value was not reported: ${env_stderr}")
 endif()
 
+# A subcommand created with help_on_empty shows its help for an empty line.
+execute_process(
+  COMMAND "${FCLAP_CLI}" show
+  RESULT_VARIABLE empty_status
+  OUTPUT_VARIABLE empty_stdout
+  ERROR_VARIABLE empty_stderr
+)
+if(NOT empty_status EQUAL 2)
+  message(FATAL_ERROR "empty subcommand exited with ${empty_status}, expected 2")
+endif()
+if(NOT empty_stderr MATCHES "^usage: fixture show" OR
+   NOT empty_stderr MATCHES "item to show" OR
+   empty_stderr MATCHES "error:")
+  message(FATAL_ERROR "empty subcommand did not print only its help: ${empty_stderr}")
+endif()
+
+# width_from_env wraps help to the COLUMNS environment variable.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env COLUMNS=40 "${FCLAP_CLI}" --help
+  RESULT_VARIABLE narrow_status
+  OUTPUT_VARIABLE narrow_stdout
+)
+if(NOT narrow_status EQUAL 0)
+  message(FATAL_ERROR "narrow help exited with ${narrow_status}")
+endif()
+string(REPLACE "\n" ";" narrow_lines "${narrow_stdout}")
+foreach(line IN LISTS narrow_lines)
+  string(LENGTH "${line}" line_length)
+  if(line_length GREATER 40)
+    message(FATAL_ERROR "help line exceeds COLUMNS=40: '${line}'")
+  endif()
+endforeach()
+
 # An application check reported through parser%error looks like a usage error.
 execute_process(
   COMMAND "${FCLAP_CLI}" --check

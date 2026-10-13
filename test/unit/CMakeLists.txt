@@ -32,6 +32,9 @@ set(
   "test_suggestions.f90"
   "test_rules.f90"
   "test_environment.f90"
+  "test_delimiters.f90"
+  "test_known_args.f90"
+  "test_help_options.f90"
 )
 
 add_executable(

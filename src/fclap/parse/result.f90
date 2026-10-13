@@ -24,6 +24,9 @@ module fclap_parse_result
         integer :: outcome = PARSE_SUCCESS
         character(len=:), allocatable :: text
         character(len=:), allocatable :: selected_command_path(:)
+        !> Unknown options and surplus positionals of a `parse_known_*` call,
+        !> in command-line order; unallocated for strict parsing
+        character(len=:), allocatable :: extra_tokens(:)
         !> Destinations with a recorded value source
         character(len=:), allocatable, private :: source_dests(:)
         !> `SOURCE_*` constant for each entry of `source_dests`
@@ -33,7 +36,7 @@ module fclap_parse_result
         procedure :: failed => parse_result_failed
         procedure :: value_source => parse_result_value_source
         procedure :: set_source => parse_result_set_source
-        procedure :: merge_sources => parse_result_merge_sources
+        procedure :: merge_child => parse_result_merge_child
     end type ParseResult
 
 contains
@@ -100,17 +103,31 @@ contains
         call move_alloc(kinds, self%source_kinds)
     end subroutine parse_result_set_source
 
-    !> Take over every source recorded by `other`, e.g. a subcommand's result.
-    subroutine parse_result_merge_sources(self, other)
+    !> Merge a selected subcommand's values and sources into this result.
+    !>
+    !> The namespace is flat, so a destination may be stored at both levels.
+    !> The child value replaces the parent value unless the parent value has
+    !> a higher-precedence source: a child default never hides an option the
+    !> user gave to the parent, while equal sources let the deeper level win.
+    subroutine parse_result_merge_child(self, child)
         class(ParseResult), intent(inout) :: self
-        type(ParseResult), intent(in) :: other
+        type(ParseResult), intent(in) :: child
+        type(Namespace) :: incoming
+        character(len=:), allocatable :: dest
         integer :: index
 
-        if (.not. allocated(other%source_dests)) return
-        do index = 1, size(other%source_dests)
-            call self%set_source(trim(other%source_dests(index)), &
-                other%source_kinds(index))
-        end do
-    end subroutine parse_result_merge_sources
+        incoming = child%namespace
+        if (allocated(child%source_dests)) then
+            do index = 1, size(child%source_dests)
+                dest = trim(child%source_dests(index))
+                if (self%value_source(dest) > child%source_kinds(index)) then
+                    call incoming%remove(dest)
+                else
+                    call self%set_source(dest, child%source_kinds(index))
+                end if
+            end do
+        end if
+        call self%namespace%merge(incoming)
+    end subroutine parse_result_merge_child
 
 end module fclap_parse_result
