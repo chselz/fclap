@@ -13,7 +13,8 @@ module fclap_argparser
         ERR_INCOMPATIBLE_ACTION, ERR_INVALID_GROUP, ERR_UNKNOWN_ARGUMENT, &
         ERR_EXTRA_POSITIONAL, ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, &
         ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, ERR_INVALID_VALUE, &
-        ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED, ERROR_WARNING
+        ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED, ERR_INVALID_RULE, &
+        ERROR_WARNING
     use fclap_error_entry, only : ErrorEntry
     use fclap_error_stack, only : ErrorStack
     use fclap_formatter_abstract, only : FormatterType
@@ -27,9 +28,11 @@ module fclap_argparser
     use fclap_nargs, only : NARGS_REMAINDER
     use fclap_parse_engine, only : parse_definitions
     use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
-        PARSE_HELP, PARSE_VERSION
+        PARSE_HELP, PARSE_VERSION, SOURCE_COMMAND_LINE
     use fclap_registration, only : check_names, build_argument, &
-        any_registered_name
+        any_registered_name, check_env_source
+    use fclap_rules, only : ArgumentRule, RULE_REQUIRES, RULE_CONFLICTS, &
+        RULE_REQUIRED_UNLESS, rule_kind_name
     use fclap_validators_abstract, only : ValidatorType
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue, StringValue
@@ -50,6 +53,7 @@ module fclap_argparser
         integer :: group_owner = 0
         type(Argument), allocatable :: arguments(:)
         type(GroupBox), allocatable :: groups(:)
+        type(ArgumentRule), allocatable :: rules(:)
         type(ErrorStack) :: config_errors
         logical :: subparsers_enabled = .false.
         logical :: subparsers_required = .false.
@@ -65,10 +69,23 @@ module fclap_argparser
         procedure :: add_argument => parser_add_argument
         procedure :: add_argument_group => parser_add_argument_group
         procedure :: add_mutually_exclusive_group => parser_add_mutex_group
+        procedure, private :: parser_add_requires_one
+        procedure, private :: parser_add_requires_many
+        generic :: add_requires => parser_add_requires_one, &
+            parser_add_requires_many
+        procedure, private :: parser_add_conflict_one
+        procedure, private :: parser_add_conflict_many
+        generic :: add_conflict => parser_add_conflict_one, &
+            parser_add_conflict_many
+        procedure, private :: parser_add_required_unless_one
+        procedure, private :: parser_add_required_unless_many
+        generic :: add_required_unless => parser_add_required_unless_one, &
+            parser_add_required_unless_many
         procedure :: add_subparsers => parser_add_subparsers
         procedure :: add_parser => parser_add_parser
         procedure :: argument_count => parser_argument_count
         procedure :: group_count => parser_group_count
+        procedure :: rule_count => parser_rule_count
         procedure :: subparser_count => parser_subparser_count
         procedure :: get_argument => parser_get_argument
         procedure :: has_option => parser_has_option
@@ -92,6 +109,9 @@ module fclap_argparser
         procedure, private :: display_label => parser_display_label
         procedure, private :: append_argument => parser_append_argument
         procedure, private :: append_group => parser_append_group
+        procedure, private :: add_rule => parser_add_rule
+        procedure, private :: append_rule => parser_append_rule
+        procedure, private :: find_reference => parser_find_reference
         procedure, private :: append_subparser => parser_append_subparser
         procedure, private :: find_subparser => parser_find_subparser
         procedure, private :: copy_parent => parser_copy_parent
@@ -163,7 +183,7 @@ contains
     subroutine parser_add_argument(self, name1, name2, name3, name4, action, &
         nargs, data_type, default, const, choices, validator, required, help, &
         metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
-        print_choices, group, case_insensitive_choices)
+        print_choices, group, case_insensitive_choices, env)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name1
         character(len=*), intent(in), optional :: name2, name3, name4
@@ -181,6 +201,8 @@ contains
         logical, intent(in), optional :: print_default, print_choices
         type(GroupHandle), intent(in), optional :: group
         logical, intent(in), optional :: case_insensitive_choices
+        !> Environment variable used when the option is not given
+        character(len=*), intent(in), optional :: env
 
         character(len=:), allocatable :: names(:), given(:), message, subject
         type(Argument) :: candidate
@@ -225,6 +247,14 @@ contains
         if (code /= FCLAP_OK) then
             call self%reject(code, message, subject, join_names(names))
             return
+        end if
+        if (present(env)) then
+            call check_env_source(candidate, env, code, message)
+            if (code /= FCLAP_OK) then
+                call self%reject(code, message, candidate%dest, join_names(names))
+                return
+            end if
+            candidate%env = trim(env)
         end if
 
         if (group_index > 0) then
@@ -276,6 +306,149 @@ contains
         call self%append_group(definition)
         handle = new_group_handle(self%group_owner, self%group_count())
     end function parser_add_mutex_group
+
+    !> Require other arguments whenever `subject` is given on the command line.
+    !>
+    !> Arguments are named by destination or by any option spelling and must
+    !> already be registered, e.g. `call parser%add_requires("--restart-file",
+    !> "--restart")`.
+    subroutine parser_add_requires_one(self, subject, needed)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: needed
+
+        call self%add_rule(RULE_REQUIRES, subject, [needed])
+    end subroutine parser_add_requires_one
+
+    subroutine parser_add_requires_many(self, subject, needed)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: needed(:)
+
+        call self%add_rule(RULE_REQUIRES, subject, needed)
+    end subroutine parser_add_requires_many
+
+    !> Reject the command line when `subject` and any of `others` are given
+    !> together. A conflict is symmetric, so one call covers both directions.
+    subroutine parser_add_conflict_one(self, subject, other)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: other
+
+        call self%add_rule(RULE_CONFLICTS, subject, [other])
+    end subroutine parser_add_conflict_one
+
+    subroutine parser_add_conflict_many(self, subject, others)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: others(:)
+
+        call self%add_rule(RULE_CONFLICTS, subject, others)
+    end subroutine parser_add_conflict_many
+
+    !> Require `subject` unless at least one of `alternatives` is given.
+    subroutine parser_add_required_unless_one(self, subject, alternative)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: alternative
+
+        call self%add_rule(RULE_REQUIRED_UNLESS, subject, [alternative])
+    end subroutine parser_add_required_unless_one
+
+    subroutine parser_add_required_unless_many(self, subject, alternatives)
+        class(ArgumentParser), intent(inout) :: self
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: alternatives(:)
+
+        call self%add_rule(RULE_REQUIRED_UNLESS, subject, alternatives)
+    end subroutine parser_add_required_unless_many
+
+    !> Resolve and check every argument a rule refers to, then store it.
+    !>
+    !> A rule that could never be satisfied, or whose subject is always
+    !> present anyway, is a configuration error rather than a parse error.
+    subroutine parser_add_rule(self, kind, subject, others)
+        class(ArgumentParser), intent(inout) :: self
+        integer, intent(in) :: kind
+        character(len=*), intent(in) :: subject
+        character(len=*), intent(in) :: others(:)
+        type(ArgumentRule) :: rule
+        character(len=:), allocatable :: label, spelling
+        integer :: index
+
+        label = "the " // rule_kind_name(kind) // " rule"
+        rule%kind = kind
+        rule%subject = self%find_reference(subject)
+        if (rule%subject == 0) then
+            call self%reject(ERR_INVALID_RULE, label // &
+                " names an unknown argument", trim(subject), trim(subject))
+            return
+        end if
+        spelling = self%arguments(rule%subject)%display_label()
+        if (size(others) == 0) then
+            call self%reject(ERR_INVALID_RULE, label // &
+                " needs at least one other argument", &
+                self%arguments(rule%subject)%dest, spelling)
+            return
+        end if
+
+        allocate(rule%others(size(others)))
+        do index = 1, size(others)
+            rule%others(index) = self%find_reference(others(index))
+            if (rule%others(index) == 0) then
+                call self%reject(ERR_INVALID_RULE, label // &
+                    " names an unknown argument '" // trim(others(index)) // &
+                    "'", self%arguments(rule%subject)%dest, spelling)
+                return
+            end if
+            if (rule%others(index) == rule%subject) then
+                call self%reject(ERR_INVALID_RULE, label // &
+                    " must not refer to its own subject", &
+                    self%arguments(rule%subject)%dest, spelling)
+                return
+            end if
+        end do
+
+        select case (kind)
+        case (RULE_REQUIRED_UNLESS)
+            if (any_always_present(self%arguments, [rule%subject])) then
+                call self%reject(ERR_INVALID_RULE, label // &
+                    " needs a subject that is not already required", &
+                    self%arguments(rule%subject)%dest, spelling)
+                return
+            end if
+        case (RULE_CONFLICTS)
+            if (any_always_present(self%arguments, &
+                [rule%subject, rule%others])) then
+                call self%reject(ERR_INVALID_RULE, &
+                    "conflicting arguments must not be required", &
+                    self%arguments(rule%subject)%dest, spelling)
+                return
+            end if
+        end select
+        call self%append_rule(rule)
+    end subroutine parser_add_rule
+
+    !> Index of the argument with this destination or option spelling.
+    pure integer function parser_find_reference(self, name) result(index)
+        class(ArgumentParser), intent(in) :: self
+        character(len=*), intent(in) :: name
+        integer :: current
+
+        index = 0
+        if (len_trim(name) == 0) return
+        do current = 1, self%argument_count()
+            if (name(1:1) == '-') then
+                if (.not. self%arguments(current)%is_optional) cycle
+                if (.not. any(self%arguments(current)%names == trim(name))) &
+                    cycle
+            else
+                if (self%arguments(current)%dest /= trim(name)) cycle
+            end if
+            index = current
+            return
+        end do
+    end function parser_find_reference
 
     subroutine parser_add_subparsers(self, title, description, dest, required)
         class(ArgumentParser), intent(inout) :: self
@@ -387,6 +560,16 @@ contains
             number = 0
         end if
     end function parser_group_count
+
+    pure integer function parser_rule_count(self) result(number)
+        class(ArgumentParser), intent(in) :: self
+
+        if (allocated(self%rules)) then
+            number = size(self%rules)
+        else
+            number = 0
+        end if
+    end function parser_rule_count
 
     pure integer function parser_subparser_count(self) result(number)
         class(ArgumentParser), intent(in) :: self
@@ -501,6 +684,9 @@ contains
                 model%arguments(index)%removed_msg = &
                     self%arguments(index)%removed_msg
             end if
+            if (allocated(self%arguments(index)%env)) then
+                model%arguments(index)%env = self%arguments(index)%env
+            end if
             model%arguments(index)%nargs = &
                 self%arguments(index)%nargs_value()
             model%arguments(index)%is_optional = &
@@ -591,9 +777,15 @@ contains
         write(selected_unit, '(a)') self%format_help()
     end subroutine parser_print_help
 
-    recursive function parser_parse_tokens(self, tokens) result(parsed)
+    !> Parse an explicit token array without terminating the program.
+    !>
+    !> `environment` holds `NAME=value` entries that replace the process
+    !> environment for options declared with `env=`, e.g. in tests.
+    recursive function parser_parse_tokens(self, tokens, environment) &
+        result(parsed)
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: tokens(:)
+        character(len=*), intent(in), optional :: environment(:)
         type(ParseResult) :: parsed
         type(ParseResult) :: child_result
         type(Argument), allocatable :: definitions(:)
@@ -623,13 +815,15 @@ contains
                 subcommand_names=command_names, &
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
-                next_token_index=next_token_index)
+                next_token_index=next_token_index, rules=self%rules, &
+                environment=environment)
         else
             parsed = parse_definitions(definitions, self%config_errors, tokens, &
                 group_definitions, subcommand_names=command_names, &
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
-                next_token_index=next_token_index)
+                next_token_index=next_token_index, rules=self%rules, &
+                environment=environment)
         end if
 
         if (parsed%outcome == PARSE_HELP) parsed%text = self%format_help()
@@ -641,9 +835,11 @@ contains
         if (child_index == 0) return
 
         call parsed%namespace%set_string(self%subparser_dest, command)
+        call parsed%set_source(self%subparser_dest, SOURCE_COMMAND_LINE)
         child_result = self%subparsers(child_index)%parse_tokens( &
-            tokens(next_token_index:))
+            tokens(next_token_index:), environment)
         call parsed%namespace%merge(child_result%namespace)
+        call parsed%merge_sources(child_result)
         ! The child saw a slice of the line; report absolute token positions.
         call child_result%errors%offset_token_indices(next_token_index - 1)
         call parsed%errors%merge(child_result%errors)
@@ -799,6 +995,8 @@ contains
                     message = message // " (got '" // trim(entry%token) // "')"
             end select
         end select
+        if (allocated(entry%suggestion)) &
+            message = message // " (did you mean '" // entry%suggestion // "'?)"
         text = prog // ": " // severity // ": " // message
     end function parser_format_diagnostic
 
@@ -859,6 +1057,19 @@ contains
         call move_alloc(temporary, self%groups)
     end subroutine parser_append_group
 
+    subroutine parser_append_rule(self, rule)
+        class(ArgumentParser), intent(inout) :: self
+        type(ArgumentRule), intent(in) :: rule
+        type(ArgumentRule), allocatable :: temporary(:)
+        integer :: old_size
+
+        old_size = self%rule_count()
+        allocate(temporary(old_size + 1))
+        if (old_size > 0) temporary(:old_size) = self%rules
+        temporary(old_size + 1) = rule
+        call move_alloc(temporary, self%rules)
+    end subroutine parser_append_rule
+
     subroutine parser_append_subparser(self, name, help_text, definition)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name, help_text
@@ -913,8 +1124,11 @@ contains
         class(ArgumentParser), intent(inout) :: self
         type(ArgumentParser), intent(in) :: parent
         type(GroupBox) :: copied_group
+        type(ArgumentRule) :: copied_rule
         integer, allocatable :: index_map(:)
         integer :: argument_index, group_index, member_index, old_index
+        integer :: rule_index
+        logical :: kept
 
         call self%config_errors%merge(parent%config_errors)
         if (.not. allocated(self%arguments)) allocate(self%arguments(0))
@@ -957,6 +1171,12 @@ contains
             call self%append_group(copied_group%item)
             deallocate(copied_group%item)
         end do
+
+        do rule_index = 1, parent%rule_count()
+            copied_rule = parent%rules(rule_index)
+            call copied_rule%remap(index_map, kept)
+            if (kept) call self%append_rule(copied_rule)
+        end do
     end subroutine parser_copy_parent
 
     recursive subroutine parser_clone_from(self, source)
@@ -976,6 +1196,7 @@ contains
         self%group_owner = new_group_owner_id()
         if (allocated(source%arguments)) self%arguments = source%arguments
         if (allocated(source%groups)) self%groups = source%groups
+        if (allocated(source%rules)) self%rules = source%rules
         self%config_errors = source%config_errors
 
         self%subparsers_enabled = source%subparsers_enabled
@@ -1047,6 +1268,7 @@ contains
         if (allocated(self%arguments)) deallocate(self%arguments)
         allocate(self%arguments(0))
         if (allocated(self%groups)) deallocate(self%groups)
+        if (allocated(self%rules)) deallocate(self%rules)
         if (allocated(self%subparser_dest)) deallocate(self%subparser_dest)
         if (allocated(self%subparser_title)) deallocate(self%subparser_title)
         if (allocated(self%subparser_description)) &
@@ -1071,6 +1293,24 @@ contains
         if (.not. valid) return
         valid = scan(candidate, " " // achar(9) // new_line('a')) == 0
     end function valid_subcommand_name
+
+    !> Whether any of the indexed arguments is present on every valid command
+    !> line: a required option, or a positional that needs at least one value.
+    logical function any_always_present(arguments, indices) result(found)
+        type(Argument), intent(in) :: arguments(:)
+        integer, intent(in) :: indices(:)
+        integer :: index
+
+        found = .false.
+        do index = 1, size(indices)
+            associate (definition => arguments(indices(index)))
+                if (definition%required) found = .true.
+                if (definition%is_positional() .and. &
+                    definition%nargs%min_count() > 0) found = .true.
+            end associate
+            if (found) return
+        end do
+    end function any_always_present
 
     logical function is_special_argument(definition) result(special)
         type(Argument), intent(in) :: definition

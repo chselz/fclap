@@ -85,6 +85,8 @@ every retained behavior was mapped to a named Test Drive case in
 | Print default toggle | Implemented and extensively tested | Initial | Per-argument default is true under `StandardFormatter`. |
 | Print choices toggle | Implemented and tested | Initial | Per-argument default is false under `StandardFormatter`. |
 | Multiple integer/real kinds | Discussed but not implemented | Later | Implemented: integers are stored with 64-bit range; `Namespace` and validators accept `int32`/`int64` and `real32`/`real64` with range-checked narrowing. |
+| Environment variable fallback | Not present | Later | Implemented after clap: `env=` on options, precedence command line > environment > default, values validated like tokens; `parse_tokens(environment=)` replaces the process environment. |
+| Value source | Not present | Later | Implemented: `ParseResult%value_source(dest)` reports `SOURCE_COMMAND_LINE`, `SOURCE_ENVIRONMENT`, `SOURCE_DEFAULT`, or `SOURCE_NONE`. |
 | Arbitrary user-defined value types | Not present | Later | Requires a public converter/value construction contract. |
 
 ## Nargs and token consumption
@@ -137,6 +139,7 @@ every retained behavior was mapped to a named Test Drive case in
 | Extra positional | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Missing required argument | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Repeated parse with one parser | Mutable legacy seen-state | Initial | Every call uses a fresh `ParseContext`; parser definition remains unchanged. |
+| "Did you mean" suggestions | Not present | Later | Implemented: unknown options, unknown subcommands, and invalid string choices carry `ErrorEntry%suggestion` when a candidate's Jaro similarity exceeds 0.7, as in clap; `format_diagnostic` appends `(did you mean '...'?)`. |
 | Help or version after an error | Not present | Initial | An exact `-h`/`--help` or `--version` later on the command line wins over an unknown option or extra positional, as in argparse. |
 | Attached value for a flag | Not present | Initial | `--flag=x` is a fatal `ERR_UNEXPECTED_VALUE`. |
 | Invalid parser definition at `parse_args` | Not present | Initial | Printed as `prog: invalid parser definition: ...` with exit status 70, distinct from user errors (status 2). |
@@ -181,6 +184,7 @@ every retained behavior was mapped to a named Test Drive case in
 | Optional mutex group | Implemented; success tested | Initial | At most one explicitly seen member. |
 | Required mutex group | Implemented; fail test disabled | Initial | Exactly one explicitly seen member. |
 | Mutex member restrictions | Not validated | Initial | Required options and positionals that need a value are rejected with `ERR_INVALID_GROUP`. |
+| Argument rules (requires, conflicts, required unless) | Not present | Later | Implemented after clap: `add_requires`, `add_conflict`, and `add_required_unless` store index-based rules checked against explicit presence; invalid rules are `ERR_INVALID_RULE`. Value-dependent rules remain later work. |
 | Python-like group object facade | Not present | Later | Start with a stable `GroupHandle`; add `group%add_argument` only after lifetime tests. |
 | One-level subparsers | Implemented and tested | Later | Implemented in Phase 7 with owned child-parser snapshots. |
 | Nested subparsers | Suggested in doc/design only | Later | Implemented in Phase 7 through recursive facade dispatch and `selected_command_path`. |

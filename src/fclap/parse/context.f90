@@ -20,6 +20,12 @@ module fclap_parse_context
         logical :: subcommand_required = .false.
         character(len=:), allocatable :: subcommand_names(:)
         character(len=:), allocatable :: selected_command_path(:)
+        !> Option spellings offered as corrections for unknown options
+        character(len=:), allocatable :: option_names(:)
+        !> Arguments whose value was taken from an environment variable
+        logical, allocatable :: from_env(:)
+        !> Explicit `NAME=value` environment used instead of the process one
+        character(len=:), allocatable :: environment(:)
     contains
         procedure :: init => context_init
         procedure :: at_end => context_at_end
@@ -53,6 +59,7 @@ contains
 
         allocate(self%seen(max(0, argument_count)), source=.false.)
         allocate(self%completed(max(0, argument_count)), source=.false.)
+        allocate(self%from_env(max(0, argument_count)), source=.false.)
         call self%namespace%clear()
         call self%errors%clear()
     end subroutine context_init

@@ -17,6 +17,9 @@ program tester
     use test_conversion, only : collect_conversion
     use test_cli_syntax, only : collect_cli_syntax
     use test_usability, only : collect_usability
+    use test_suggestions, only : collect_suggestions
+    use test_rules, only : collect_rules
+    use test_environment, only : collect_environment
     implicit none
 
     type(testsuite_type), allocatable :: suites(:)
@@ -39,7 +42,10 @@ program tester
         new_testsuite("subparsers", collect_subparsers), &
         new_testsuite("conversion", collect_conversion), &
         new_testsuite("cli syntax", collect_cli_syntax), &
-        new_testsuite("usability", collect_usability) &
+        new_testsuite("usability", collect_usability), &
+        new_testsuite("suggestions", collect_suggestions), &
+        new_testsuite("rules", collect_rules), &
+        new_testsuite("environment", collect_environment) &
     ]
 
     do index = 1, size(suites)

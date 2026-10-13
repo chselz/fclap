@@ -15,6 +15,8 @@ module fclap_error_codes
     integer, parameter, public :: ERR_INVALID_TYPE_NAME     = 1008
     integer, parameter, public :: ERR_INVALID_LIFECYCLE     = 1009
     integer, parameter, public :: ERR_INCOMPATIBLE_VALIDATOR = 1010
+    integer, parameter, public :: ERR_INVALID_RULE          = 1011
+    integer, parameter, public :: ERR_INVALID_ENV           = 1012
 
     ! Single-parser runtime errors (2000-2099)
     integer, parameter, public :: ERR_UNKNOWN_ARGUMENT    = 2001
@@ -29,6 +31,8 @@ module fclap_error_codes
     integer, parameter, public :: ERR_REMOVED_ARGUMENT    = 2010
     integer, parameter, public :: ERR_DEPRECATED_ARGUMENT = 2011
     integer, parameter, public :: ERR_UNEXPECTED_VALUE    = 2012
+    integer, parameter, public :: ERR_MISSING_DEPENDENCY  = 2013
+    integer, parameter, public :: ERR_ARGUMENT_CONFLICT   = 2014
 
     ! Reserved subparser errors (2100-2199)
     integer, parameter, public :: ERR_UNKNOWN_SUBCOMMAND = 2101

@@ -20,6 +20,7 @@ module fclap_value_convert
     public :: values_equal
     public :: canonicalize_choice
     public :: has_ambiguous_choices
+    public :: lowercase
 
 contains
 
@@ -455,7 +456,7 @@ contains
         end do
     end function choice_index
 
-    pure function lowercase(input) result(output)
+    elemental function lowercase(input) result(output)
         character(len=*), intent(in) :: input
         character(len=len(input)) :: output
         integer :: index, code

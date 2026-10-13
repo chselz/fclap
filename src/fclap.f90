@@ -13,7 +13,8 @@ module fclap
         boolean_optional, append, count
     use fclap_namespace, only : Namespace
     use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
-        PARSE_HELP, PARSE_VERSION
+        PARSE_HELP, PARSE_VERSION, SOURCE_NONE, SOURCE_DEFAULT, &
+        SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE
     use fclap_nargs, only : NargsSpec, new_nargs, normalize_nargs, &
         NARGS_INVALID, NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
         NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO, NARGS_ONE, &
@@ -41,6 +42,8 @@ module fclap
     ! Application interface: everything a command-line program needs.
     public :: ArgumentParser, Namespace, ParseResult, GroupHandle
     public :: PARSE_SUCCESS, PARSE_FAILURE, PARSE_HELP, PARSE_VERSION
+    public :: SOURCE_NONE, SOURCE_DEFAULT, SOURCE_ENVIRONMENT
+    public :: SOURCE_COMMAND_LINE
     public :: store, store_const, store_true, store_false, boolean_optional
     public :: append, count
     public :: not_less_than, not_bigger_than, in_range
@@ -51,11 +54,13 @@ module fclap
     public :: ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION
     public :: ERR_INVALID_DEFAULT, ERR_INVALID_GROUP, ERR_INVALID_TYPE_NAME
     public :: ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR
+    public :: ERR_INVALID_RULE, ERR_INVALID_ENV
     public :: ERR_UNKNOWN_ARGUMENT, ERR_MISSING_VALUE, ERR_EXTRA_POSITIONAL
     public :: ERR_MISSING_REQUIRED, ERR_INVALID_VALUE, ERR_INVALID_CHOICE
     public :: ERR_VALIDATION_FAILED, ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED
     public :: ERR_REMOVED_ARGUMENT, ERR_DEPRECATED_ARGUMENT
-    public :: ERR_UNEXPECTED_VALUE
+    public :: ERR_UNEXPECTED_VALUE, ERR_MISSING_DEPENDENCY
+    public :: ERR_ARGUMENT_CONFLICT
     public :: ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND
     public :: ERR_NAMESPACE_MISSING_KEY, ERR_NAMESPACE_TYPE_MISMATCH
     public :: ERR_NAMESPACE_OUT_OF_RANGE

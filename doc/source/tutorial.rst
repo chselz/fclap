@@ -92,6 +92,9 @@ The example accepts the usual command-line spellings:
    $ fclap-basic input.dat -j 0
    usage: fclap-basic [-h] [-v] [-j THREADS] INPUT
    fclap-basic: error: argument -j/--threads: value must not be less than 1 (got '0')
+   $ fclap-basic input.dat --thraeds 4
+   usage: fclap-basic [-h] [-v] [-j THREADS] INPUT
+   fclap-basic: error: unknown option '--thraeds' (did you mean '--threads'?)
 
 The example reads its values without ``stat=``. That is safe for values that
 always exist (positionals, flags, and options with defaults): if a key is
@@ -291,6 +294,38 @@ Libraries, tests, and interactive applications should use ``parse_tokens`` or
 ``errors``, optional help/version ``text``, and optional
 ``selected_command_path``.
 
+Environment variables
+---------------------
+
+An option can fall back to an environment variable, which suits batch jobs
+configured through their environment:
+
+.. code-block:: fortran
+
+   call parser%add_argument("-j", "--threads", data_type="integer", &
+       default=1, env="OMP_NUM_THREADS", help="worker threads")
+
+``--threads 4`` on the command line wins; otherwise ``OMP_NUM_THREADS`` is
+used when set and not empty; otherwise the default. The help line reads
+``worker threads (env: OMP_NUM_THREADS) (default: 1)``, and an invalid value
+names the variable (the usage line printed first is omitted here):
+
+.. code-block:: console
+
+   $ OMP_NUM_THREADS=many prog
+   prog: error: argument -j/--threads: environment variable OMP_NUM_THREADS: invalid integer value (got 'many')
+
+To find out where a value came from, ask the parse result:
+
+.. code-block:: fortran
+
+   if (result%value_source("threads") == SOURCE_DEFAULT) then
+       ! not chosen by the user; a configuration file may override it
+   end if
+
+In tests, pass ``environment=[character(len=32) :: "OMP_NUM_THREADS=8"]`` to
+``parse_tokens`` to replace the process environment.
+
 Argument groups
 ---------------
 
@@ -317,6 +352,42 @@ Members of a mutually exclusive group must be omissible. A ``required=.true.``
 option or a positional that needs a value would conflict with every other
 member, so it is rejected with ``ERR_INVALID_GROUP``; make the group itself
 required instead.
+
+Rules between arguments
+-----------------------
+
+Mutually exclusive groups cover "at most one of these". Other relationships
+are declared after the arguments are registered, naming them by destination
+or option spelling:
+
+.. code-block:: fortran
+
+   call parser%add_argument("--restart", action=store_true())
+   call parser%add_argument("--restart-file")
+   call parser%add_argument("--dry-run", action=store_true())
+   call parser%add_argument("--submit", action=store_true())
+   call parser%add_argument("--input")
+   call parser%add_argument("--generate", action=store_true())
+
+   call parser%add_requires("--restart-file", "--restart")
+   call parser%add_conflict("--dry-run", "--submit")
+   call parser%add_required_unless("input", "--generate")
+
+The second argument may also be a list, such as
+``[character(len=10) :: "--generate", "--demo"]``. Violations are reported
+like other argument errors (the usage line printed first is omitted here):
+
+.. code-block:: console
+
+   $ prog --restart-file state.h5 --input a.dat
+   prog: error: argument --restart-file: requires --restart
+   $ prog --dry-run --submit --input a.dat
+   prog: error: argument --dry-run: not allowed with argument --submit
+   $ prog
+   prog: error: argument --input: required unless --generate is given
+
+Only arguments given on the command line count; a default does not satisfy a
+requirement.
 
 Parent parsers
 --------------
@@ -371,6 +442,7 @@ definitions are assembled dynamically:
 
 Parsing an invalid parser returns ``PARSE_FAILURE`` without consuming input.
 For runtime errors, each ``ErrorEntry`` includes a stable code and severity,
-plus optional argument, token, and one-based token index. Expected-failure
+plus optional argument, token, one-based token index, and a suggested
+spelling for mistyped options, subcommands, and string choices. Expected-failure
 tests should assert these fields through ``parse_tokens`` rather than invoking
 the terminating ``parse_args`` facade.

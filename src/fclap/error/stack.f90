@@ -29,15 +29,18 @@ module fclap_error_stack
 
 contains
 
-    subroutine error_stack_add(self, message, code, severity, arg_name, token, token_index)
+    subroutine error_stack_add(self, message, code, severity, arg_name, token, &
+        token_index, suggestion)
         class(ErrorStack), intent(inout) :: self
         character(len=*), intent(in) :: message
         integer, intent(in), optional :: code, severity
         character(len=*), intent(in), optional :: arg_name, token
         integer, intent(in), optional :: token_index
+        character(len=*), intent(in), optional :: suggestion
         type(ErrorEntry) :: entry
 
-        call entry%init(message, code, severity, arg_name, token, token_index)
+        call entry%init(message, code, severity, arg_name, token, token_index, &
+            suggestion)
         call self%append(entry)
     end subroutine error_stack_add
 

@@ -60,7 +60,7 @@ Argument registration
    call parser%add_argument(name1, name2, name3, name4, action, nargs, &
        data_type, default, const, choices, validator, required, help, &
        metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
-       print_choices, group, case_insensitive_choices)
+       print_choices, group, case_insensitive_choices, env)
 
 ``name1`` is required; the other names are optional aliases. Important dummy
 argument types are:
@@ -90,6 +90,8 @@ argument types are:
      - logical scalar
    * - ``group``
      - ``type(GroupHandle)``
+   * - ``env``
+     - character scalar
 
 ``case_insensitive_choices=.true.`` matches string choices without regard to
 ASCII letter case and stores the declared spelling: with
@@ -97,6 +99,19 @@ ASCII letter case and stores the declared spelling: with
 Defaults and ``const`` values are matched and normalized the same way. It is
 valid only for string arguments with choices, and choices that differ only by
 case are rejected as ambiguous.
+
+``env="NAME"`` makes an option fall back to the environment variable
+``NAME`` when it is not on the command line; the command line wins over the
+environment, which wins over ``default``. An empty variable counts as unset.
+The value is converted and checked like a command-line value, and an invalid
+one is reported as ``argument --opt: environment variable NAME: ...``. A flag
+reads the variable as a logical: true acts like the flag, false leaves it
+unset, except that a ``boolean_optional`` flag stores false. An option taking
+several values splits the variable at blanks. A value from the environment
+counts as given for ``required``, groups, and rules. Help shows
+``(env: NAME)``. Only options accept ``env``; positionals, removed options,
+empty names, and names containing ``=`` or blanks are rejected with
+``ERR_INVALID_ENV``.
 
 Registration is transactional. Invalid definitions append a structured
 configuration error and are not partially committed.
@@ -118,6 +133,34 @@ Members of a mutually exclusive group must be omissible: a
 ``required=.true.`` option or a positional that needs a value is rejected with
 ``ERR_INVALID_GROUP``, because it would conflict with every other member. Use
 ``required=.true.`` on the group instead.
+
+Argument rules
+~~~~~~~~~~~~~~
+
+.. code-block:: fortran
+
+   call parser%add_requires(subject, needed)
+   call parser%add_conflict(subject, others)
+   call parser%add_required_unless(subject, alternatives)
+
+Each call names already registered arguments by destination (``"output"``)
+or by any option spelling (``"-o"``, ``"--output"``). The second argument is a
+character scalar or a rank-one character array; give every element enough
+length, because a truncated name does not match. Rules use explicit presence:
+a default never satisfies or violates them.
+
+* ``add_requires``: when ``subject`` is given, every ``needed`` argument must
+  be given too; otherwise ``ERR_MISSING_DEPENDENCY``.
+* ``add_conflict``: ``subject`` and any of ``others`` must not be given
+  together; each conflicting argument adds ``ERR_ARGUMENT_CONFLICT``. One call
+  covers both directions.
+* ``add_required_unless``: ``subject`` must be given unless one of
+  ``alternatives`` is; otherwise ``ERR_MISSING_REQUIRED``.
+
+An unknown name, an empty list, a rule naming its own subject, a
+``required_unless`` subject that is already required, and a conflict
+involving a required argument are rejected with ``ERR_INVALID_RULE``. Rules
+are copied by ``init_with_parents`` and kept by ``add_parser``.
 
 Subcommands
 ~~~~~~~~~~~
@@ -143,11 +186,14 @@ Parsing and output
 
 .. code-block:: fortran
 
-   result = parser%parse_tokens(tokens)
+   result = parser%parse_tokens(tokens, environment)
    result = parser%try_parse_args()
    args = parser%parse_args()
 
-``tokens`` is a rank-one character array. The first two functions return
+``tokens`` is a rank-one character array. The optional ``environment`` is a
+rank-one array of ``NAME=value`` entries that replaces the process
+environment for ``env=`` options, which makes them testable; the last entry
+for a name wins. The first two functions return
 ``ParseResult`` and never print or terminate. ``parse_args`` returns
 ``Namespace`` only on success and implements the process-level print/exit
 policy for help, version, warnings, and failures. Failures end with a normal
@@ -225,6 +271,7 @@ Queries
 
    n = parser%argument_count()
    n = parser%group_count()
+   n = parser%rule_count()
    n = parser%subparser_count()
    found = parser%has_option(name)
    found = parser%has_dest(dest)
@@ -341,6 +388,13 @@ ParseResult
    * - ``selected_command_path``
      - Optional root-to-leaf array of selected command names.
 
+``result%value_source(dest)`` tells where the value stored under ``dest``
+came from: ``SOURCE_COMMAND_LINE``, ``SOURCE_ENVIRONMENT``,
+``SOURCE_DEFAULT`` (including implicit defaults such as ``.false.`` for a
+flag), or ``SOURCE_NONE`` when the namespace holds no value for it. A
+subcommand destination is ``SOURCE_COMMAND_LINE``. The constants are ordered
+by precedence.
+
 ``result%succeeded()`` is true for success, help, and version.
 ``result%failed()`` is true only for ``PARSE_FAILURE``.
 
@@ -348,9 +402,11 @@ Errors
 ------
 
 ``ErrorEntry`` exposes ``code``, ``severity``, ``message``, and optional
-``arg_name``, ``token``, and ``token_index``. ``token`` is the command-line
+``arg_name``, ``token``, ``token_index``, and ``suggestion``. ``token`` is the command-line
 token that caused the diagnostic and ``token_index`` its one-based position on
-the full command line, also inside subcommands. For configuration errors,
+the full command line, also inside subcommands. ``suggestion`` holds the
+known option, subcommand, or string choice closest to a mistyped ``token``
+(Jaro similarity above 0.7) and is unallocated when nothing is close enough. For configuration errors,
 ``token`` holds the definition's spelling, such as ``-x/--output``.
 ``entry%to_string()`` returns a deterministic diagnostic without including the
 numeric error code. The code remains available separately for structured
@@ -360,7 +416,8 @@ handling.
 
 .. code-block:: fortran
 
-   call errors%add(message, code, severity, arg_name, token, token_index)
+   call errors%add(message, code, severity, arg_name, token, token_index, &
+       suggestion)
    call errors%append(entry)
    call errors%merge(other)
    entry = errors%get(index)

@@ -87,6 +87,41 @@ if(failure_stderr MATCHES "Backtrace|ERROR STOP|STOP 2")
   message(FATAL_ERROR "failure path reported a runtime termination")
 endif()
 
+# A mistyped option names the option the user probably meant.
+execute_process(
+  COMMAND "${FCLAP_CLI}" --nmae x
+  RESULT_VARIABLE typo_status
+  ERROR_VARIABLE typo_stderr
+)
+if(NOT typo_status EQUAL 2)
+  message(FATAL_ERROR "typo path exited with ${typo_status}, expected 2")
+endif()
+if(NOT typo_stderr MATCHES "fixture: error: unknown option '--nmae' \\(did you mean '--name'\\?\\)")
+  message(FATAL_ERROR "typo path did not suggest the intended option")
+endif()
+
+# An option declared with env= reads the process environment.
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env FIXTURE_JOBS=4 "${FCLAP_CLI}"
+  RESULT_VARIABLE env_status
+  OUTPUT_VARIABLE env_stdout
+  ERROR_VARIABLE env_stderr
+)
+if(NOT env_status EQUAL 0 OR NOT env_stderr STREQUAL "")
+  message(FATAL_ERROR "valid environment value was rejected: ${env_stderr}")
+endif()
+execute_process(
+  COMMAND "${CMAKE_COMMAND}" -E env FIXTURE_JOBS=abc "${FCLAP_CLI}"
+  RESULT_VARIABLE env_status
+  ERROR_VARIABLE env_stderr
+)
+if(NOT env_status EQUAL 2)
+  message(FATAL_ERROR "invalid environment value exited with ${env_status}, expected 2")
+endif()
+if(NOT env_stderr MATCHES "fixture: error: argument --jobs: environment variable FIXTURE_JOBS: invalid integer value \\(got 'abc'\\)")
+  message(FATAL_ERROR "invalid environment value was not reported: ${env_stderr}")
+endif()
+
 # An application check reported through parser%error looks like a usage error.
 execute_process(
   COMMAND "${FCLAP_CLI}" --check

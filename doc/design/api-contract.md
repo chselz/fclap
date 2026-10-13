@@ -162,6 +162,7 @@ print_default                 optional logical
 print_choices                 optional logical
 group                         optional GroupHandle
 case_insensitive_choices      optional logical
+env                           optional character
 ```
 
 The integer- and character-`nargs` forms are facade overloads that immediately
@@ -171,6 +172,17 @@ action's default arity.
 `action` and `validator` dummies are non-allocatable `class(...)`, `intent(in)`
 objects. The parser owns polymorphic clones created with `allocate(...,
 source=...)`; it never retains pointers to caller-owned factory results.
+
+`env="NAME"` declares an environment fallback for an option. Precedence is
+command line, then environment, then default; an empty variable is unset. The
+value passes through the same conversion, choices, and validator as a token,
+with diagnostics prefixed by `environment variable NAME: `. Zero-value
+actions read a logical: true applies the action once, false applies nothing,
+except `boolean_optional`, which stores false. Options producing a list split
+the value at blanks and must receive an accepted count. An environment value
+marks the argument as explicitly present for required checks, groups, and
+rules. Positionals and removed options cannot declare `env`
+(`ERR_INVALID_ENV`).
 
 Only one explicit validator is accepted per argument. Choices are an independent
 built-in constraint. Multiple general validators will later use a composite
@@ -394,6 +406,36 @@ The first facade does not return a pointer into the parser and does not expose
 `group%add_argument`. This avoids invalid pointers after allocatable-array
 growth or parser copying.
 
+## Argument rules
+
+Presence relationships beyond mutex groups are registered on the parser:
+
+```fortran
+call parser%add_requires("--restart-file", "--restart")
+call parser%add_conflict("--dry-run", [character(len=8) :: "--submit", "--queue"])
+call parser%add_required_unless("input", "--generate")
+```
+
+- Arguments are named by destination or by any registered option spelling
+  and must be registered before the rule. The second argument is a scalar or
+  a rank-one character array.
+- Rules are stored as argument indices, like group members, and checked after
+  required arguments and mutex groups, against explicit presence only.
+- `add_requires`: the subject being given requires every listed argument;
+  one `ERR_MISSING_DEPENDENCY` lists all missing ones.
+- `add_conflict`: symmetric; one `ERR_ARGUMENT_CONFLICT` per listed argument
+  given together with the subject.
+- `add_required_unless`: the subject is required unless at least one listed
+  argument is given; reported as `ERR_MISSING_REQUIRED`.
+- `ERR_INVALID_RULE` rejects unknown names, an empty list, a rule naming its
+  own subject, a `required_unless` subject that is always present, and a
+  conflict involving an argument that is always present. A rejected rule is
+  not stored.
+- `init_with_parents` copies rules whose arguments were copied; `add_parser`
+  snapshots keep them.
+- Value-dependent rules (`requires_if`, `required_if_eq`, `default_value_if`
+  in clap) are deferred.
+
 ## Parent parsers and subparsers
 
 ### Parent definitions
@@ -490,14 +532,17 @@ result = parser%parse_tokens(tokens)
 Conceptual signature:
 
 ```fortran
-function parse_tokens(self, tokens) result(parsed)
+function parse_tokens(self, tokens, environment) result(parsed)
     class(ArgumentParser), intent(in) :: self
     character(len=*), intent(in) :: tokens(:)
+    character(len=*), intent(in), optional :: environment(:)
     type(ParseResult) :: parsed
 end function
 ```
 
-This operation never writes output and never terminates the process.
+This operation never writes output and never terminates the process. When
+`environment` (`NAME=value` entries, last one wins) is present it replaces the
+process environment for `env=` options, including inside subcommands.
 
 ### Non-terminating process parsing
 
@@ -534,6 +579,8 @@ This delegates to `try_parse_args` and applies only the outer process policy:
 - Warnings are written to `error_unit` but do not change a successful result.
 - Diagnostics use the argparse form `prog: error: argument -j/--threads:
   message`, produced by `ArgumentParser%format_diagnostic`.
+- When an entry carries a suggestion, the diagnostic ends with
+  `(did you mean 'SUGGESTION'?)`.
 
 The exact Fortran mechanism used to provide a quiet portable exit status is an
 implementation detail. The observable status and selected output unit are part
@@ -553,6 +600,8 @@ type :: ParseResult
     integer :: outcome = PARSE_SUCCESS
     character(len=:), allocatable :: text
     character(len=:), allocatable :: selected_command_path(:)
+contains
+    procedure :: value_source  ! integer function (dest)
 end type
 ```
 
@@ -575,6 +624,11 @@ PARSE_VERSION
 - A `ParseResult` is self-contained; a later parse does not modify it.
 - `selected_command_path` is unallocated when no command was selected and is a
   root-to-leaf array for recursive command dispatch.
+- `value_source(dest)` returns `SOURCE_COMMAND_LINE`, `SOURCE_ENVIRONMENT`,
+  `SOURCE_DEFAULT` (also for implicit action defaults), or `SOURCE_NONE` when
+  no value is stored. The integer values ascend by precedence. Sources of a
+  selected subcommand are merged with the child taking precedence, and the
+  subparser destination itself is `SOURCE_COMMAND_LINE`.
 - As in argparse, an exact `-h`/`--help` or `--version` later on the command
   line (before `--`) wins over an unknown-option or extra-positional failure:
   the outcome is `PARSE_HELP` or `PARSE_VERSION` and only warnings are kept.
@@ -709,7 +763,15 @@ message
 argument destination, when applicable
 offending token, when applicable
 token index, when applicable
+suggested spelling, when applicable
 ```
+
+A suggestion is attached to unknown options, unknown subcommands, and invalid
+string choices when a known spelling has a Jaro similarity above 0.7 to the
+offending token. Option names are compared without their leading hyphens or
+an attached `=value`; single-character names, hidden options, and removed
+options are never suggested; numeric and logical choices are not suggested.
+Ties select the first registered candidate.
 
 Error codes and structured context are stable API. Full human-readable message
 text is not stable except where a formatter snapshot test explicitly owns it.
@@ -741,6 +803,8 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_INVALID_TYPE_NAME` | 1008 | Unknown data type name. |
 | `ERR_INVALID_LIFECYCLE` | 1009 | Conflicting deprecation/removal configuration. |
 | `ERR_INCOMPATIBLE_VALIDATOR` | 1010 | Validator cannot check the argument type, or has an empty range. |
+| `ERR_INVALID_RULE` | 1011 | Argument rule names unknown arguments or can never be satisfied. |
+| `ERR_INVALID_ENV` | 1012 | Invalid environment variable name, or `env=` on a positional or removed option. |
 | `ERR_UNKNOWN_ARGUMENT` | 2001 | Unknown option token. |
 | `ERR_MISSING_VALUE` | 2002 | An argument did not receive its minimum values. |
 | `ERR_EXTRA_POSITIONAL` | 2003 | Positional capacity was exceeded. |
@@ -753,6 +817,8 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_REMOVED_ARGUMENT` | 2010 | A removed argument was used. |
 | `ERR_DEPRECATED_ARGUMENT` | 2011 | Warning that a deprecated argument was used. |
 | `ERR_UNEXPECTED_VALUE` | 2012 | An attached value was given to an option that takes none. |
+| `ERR_MISSING_DEPENDENCY` | 2013 | An argument was given without an argument it requires. |
+| `ERR_ARGUMENT_CONFLICT` | 2014 | Two arguments declared as conflicting were given together. |
 | `ERR_UNKNOWN_SUBCOMMAND` | 2101 | Unknown subcommand at the current parser level. |
 | `ERR_MISSING_SUBCOMMAND` | 2102 | Required subcommand missing at the current parser level. |
 | `ERR_NAMESPACE_MISSING_KEY` | 3001 | Namespace key not present. |

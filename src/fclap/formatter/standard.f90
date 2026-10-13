@@ -309,6 +309,7 @@ contains
 
         text = ""
         if (allocated(argument%help)) text = trim(argument%help)
+        if (allocated(argument%env)) call append_note(text, "env: " // argument%env)
         ! Implicit defaults such as `.false.` for a flag carry no information.
         if (self%show_defaults .and. argument%has_default .and. &
             argument%print_default .and. .not. argument%implicit_default) then

@@ -29,6 +29,9 @@ set(
   "test_conversion.f90"
   "test_cli_syntax.f90"
   "test_usability.f90"
+  "test_suggestions.f90"
+  "test_rules.f90"
+  "test_environment.f90"
 )
 
 add_executable(

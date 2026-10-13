@@ -42,3 +42,6 @@ doc/source/_autosummary/
 
 # Python files
 __pycache__
+
+# VSCode folders
+.vscode/

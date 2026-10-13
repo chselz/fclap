@@ -22,6 +22,8 @@ module fclap_formatter_model
         character(len=:), allocatable :: choices_text
         character(len=:), allocatable :: deprecated_msg
         character(len=:), allocatable :: removed_msg
+        !> Environment variable the option falls back to
+        character(len=:), allocatable :: env
         integer :: nargs = 1
         logical :: is_optional = .false.
         logical :: required = .false.

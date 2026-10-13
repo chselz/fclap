@@ -2,6 +2,7 @@
 module fclap_parse_engine
     use fclap_actions_abstract, only : ACTION_CONTINUE, &
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
+    use fclap_actions_boolean, only : BooleanOptionalAction
     use fclap_argument, only : Argument
     use fclap_error_entry, only : ErrorEntry
     use fclap_namespace, only : Namespace
@@ -15,13 +16,17 @@ module fclap_parse_engine
     use fclap_nargs, only : NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
         NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO
     use fclap_parse_context, only : ParseContext
+    use fclap_rules, only : ArgumentRule
     use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
-        PARSE_HELP, PARSE_VERSION
+        PARSE_HELP, PARSE_VERSION, SOURCE_DEFAULT, SOURCE_ENVIRONMENT, &
+        SOURCE_COMMAND_LINE
     use fclap_validators_choices, only : ChoicesValidator, choices_validator
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue
+    use fclap_value_builtin, only : StringValue, LogicalValue
     use fclap_value_convert, only : CONVERT_SUCCESS, convert_value, &
-        canonicalize_choice
+        canonicalize_choice, lowercase
+    use fclap_utils_similarity, only : closest_match
     implicit none
     private
 
@@ -44,7 +49,8 @@ contains
 
     function parse_definitions(arguments, config_errors, tokens, groups, &
         version_text, subcommand_names, has_subcommands, &
-        subcommand_required, next_token_index) result(parsed)
+        subcommand_required, next_token_index, rules, environment) &
+        result(parsed)
         type(Argument), intent(in) :: arguments(:)
         type(ErrorStack), intent(in) :: config_errors
         character(len=*), intent(in) :: tokens(:)
@@ -53,12 +59,17 @@ contains
         character(len=*), intent(in), optional :: subcommand_names(:)
         logical, intent(in), optional :: has_subcommands, subcommand_required
         integer, intent(out), optional :: next_token_index
+        type(ArgumentRule), intent(in), optional :: rules(:)
+        !> `NAME=value` entries replacing the process environment
+        character(len=*), intent(in), optional :: environment(:)
         type(ParseResult) :: parsed
         type(ParseContext) :: context
         character(len=:), allocatable :: token, attached
         integer :: argument_index, action_outcome, form
 
         call context%init(tokens, size(arguments))
+        call collect_option_names(arguments, context)
+        if (present(environment)) context%environment = environment
         if (present(has_subcommands)) then
             if (has_subcommands) then
                 if (present(subcommand_names)) then
@@ -132,7 +143,8 @@ contains
                     end if
                     call context%errors%add("unknown subcommand", &
                         code=ERR_UNKNOWN_SUBCOMMAND, arg_name=token, &
-                        token=token, token_index=context%cursor)
+                        token=token, token_index=context%cursor, &
+                        suggestion=suggest_subcommand(context, token))
                 else
                     call context%errors%add("unexpected positional argument", &
                         code=ERR_EXTRA_POSITIONAL, token=token, &
@@ -147,6 +159,9 @@ contains
         if (action_outcome == ACTION_CONTINUE .and. &
             .not. context%errors%has_fatal_errors()) then
             call materialize_empty_positionals(arguments, context, action_outcome)
+            if (action_outcome == ACTION_CONTINUE .and. &
+                .not. context%errors%has_fatal_errors()) &
+                call apply_environment(arguments, context)
         else if (context%errors%has_fatal_errors()) then
             call find_later_exit_request(arguments, context, action_outcome)
         end if
@@ -162,6 +177,7 @@ contains
 
         call check_required(arguments, context)
         call validate_groups(arguments, groups, context)
+        if (present(rules)) call validate_rules(arguments, rules, context)
         if (context%subcommands_enabled .and. context%subcommand_required .and. &
             .not. allocated(context%selected_command_path)) then
             call context%errors%add("a subcommand is required", &
@@ -172,7 +188,185 @@ contains
         else
             call finish_result(parsed, context, PARSE_SUCCESS, next_token_index)
         end if
+        call record_sources(arguments, context, parsed)
     end function parse_definitions
+
+    !> Fill options not given on the command line from their environment
+    !> variables. An empty variable counts as unset.
+    !>
+    !> A value from the environment is converted and validated like a
+    !> command-line value and counts as explicitly given, so it satisfies
+    !> `required` and takes part in groups and rules.
+    subroutine apply_environment(arguments, context)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(inout) :: context
+        character(len=:), allocatable :: text
+        integer :: index, outcome
+        logical :: found
+
+        do index = 1, size(arguments)
+            if (.not. allocated(arguments(index)%env)) cycle
+            if (context%was_seen(index)) cycle
+            call lookup_environment(context, arguments(index)%env, text, found)
+            if (.not. found) cycle
+            call apply_environment_value(arguments(index), index, context, &
+                text, outcome)
+            if (context%errors%has_fatal_errors()) return
+            if (context%was_seen(index)) context%from_env(index) = .true.
+        end do
+    end subroutine apply_environment
+
+    !> Value of an environment variable, from the explicit environment given
+    !> to the parse when there is one, otherwise from the process.
+    subroutine lookup_environment(context, name, text, found)
+        type(ParseContext), intent(in) :: context
+        character(len=*), intent(in) :: name
+        character(len=:), allocatable, intent(out) :: text
+        logical, intent(out) :: found
+        integer :: current, length, stat
+
+        text = ""
+        found = .false.
+        if (allocated(context%environment)) then
+            ! The last entry for a name wins, as when a shell exports twice.
+            do current = 1, size(context%environment)
+                associate (entry => context%environment(current))
+                    if (index(entry, "=") /= len(name) + 1) cycle
+                    if (entry(:len(name)) /= name) cycle
+                    text = trim(entry(len(name) + 2:))
+                end associate
+            end do
+        else
+            call get_environment_variable(name, length=length, status=stat)
+            if (stat /= 0 .or. length == 0) return
+            deallocate(text)
+            allocate(character(len=length) :: text)
+            call get_environment_variable(name, value=text, status=stat)
+            if (stat /= 0) text = ""
+        end if
+        found = len_trim(text) > 0
+    end subroutine lookup_environment
+
+    !> Apply one environment value as if the option had been given with it.
+    !>
+    !> A flag reads the value as a logical: true acts like the flag, false
+    !> leaves the option unset, except that a `--x/--no-x` flag stores false.
+    !> An option taking several values splits the text at blanks.
+    subroutine apply_environment_value(definition, index, context, text, &
+        outcome)
+        type(Argument), intent(in) :: definition
+        integer, intent(in) :: index
+        type(ParseContext), intent(inout) :: context
+        character(len=*), intent(in) :: text
+        integer, intent(out) :: outcome
+        character(len=:), allocatable :: origin, words(:)
+        type(ValueBox) :: value, item
+        type(ListValue) :: list
+        integer :: stat, word
+        logical :: enabled
+
+        outcome = ACTION_CONTINUE
+        origin = "environment variable " // definition%env // ": "
+
+        if (definition%nargs_value() == NARGS_ZERO) then
+            call convert_value(text, "logical", value, stat)
+            enabled = .false.
+            if (stat == CONVERT_SUCCESS) then
+                select type (flag => value%item)
+                type is (LogicalValue)
+                    enabled = flag%value
+                end select
+            else
+                call context%errors%add(origin // "invalid logical value", &
+                    code=ERR_INVALID_VALUE, arg_name=definition%dest, &
+                    token=text)
+                return
+            end if
+            if (enabled) then
+                call execute_action(definition, index, value, context, &
+                    outcome, mark_explicit=.true.)
+            else
+                select type (action => definition%action)
+                type is (BooleanOptionalAction)
+                    call context%namespace%set_logical(definition%dest, .false.)
+                    call context%mark_seen(index)
+                end select
+            end if
+            return
+        end if
+
+        if (.not. definition%nargs%produces_list()) then
+            call convert_and_validate_text(definition, context, text, 0, &
+                value, origin)
+            if (context%errors%has_fatal_errors()) return
+            call execute_action(definition, index, value, context, outcome, &
+                mark_explicit=.true.)
+            return
+        end if
+
+        call split_words(text, words)
+        if (size(words) < definition%nargs%min_count() .or. &
+            size(words) > definition%nargs%max_count()) then
+            call context%errors%add(origin // "wrong number of values", &
+                code=ERR_MISSING_VALUE, arg_name=definition%dest, token=text)
+            return
+        end if
+        call list%initialize(definition%data_type)
+        do word = 1, size(words)
+            call convert_and_validate_text(definition, context, &
+                trim(words(word)), 0, item, origin)
+            if (context%errors%has_fatal_errors()) return
+            call list%append(item)
+        end do
+        call value%set(list)
+        call execute_action(definition, index, value, context, outcome, &
+            mark_explicit=.true.)
+    end subroutine apply_environment_value
+
+    !> Split text at blanks and tabs into its non-empty words.
+    subroutine split_words(text, words)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable, intent(out) :: words(:)
+        character(len=*), parameter :: blanks = " " // achar(9)
+        integer :: first, last, count, pass
+
+        do pass = 1, 2
+            count = 0
+            first = 1
+            do
+                first = first - 1 + verify(text(first:) // " ", blanks)
+                if (first > len(text)) exit
+                last = scan(text(first:) // " ", blanks)
+                last = first + last - 2
+                count = count + 1
+                if (pass == 2) words(count) = text(first:last)
+                first = last + 1
+                if (first > len(text)) exit
+            end do
+            if (pass == 1) allocate(character(len=max(1, len(text))) :: &
+                words(count))
+        end do
+    end subroutine split_words
+
+    !> Record where each destination's value came from.
+    subroutine record_sources(arguments, context, parsed)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(in) :: context
+        type(ParseResult), intent(inout) :: parsed
+        integer :: index
+
+        do index = 1, size(arguments)
+            if (.not. allocated(arguments(index)%dest)) cycle
+            if (context%from_env(index)) then
+                call parsed%set_source(arguments(index)%dest, SOURCE_ENVIRONMENT)
+            else if (context%was_seen(index)) then
+                call parsed%set_source(arguments(index)%dest, &
+                    SOURCE_COMMAND_LINE)
+            else if (parsed%namespace%contains(arguments(index)%dest)) then
+                call parsed%set_source(arguments(index)%dest, SOURCE_DEFAULT)
+            end if
+        end do
+    end subroutine record_sources
 
     !> Let `-h` or `--version` later on the line win over an unrecognized
     !> token, as argparse does; conversion and validation errors still win.
@@ -592,22 +786,27 @@ contains
     end subroutine convert_and_validate_token
 
     subroutine convert_and_validate_text(definition, context, token, &
-        token_index, value)
+        token_index, value, origin)
         type(Argument), intent(in) :: definition
         type(ParseContext), intent(inout) :: context
         character(len=*), intent(in) :: token
         integer, intent(in) :: token_index
         type(ValueBox), intent(out) :: value
+        !> Prefix naming where the text came from, e.g. an environment variable
+        character(len=*), intent(in), optional :: origin
         type(ChoicesValidator) :: choice_check
-        character(len=:), allocatable :: message
+        character(len=:), allocatable :: message, prefix
         integer :: stat
         logical :: valid
 
+        prefix = ""
+        if (present(origin)) prefix = origin
+
         call convert_value(token, definition%data_type, value, stat)
         if (stat /= CONVERT_SUCCESS) then
-            call context%errors%add("invalid " // definition%data_type // &
-                " value", code=ERR_INVALID_VALUE, arg_name=definition%dest, &
-                token=token, token_index=token_index)
+            call context%errors%add(prefix // "invalid " // &
+                definition%data_type // " value", code=ERR_INVALID_VALUE, &
+                arg_name=definition%dest, token=token, token_index=token_index)
             return
         end if
 
@@ -616,8 +815,11 @@ contains
                 definition%case_insensitive_choices)
             call choice_check%validate(value, valid, message)
             if (.not. valid) then
-                call context%errors%add(message, code=ERR_INVALID_CHOICE, &
-                    arg_name=definition%dest, token=token, token_index=token_index)
+                call context%errors%add(prefix // message, &
+                    code=ERR_INVALID_CHOICE, arg_name=definition%dest, &
+                    token=token, &
+                    token_index=token_index, &
+                    suggestion=suggest_choice(definition, token))
                 return
             end if
             if (definition%case_insensitive_choices) &
@@ -630,8 +832,9 @@ contains
                 if (.not. allocated(message)) message = ""
                 if (len_trim(message) == 0) message = &
                     "argument value failed validation"
-                call context%errors%add(message, code=ERR_VALIDATION_FAILED, &
-                    arg_name=definition%dest, token=token, token_index=token_index)
+                call context%errors%add(prefix // message, &
+                    code=ERR_VALIDATION_FAILED, arg_name=definition%dest, &
+                    token=token, token_index=token_index)
             end if
         end if
     end subroutine convert_and_validate_text
@@ -770,6 +973,18 @@ contains
         end do
     end subroutine validate_groups
 
+    subroutine validate_rules(arguments, rules, context)
+        type(Argument), intent(in) :: arguments(:)
+        type(ArgumentRule), intent(in) :: rules(:)
+        type(ParseContext), intent(inout) :: context
+        integer :: rule_index
+
+        do rule_index = 1, size(rules)
+            call rules(rule_index)%validate_presence(arguments, context%seen, &
+                context%errors)
+        end do
+    end subroutine validate_rules
+
     integer function find_option(arguments, token) result(index)
         type(Argument), intent(in) :: arguments(:)
         character(len=*), intent(in) :: token
@@ -887,8 +1102,141 @@ contains
         integer, intent(in) :: token_index
 
         call context%errors%add("unknown option", code=ERR_UNKNOWN_ARGUMENT, &
-            arg_name=token, token=token, token_index=token_index)
+            arg_name=token, token=token, token_index=token_index, &
+            suggestion=suggest_option(context, token))
     end subroutine add_unknown_option
+
+    !> Record the spellings of every option a user may be told about.
+    !>
+    !> Hidden and removed options are left out, so a suggestion never points
+    !> at an option the help does not document or the parser rejects.
+    subroutine collect_option_names(arguments, context)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(inout) :: context
+        integer :: index, name, count, width
+
+        count = 0
+        width = 1
+        do index = 1, size(arguments)
+            if (.not. is_suggestable(arguments(index))) cycle
+            count = count + arguments(index)%name_count()
+            width = max(width, len(arguments(index)%names))
+        end do
+        allocate(character(len=width) :: context%option_names(count))
+        count = 0
+        do index = 1, size(arguments)
+            if (.not. is_suggestable(arguments(index))) cycle
+            do name = 1, arguments(index)%name_count()
+                count = count + 1
+                context%option_names(count) = arguments(index)%names(name)
+            end do
+        end do
+    end subroutine collect_option_names
+
+    logical function is_suggestable(definition) result(suggestable)
+        type(Argument), intent(in) :: definition
+
+        suggestable = definition%is_optional .and. definition%visible .and. &
+            .not. allocated(definition%removed_msg)
+    end function is_suggestable
+
+    !> Closest known option to an unknown option token, or an empty string.
+    !>
+    !> Leading hyphens are compared separately from the name: they would
+    !> otherwise make every pair of short names look alike, e.g. `--a` and
+    !> `--b`. Names of a single character are never suggested.
+    function suggest_option(context, token) result(suggestion)
+        type(ParseContext), intent(in) :: context
+        character(len=*), intent(in) :: token
+        character(len=:), allocatable :: suggestion
+        character(len=:), allocatable :: typed, bare(:)
+        integer :: current, separator, match
+
+        suggestion = ""
+        if (.not. allocated(context%option_names)) return
+        if (size(context%option_names) == 0) return
+        typed = trim(token)
+        separator = index(typed, "=")
+        if (separator > 0) typed = typed(:separator - 1)
+        typed = strip_hyphens(typed)
+        if (len(typed) < 2) return
+
+        allocate(character(len=len(context%option_names)) :: &
+            bare(size(context%option_names)))
+        do current = 1, size(context%option_names)
+            bare(current) = strip_hyphens(trim(context%option_names(current)))
+            if (len_trim(bare(current)) < 2) bare(current) = ""
+        end do
+        match = closest_match(typed, bare)
+        if (match > 0) suggestion = trim(context%option_names(match))
+    end function suggest_option
+
+    !> Closest subcommand name to an unknown command token, or an empty string.
+    function suggest_subcommand(context, token) result(suggestion)
+        type(ParseContext), intent(in) :: context
+        character(len=*), intent(in) :: token
+        character(len=:), allocatable :: suggestion
+        integer :: match
+
+        suggestion = ""
+        if (.not. allocated(context%subcommand_names)) return
+        match = closest_match(trim(token), context%subcommand_names)
+        if (match > 0) suggestion = trim(context%subcommand_names(match))
+    end function suggest_subcommand
+
+    !> Closest declared string choice to a rejected value, or an empty string.
+    function suggest_choice(definition, token) result(suggestion)
+        type(Argument), intent(in) :: definition
+        character(len=*), intent(in) :: token
+        character(len=:), allocatable :: suggestion
+        character(len=:), allocatable :: names(:)
+        integer :: index, count, width, match
+
+        suggestion = ""
+        if (.not. allocated(definition%choices%item)) return
+        select type (allowed => definition%choices%item)
+        type is (ListValue)
+            count = allowed%size()
+            width = 1
+            do index = 1, count
+                select type (choice => allowed%items(index)%item)
+                type is (StringValue)
+                    width = max(width, len(choice%value))
+                class default
+                    return
+                end select
+            end do
+            allocate(character(len=width) :: names(count))
+            do index = 1, count
+                select type (choice => allowed%items(index)%item)
+                type is (StringValue)
+                    names(index) = choice%value
+                end select
+            end do
+        class default
+            return
+        end select
+
+        if (definition%case_insensitive_choices) then
+            match = closest_match(lowercase(trim(token)), lowercase(names))
+        else
+            match = closest_match(trim(token), names)
+        end if
+        if (match > 0) suggestion = trim(names(match))
+    end function suggest_choice
+
+    pure function strip_hyphens(name) result(bare)
+        character(len=*), intent(in) :: name
+        character(len=:), allocatable :: bare
+        integer :: first
+
+        first = verify(name, "-")
+        if (first == 0) then
+            bare = ""
+        else
+            bare = name(first:)
+        end if
+    end function strip_hyphens
 
     subroutine add_missing_value(context, definition, token, token_index)
         type(ParseContext), intent(inout) :: context

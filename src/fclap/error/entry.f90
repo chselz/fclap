@@ -21,6 +21,8 @@ module fclap_error_entry
         character(len=:), allocatable :: token
         !> One-based position of `token` on the command line, zero if unknown
         integer :: token_index = 0
+        !> Likely intended spelling of `token`, e.g. a known option name
+        character(len=:), allocatable :: suggestion
     contains
         procedure :: init => error_entry_init
         procedure :: to_string => error_entry_to_string
@@ -29,12 +31,13 @@ module fclap_error_entry
 contains
 
     subroutine error_entry_init(self, message, code, severity, arg_name, token, &
-        token_index)
+        token_index, suggestion)
         class(ErrorEntry), intent(out) :: self
         character(len=*), intent(in) :: message
         integer, intent(in), optional :: code, severity
         character(len=*), intent(in), optional :: arg_name, token
         integer, intent(in), optional :: token_index
+        character(len=*), intent(in), optional :: suggestion
 
         self%message = trim(message)
         if (present(code)) self%code = code
@@ -42,6 +45,9 @@ contains
         if (present(arg_name)) self%arg_name = trim(arg_name)
         if (present(token)) self%token = trim(token)
         if (present(token_index)) self%token_index = token_index
+        if (present(suggestion)) then
+            if (len_trim(suggestion) > 0) self%suggestion = trim(suggestion)
+        end if
     end subroutine error_entry_init
 
     function error_entry_to_string(self) result(str)
@@ -69,6 +75,9 @@ contains
         if (self%token_index > 0) then
             write(number, '(i0)') self%token_index
             str = str // " (index: " // trim(number) // ")"
+        end if
+        if (allocated(self%suggestion)) then
+            str = str // " (suggestion: " // self%suggestion // ")"
         end if
     end function
     

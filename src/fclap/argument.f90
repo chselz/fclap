@@ -39,6 +39,8 @@ module fclap_argument
         logical :: print_choices = .false.
         character(len=:), allocatable :: deprecated_msg
         character(len=:), allocatable :: removed_msg
+        !> Environment variable read when the option is not given
+        character(len=:), allocatable :: env
     contains
         procedure :: init => argument_init
         procedure :: name_count => argument_name_count

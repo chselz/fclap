@@ -11,7 +11,7 @@ module fclap_registration
     use fclap_error_codes, only : FCLAP_OK, ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, &
         ERR_INCOMPATIBLE_ACTION, ERR_INVALID_DEFAULT, ERR_INVALID_TYPE_NAME, &
-        ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR
+        ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR, ERR_INVALID_ENV
     use fclap_nargs, only : NargsSpec, normalize_nargs, NARGS_SUCCESS, &
         NARGS_OPTIONAL, NARGS_REMAINDER
     use fclap_validators_abstract, only : ValidatorType
@@ -26,6 +26,7 @@ module fclap_registration
     public :: check_names
     public :: build_argument
     public :: any_registered_name
+    public :: check_env_source
 
 contains
 
@@ -555,5 +556,31 @@ contains
             end do
         end do
     end function has_duplicate_name
+
+    !> Check that an argument can fall back to the environment variable `env`.
+    !>
+    !> Only options read the environment, since positionals are consumed by
+    !> position, and a removed option must not be revived silently.
+    subroutine check_env_source(candidate, env, code, message)
+        type(Argument), intent(in) :: candidate
+        character(len=*), intent(in) :: env
+        integer, intent(out) :: code
+        character(len=:), allocatable, intent(out) :: message
+
+        code = ERR_INVALID_ENV
+        if (len_trim(env) == 0) then
+            message = "the environment variable name must not be empty"
+        else if (scan(trim(env), "= " // achar(9)) > 0) then
+            message = "the environment variable name must not contain '=' " // &
+                "or blanks"
+        else if (.not. candidate%is_optional) then
+            message = "only options can read an environment variable"
+        else if (allocated(candidate%removed_msg)) then
+            message = "a removed option cannot read an environment variable"
+        else
+            code = FCLAP_OK
+            message = ""
+        end if
+    end subroutine check_env_source
 
 end module fclap_registration
