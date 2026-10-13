@@ -1,3 +1,4 @@
+!> One structured diagnostic: code, severity, message, and context.
 module fclap_error_entry
     use fclap_error_codes, only : ERROR_FATAL, ERROR_WARNING
 
@@ -14,9 +15,12 @@ module fclap_error_entry
         integer :: severity = ERROR_FATAL
         !> Error message
         character(len=:), allocatable :: message
+        !> Destination or name of the argument the diagnostic refers to
         character(len=:), allocatable :: arg_name
-        character(len=:), allocatable :: flag
-        integer :: flag_index = 0
+        !> Command-line token that caused the diagnostic
+        character(len=:), allocatable :: token
+        !> One-based position of `token` on the command line, zero if unknown
+        integer :: token_index = 0
     contains
         procedure :: init => error_entry_init
         procedure :: to_string => error_entry_to_string
@@ -24,19 +28,20 @@ module fclap_error_entry
 
 contains
 
-    subroutine error_entry_init(self, message, code, severity, arg_name, flag, flag_index)
+    subroutine error_entry_init(self, message, code, severity, arg_name, token, &
+        token_index)
         class(ErrorEntry), intent(out) :: self
         character(len=*), intent(in) :: message
         integer, intent(in), optional :: code, severity
-        character(len=*), intent(in), optional :: arg_name, flag
-        integer, intent(in), optional :: flag_index
+        character(len=*), intent(in), optional :: arg_name, token
+        integer, intent(in), optional :: token_index
 
         self%message = trim(message)
         if (present(code)) self%code = code
         if (present(severity)) self%severity = severity
         if (present(arg_name)) self%arg_name = trim(arg_name)
-        if (present(flag)) self%flag = trim(flag)
-        if (present(flag_index)) self%flag_index = flag_index
+        if (present(token)) self%token = trim(token)
+        if (present(token_index)) self%token_index = token_index
     end subroutine error_entry_init
 
     function error_entry_to_string(self) result(str)
@@ -58,11 +63,11 @@ contains
         if (allocated(self%arg_name)) then
             str = str // " (argument: " // trim(self%arg_name) // ")"
         end if
-        if (allocated(self%flag)) then
-            str = str // " (flag: " // trim(self%flag) // ")"
+        if (allocated(self%token)) then
+            str = str // " (token: " // trim(self%token) // ")"
         end if
-        if (self%flag_index > 0) then
-            write(number, '(i0)') self%flag_index
+        if (self%token_index > 0) then
+            write(number, '(i0)') self%token_index
             str = str // " (index: " // trim(number) // ")"
         end if
     end function

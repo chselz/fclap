@@ -24,8 +24,12 @@ module fclap_argument
         type(ValueBox) :: const_value
         type(ValueBox) :: choices
         logical :: has_default = .false.
+        !> The default comes from the action (e.g. `.false.` for flags)
+        logical :: default_is_implicit = .false.
         logical :: has_const = .false.
         logical :: has_choices = .false.
+        !> Match string choices without regard to ASCII letter case
+        logical :: case_insensitive_choices = .false.
 
         character(len=:), allocatable :: help
         character(len=:), allocatable :: metavar
@@ -41,8 +45,8 @@ module fclap_argument
         procedure :: matches_name => argument_matches_name
         procedure :: is_positional => argument_is_positional
         procedure :: primary_name => argument_primary_name
-        procedure :: derive_dest => argument_derive_dest
         procedure :: effective_metavar => argument_effective_metavar
+        procedure :: display_label => argument_display_label
         procedure :: nargs_display => argument_nargs_display
         procedure :: nargs_value => argument_nargs_value
         procedure :: produces_list => argument_produces_list
@@ -54,7 +58,7 @@ contains
         default_value, const_value, choices, has_default, has_const, &
         has_choices, validator, required, help, &
         metavar, visible, deprecated_msg, removed_msg, print_default, &
-        print_choices)
+        print_choices, case_insensitive_choices, implicit_default)
         class(Argument), intent(out) :: self
         character(len=*), intent(in) :: names(:)
         type(NargsSpec), intent(in) :: nargs
@@ -69,6 +73,8 @@ contains
         logical, intent(in), optional :: visible
         character(len=*), intent(in), optional :: deprecated_msg, removed_msg
         logical, intent(in), optional :: print_default, print_choices
+        logical, intent(in), optional :: case_insensitive_choices
+        logical, intent(in), optional :: implicit_default
         integer :: index, name_length
 
         name_length = maxval(len_trim(names))
@@ -110,6 +116,9 @@ contains
         if (present(removed_msg)) self%removed_msg = trim(removed_msg)
         if (present(print_default)) self%print_default = print_default
         if (present(print_choices)) self%print_choices = print_choices
+        if (present(case_insensitive_choices)) &
+            self%case_insensitive_choices = case_insensitive_choices
+        if (present(implicit_default)) self%default_is_implicit = implicit_default
     end subroutine argument_init
 
     pure integer function argument_name_count(self) result(number)
@@ -153,17 +162,6 @@ contains
         end if
     end function argument_primary_name
 
-    function argument_derive_dest(self) result(dest)
-        class(Argument), intent(in) :: self
-        character(len=:), allocatable :: dest
-
-        if (self%name_count() == 0) then
-            dest = ""
-        else
-            dest = derive_dest_from_names(self%names)
-        end if
-    end function argument_derive_dest
-
     function argument_effective_metavar(self) result(metavar)
         class(Argument), intent(in) :: self
         character(len=:), allocatable :: metavar
@@ -187,6 +185,23 @@ contains
             end if
         end do
     end function argument_effective_metavar
+
+    !> User-facing spelling: `-s/--long` for options, the metavar otherwise.
+    function argument_display_label(self) result(label)
+        class(Argument), intent(in) :: self
+        character(len=:), allocatable :: label
+        integer :: index
+
+        if (.not. self%is_optional) then
+            label = self%effective_metavar()
+            return
+        end if
+        label = ""
+        do index = 1, self%name_count()
+            if (index > 1) label = label // "/"
+            label = label // trim(self%names(index))
+        end do
+    end function argument_display_label
 
     function argument_nargs_display(self) result(display)
         class(Argument), intent(in) :: self

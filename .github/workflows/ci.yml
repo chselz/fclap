@@ -100,6 +100,13 @@ jobs:
           cmake --build _consumer
           ctest --test-dir _consumer --output-on-failure
 
+      - name: Consume fclap as a CMake subproject
+        if: matrix.system == 'cmake'
+        run: |
+          cmake -S test/subproject -B _subproject -GNinja
+          cmake --build _subproject
+          ctest --test-dir _subproject --output-on-failure
+
       - name: Configure Meson
         if: matrix.system == 'meson'
         run: >-
@@ -124,6 +131,120 @@ jobs:
           meson compile -C _consumer
           meson test -C _consumer --print-errorlogs
 
+  sanitizers:
+    name: sanitizers (GNU, ASan+UBSan)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: gcc
+          version: "14"
+
+      - name: Install build tools
+        run: python -m pip install cmake ninja
+
+      # High mmap randomization on current runner kernels breaks ASan's
+      # shadow-memory layout.
+      - name: Allow AddressSanitizer shadow memory
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Build and test with sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          cmake -S . -B _asan -GNinja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_Fortran_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -fcheck=all" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build _asan
+          ctest --test-dir _asan --output-on-failure
+
+  portability:
+    name: fpm (${{ matrix.os }}, ${{ matrix.compiler }})
+    runs-on: ${{ matrix.os }}
+    # Jobs without a passing CI history report without blocking. ifx
+    # 2026.1 passes locally, including -check all; make it blocking after
+    # its first green run here.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            compiler: gcc
+            version: "14"
+            experimental: false
+          - os: windows-latest
+            compiler: gcc
+            version: "14"
+            experimental: false
+          - os: ubuntu-latest
+            compiler: intel
+            version: "2025.2"
+            experimental: true
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: fortran-lang/setup-fortran@v1
+        with:
+          compiler: ${{ matrix.compiler }}
+          version: ${{ matrix.version }}
+
+      - uses: fortran-lang/setup-fpm@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and run Test Drive suite
+        env:
+          FPM_FC: ${{ env.FC }}
+        run: fpm test
+
+      - name: Smoke-test public examples
+        env:
+          FPM_FC: ${{ env.FC }}
+        run: |
+          fpm run --example basic -- input.dat --threads=2 -v
+          fpm run --example subcommands -- --verbose run input.dat --dry-run
+          fpm run --example library_mode
+
+  flang:
+    name: cmake (ubuntu, LLVM flang 20)
+    runs-on: ubuntu-latest
+    # Verified locally with conda-forge flang 20.1.8; make blocking after its
+    # first green run here.
+    continue-on-error: true
+
+    defaults:
+      run:
+        shell: bash -el {0}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # setup-fortran does not provide LLVM flang; conda-forge does.
+      - uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: flang
+          create-args: flang_linux-64=20 cmake ninja
+
+      # The conda flang runtime lacks the quad-precision math library that
+      # test-drive's real(10)/real(16) checks need; fclap uses neither kind.
+      - name: Build and test with flang
+        run: |
+          cmake -S . -B _flang -GNinja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_Fortran_COMPILER="$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-flang" \
+            -DCMAKE_EXE_LINKER_FLAGS="-L$CONDA_PREFIX/lib -Wl,-rpath,$CONDA_PREFIX/lib" \
+            -DTESTDRIVE_WITH_QP=OFF -DTESTDRIVE_WITH_XDP=OFF
+          cmake --build _flang
+          ctest --test-dir _flang --output-on-failure
+
   documentation:
     name: documentation
     runs-on: ubuntu-latest
@@ -135,10 +256,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: docs/requirements.txt
+          cache-dependency-path: doc/requirements.txt
 
       - name: Install documentation dependencies
-        run: python -m pip install -r docs/requirements.txt
+        run: python -m pip install -r doc/requirements.txt
 
       - name: Build documentation
-        run: sphinx-build -W -b html docs/source docs/build/html
+        run: sphinx-build -W -b html doc/source doc/build/html

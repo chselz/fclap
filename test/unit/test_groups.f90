@@ -53,7 +53,7 @@ contains
             help="verbose logging", print_default=.false.)
 
         expected = &
-            "usage: demo INPUT [-o OUTPUT] [--force] [--verbose]" // &
+            "usage: demo [-o OUTPUT] [--force] [--verbose] INPUT" // &
             nl // nl // "positional arguments:" // nl // &
             "  INPUT                 input file" // nl // nl // &
             "options:" // nl // &

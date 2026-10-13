@@ -1,4 +1,4 @@
-# Phase 0 feature and compatibility matrix
+# Feature and compatibility matrix
 
 ## Purpose
 
@@ -14,13 +14,13 @@ The historical inventory was taken from:
 - `old/fclap_namespace.f90`
 - `old/fclap_formatter.f90`
 - `test/unit/old_main.f90`
-- `docs/source/tutorial.rst`
-- `docs/source/api/fclap.rst`
+- `doc/source/tutorial.rst`
+- `doc/source/api/fclap.rst`
 - The incomplete modules under `src/fclap/`
 
 The `old/` sources and procedural test driver were removed in Phase 8 after
 every retained behavior was mapped to a named Test Drive case in
-`docs/design/legacy-test-map.md`.
+`doc/design/legacy-test-map.md`.
 
 ## Scope labels
 
@@ -35,7 +35,7 @@ every retained behavior was mapped to a named Test Drive case in
 | Feature | Legacy state | Scope | Rewrite decision |
 |---|---|---:|---|
 | Explicit program name | Implemented and exercised | Initial | `prog=` overrides the name obtained from command argument zero. |
-| Automatic program name | Implemented | Initial | Move platform path stripping to `utils/system.f90`. |
+| Automatic program name | Implemented | Initial | Implemented: `get_prog_name` in `argparser.f90` strips the directory from command argument zero. |
 | Description and epilog | Implemented and documented | Initial | Stored verbatim after trimming fixed-length padding. |
 | Custom usage text | Present only in the new skeleton | Initial | Overrides generated usage content while retaining the formatter's `usage:` prefix. |
 | Automatic `-h`, `--help` | Implemented | Initial | Registered with a concrete `HelpAction`; aliases must participate in collision checks. |
@@ -56,7 +56,7 @@ every retained behavior was mapped to a named Test Drive case in
 | Array-of-names registration | Not present | Later | May supplement the four-name facade when compiler support and ergonomics are evaluated. |
 | Automatic destination | Implemented | Initial | Prefer the longest `--long` alias, otherwise the longest alias; strip leading hyphens and replace internal hyphens with underscores. Ties select the first registered alias. |
 | Explicit destination | Implemented | Initial | Must be non-empty and unique in a parser. |
-| Metavar | Implemented and tested | Initial | Default is the upper-case destination. |
+| Metavar | Implemented and tested | Initial | Default is the upper-case destination; an argument with choices shows them as `{a,b}`. |
 | Required option | Implemented; fail test disabled | Initial | Presence means explicitly supplied, regardless of whether a default exists. |
 | Required positional | Implemented | Initial | Derived from minimum `nargs`; `?` and `*` positionals are optional. |
 | Hidden argument | Implemented and tested | Initial | Hidden from usage/help, but still parsed normally. |
@@ -71,20 +71,20 @@ every retained behavior was mapped to a named Test Drive case in
 
 | Feature | Legacy state | Scope | Rewrite decision |
 |---|---|---:|---|
-| String values | Implemented and tested | Initial | Canonical name `string`; default when no type is specified. |
-| Integer values | Implemented and tested | Initial | Canonical name `integer`; accept `int` as an alias. Initially use `ip`. |
-| Real values | Implemented and tested | Initial | Canonical name `real`; accept `float` and `double` aliases. Initially use `wp`. |
-| Logical values | Partially implemented | Initial | Canonical name `logical`; accept `bool`. Tokens are case-insensitive `true`, `false`, `t`, `f`, `1`, `0`, `yes`, `no`, `on`, and `off`. |
+| String values | Implemented and tested | Initial | Canonical name `string`; accept `character` and `char`. Default when no type is specified. |
+| Integer values | Implemented and tested | Initial | Canonical name `integer`; accept `int` as an alias. Stored as `int64`. |
+| Real values | Implemented and tested | Initial | Canonical name `real`; accept `float` and `double` aliases. Stored as `real64`. |
+| Logical values | Partially implemented | Initial | Canonical name `logical`; accept `bool` and `boolean`. Tokens are case-insensitive `true`, `false`, `t`, `f`, `1`, `0`, `yes`, `no`, `on`, and `off`. |
 | Typed defaults | Implemented and tested | Initial | Convert and validate at registration; the intrinsic type category must match, while supported kinds are converted with range checking. |
 | Character defaults for numeric types | Legacy parses strings | Initial | Retained as a convenience; failure is a configuration error. |
 | Missing optional value without default | Legacy omits namespace key | Initial | Keep the key absent except for actions with defined implicit defaults. |
-| String choices | Implemented | Initial | Compare case-sensitively after token conversion. |
+| String choices | Implemented | Initial | Compare case-sensitively after token conversion; `case_insensitive_choices=.true.` ignores ASCII case and stores the declared spelling. |
 | Numeric choices | Implemented by raw strings | Initial | Compare converted typed values, so integer spellings such as `01` and `1` are equivalent. |
 | Logical choices | Not meaningfully covered | Initial | Compare converted logical values. |
 | Default satisfies choices/validators | Not consistently checked | Initial | Required at registration. |
 | Print default toggle | Implemented and extensively tested | Initial | Per-argument default is true under `StandardFormatter`. |
 | Print choices toggle | Implemented and tested | Initial | Per-argument default is false under `StandardFormatter`. |
-| Multiple integer/real kinds | Discussed but not implemented | Later | Add concrete value/converter variants after default-kind behavior is stable. |
+| Multiple integer/real kinds | Discussed but not implemented | Later | Implemented: integers are stored with 64-bit range; `Namespace` and validators accept `int32`/`int64` and `real32`/`real64` with range-checked narrowing. |
 | Arbitrary user-defined value types | Not present | Later | Requires a public converter/value construction contract. |
 
 ## Nargs and token consumption
@@ -113,15 +113,16 @@ every retained behavior was mapped to a named Test Drive case in
 | Store true | Implemented and tested | Initial | Implicit absent default is false unless explicitly overridden. |
 | Store false | Implemented and tested | Initial | Implicit absent default is true unless explicitly overridden. |
 | Count | Implemented and tested | Initial | Implicit absent default is zero; repeated occurrences increment. |
-| Append | Implemented and tested | Initial | Repeated occurrences accumulate values in encounter order. |
+| Append | Implemented and tested | Initial | Repeated occurrences accumulate values in encounter order; the first explicit occurrence replaces a `default=` list (argparse extends it). |
+| Boolean optional (`--x`/`--no-x`) | Not present | Later | Implemented as `boolean_optional()`; generated `--no-` spellings take part in collision checks. |
 | Help | Implemented by magic namespace key and `stop` | Initial | Return a successful help-request outcome. |
 | Version | Implemented by direct output and `stop` | Initial | Return a successful version-request outcome. |
 | Lower bound / `not_less_than` | Encoded into an action string | Initial | Recast as a `ValidatorType` factory operating on converted values. |
 | Upper bound / `not_bigger_than` | Encoded into an action string | Initial | Recast as a `ValidatorType` factory operating on converted values. |
 | String length bounds | Legacy overloads numeric bound actions | Later | Add explicit length validators rather than inferring behavior from `data_type`. |
 | Custom actions | Not supported by old string dispatch | Initial | Supported through extension of `ActionType`. |
-| Custom validators | Not supported | Initial | Supported through extension of `ValidatorType`; one validator per argument initially. |
-| Validator composition | Not supported | Later | Add a composite validator instead of exposing heterogeneous arrays directly. |
+| Custom validators | Not supported | Initial | Supported through extension of `ValidatorType`, including the `accepts_type` registration check; one validator per argument. |
+| Validator composition | Not supported | Later | `in_range(lower, upper)` covers the common two-bound case; a general composite validator remains later work. |
 
 ## Parsing and results
 
@@ -130,12 +131,16 @@ every retained behavior was mapped to a named Test Drive case in
 | Parse process arguments | Implemented | Initial | `parse_args()` is the argparse-like convenience operation. |
 | Parse explicit token array | Implemented and used by tests | Initial | `parse_tokens()` is the non-terminating core-facing public operation. |
 | Non-terminating process parse | Not present | Initial | `try_parse_args()` reads process arguments and returns `ParseResult`. |
-| Structured parse result | Not present | Initial | Contains namespace, error stack, outcome, and optional help/version text. |
+| Structured parse result | Not present | Initial | Contains namespace, error stack, outcome, optional help/version text, and `selected_command_path`. |
 | Unknown option | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Missing option value | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Extra positional | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Missing required argument | Hard-exit path; disabled fail test | Initial | Fatal structured error. |
 | Repeated parse with one parser | Mutable legacy seen-state | Initial | Every call uses a fresh `ParseContext`; parser definition remains unchanged. |
+| Help or version after an error | Not present | Initial | An exact `-h`/`--help` or `--version` later on the command line wins over an unknown option or extra positional, as in argparse. |
+| Attached value for a flag | Not present | Initial | `--flag=x` is a fatal `ERR_UNEXPECTED_VALUE`. |
+| Invalid parser definition at `parse_args` | Not present | Initial | Printed as `prog: invalid parser definition: ...` with exit status 70, distinct from user errors (status 2). |
+| Application-reported errors | Not present | Initial | `parser%error(message)` prints usage and `prog: error: message` and exits with status 2. |
 | Parse known arguments | Not present | Later | May return unmatched tokens without weakening strict `parse_tokens()`. |
 | Parse a shell command string | Not present | Unsupported | Shell quoting is platform-dependent; callers supply an already-tokenized array. |
 
@@ -143,27 +148,28 @@ every retained behavior was mapped to a named Test Drive case in
 
 | Feature | Legacy state | Scope | Rewrite decision |
 |---|---|---:|---|
-| Generic scalar `get` | Implemented | Initial | Generic by output type and capable of returning a status code. |
+| Generic scalar `get` | Implemented | Initial | Generic by output type and capable of returning a status code; strings are returned in `character(len=:), allocatable` variables with their exact length. |
 | Generic list `get` | Separate string/integer routines | Initial | Generic by output type and rank; returned list is allocatable. |
-| `contains` / `has_key` | Implemented | Initial | Canonical public name is `contains`; retain `has_key` as an alias if inexpensive. |
+| `contains` | Implemented | Initial | Single public name; the legacy `has_key` spelling is not kept. |
+| Remove a key | Not present | Initial | `Namespace%remove(key)`; removing an absent key is a no-op. |
 | Merge | Implemented for subparsers | Later | Implemented in Phase 7 as a deep merge. Incoming child values replace parent values with the same key; unrelated parent values remain. |
 | Show/debug print | Implemented | Later | Formatting convenience, not required by parsing. |
-| Missing-key retrieval | Legacy returns a default value | Initial | Report `ERR_NAMESPACE_MISSING_KEY`; output remains unchanged. |
+| Missing-key retrieval | Legacy returns a default value | Initial | Report `ERR_NAMESPACE_MISSING_KEY`; output remains unchanged. Without `stat=`, any failed retrieval stops the program with a message naming the key. |
 | Wrong-type retrieval | Legacy behavior is weakly defined | Initial | Report `ERR_NAMESPACE_TYPE_MISMATCH`; no implicit numeric conversion. |
 
 ## Help and formatting
 
 | Feature | Legacy state | Scope | Rewrite decision |
 |---|---|---:|---|
-| Generated usage | Implemented | Initial | Deterministic and side-effect free. |
+| Generated usage | Implemented | Initial | Deterministic and side-effect free; options are listed before positionals. |
 | Full help | Implemented and tested | Initial | Deterministic and side-effect free. |
 | Print usage/help | Implemented | Initial | Thin output wrappers around formatting functions. |
 | Positional/options sections | Implemented | Initial | Standard formatter uses `positional arguments:` and `options:` headings. |
-| Default formatting | Extensively tested | Initial | Centralized in value types; no formatter-side type switches. |
+| Default formatting | Extensively tested | Initial | Centralized in value types; no formatter-side type switches. Implicit action defaults (a flag's `.false.`) are not shown; reals use their shortest round-trip form. |
 | Choice formatting | Tested | Initial | String choices quoted; numeric/logical choices unquoted. |
 | Width and wrapping | Fields exist; behavior limited | Initial | Default width 80 and deterministic wrapping. |
-| Raw description formatter | Mentioned in skeleton | Later | Concrete formatter or configuration factory. |
-| Raw text formatter | Mentioned in skeleton | Later | Concrete formatter or configuration factory. |
+| Raw description formatter | Mentioned in skeleton | Initial | Implemented as `StandardFormatter(raw_description=.true.)`. |
+| Raw text formatter | Mentioned in skeleton | Initial | Implemented as `StandardFormatter(raw_help_text=.true.)`. |
 | Metavar type formatter | Mentioned in skeleton | Later | Concrete formatter or configuration factory. |
 | Colored help | Absent | Unsupported | Reconsider only with explicit terminal-capability design. |
 
@@ -174,9 +180,10 @@ every retained behavior was mapped to a named Test Drive case in
 | Help-only argument group | Implemented and tested | Initial | Store member argument indices. |
 | Optional mutex group | Implemented; success tested | Initial | At most one explicitly seen member. |
 | Required mutex group | Implemented; fail test disabled | Initial | Exactly one explicitly seen member. |
+| Mutex member restrictions | Not validated | Initial | Required options and positionals that need a value are rejected with `ERR_INVALID_GROUP`. |
 | Python-like group object facade | Not present | Later | Start with a stable `GroupHandle`; add `group%add_argument` only after lifetime tests. |
 | One-level subparsers | Implemented and tested | Later | Implemented in Phase 7 with owned child-parser snapshots. |
-| Nested subparsers | Suggested in docs/design only | Later | Implemented in Phase 7 through recursive facade dispatch and `selected_command_path`. |
+| Nested subparsers | Suggested in doc/design only | Later | Implemented in Phase 7 through recursive facade dispatch and `selected_command_path`. |
 | Required subparser | Not implemented | Later | Implemented as the explicit `required=` property of `add_subparsers`. |
 | Subparser namespace merge | Implemented | Later | Implemented with deeper/child values taking precedence on duplicate keys. |
 | Callback dispatch | Not implemented | Later | Convenience layer after hierarchical parsing. |
@@ -193,11 +200,12 @@ every retained behavior was mapped to a named Test Drive case in
 | Automatic shell parsing | Unsupported | The operating system or caller supplies tokens. |
 | Python callback/callable `type` objects | Unsupported as such | Fortran uses typed converter/action/validator extension points. |
 
-The following syntax is useful but deferred rather than rejected permanently:
+The following syntax was deferred from the initial release and is now
+implemented: `--option=value`, combined short flags such as `-vvv` or `-abc`,
+and attached short-option values such as `-I/usr/include`.
 
-- `--option=value`
-- Combined short flags such as `-vvv` or `-abc`
-- Attached short-option values such as `-I/usr/include`
+The following remains deferred rather than rejected permanently:
+
 - `parse_known_args`
 
 ## Legacy test migration inventory
@@ -205,7 +213,7 @@ The following syntax is useful but deferred rather than rejected permanently:
 The successful cases from the legacy procedural driver are normal Test Drive
 tests. The former `test_nargs` placeholder was replaced by tests for every
 supported form. The exact historical-routine mapping is frozen in
-`docs/design/legacy-test-map.md`.
+`doc/design/legacy-test-map.md`.
 
 The disabled legacy failure cases become expected-failure assertions against
 `ParseResult` and `ErrorStack`:
@@ -244,7 +252,7 @@ and Meson builds, all Test Drive and process-policy tests, fpm-owned public
 examples, installed-package consumers, source-manifest consistency, and a
 warning-clean Sphinx build.
 
-The operating-system and compiler expansion remains staged according to
-`plan.md`: fpm is the primary cross-platform/compiler axis, while broader
-CMake and Meson combinations are added on default-branch, scheduled, or
-release workflows rather than multiplying every combination on each commit.
+Further jobs run the CMake suite under AddressSanitizer and
+UndefinedBehaviorSanitizer, the fpm suite with GNU Fortran on macOS and
+Windows, and, as non-blocking jobs until they have a green history, Intel ifx
+(fpm) and LLVM flang 20 (CMake) on Linux.

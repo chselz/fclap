@@ -21,6 +21,12 @@ module fclap_actions_abstract
         procedure :: produces_list => action_produces_list
         procedure :: value_type => action_value_type
         procedure :: implicit_default => action_implicit_default
+        !> Add spellings to the names given at registration
+        procedure :: option_names => action_option_names
+        !> Apply one occurrence, knowing which option spelling was used
+        procedure :: apply_option => action_apply_option
+        !> Whether the first explicit occurrence discards the default value
+        procedure :: replaces_default => action_replaces_default
     end type ActionType
 
     abstract interface
@@ -72,5 +78,41 @@ contains
         call value%clear()
         has_default = .false.
     end subroutine action_implicit_default
+
+    !> Keep the registered names unchanged.
+    !>
+    !> A subroutine rather than a function: returning a deferred-length
+    !> character array from a type-bound function crashes gfortran 13.
+    subroutine action_option_names(self, names, expanded)
+        class(ActionType), intent(in) :: self
+        character(len=*), intent(in) :: names(:)
+        character(len=:), allocatable, intent(out) :: expanded(:)
+
+        expanded = names
+    end subroutine action_option_names
+
+    !> Apply an occurrence regardless of the spelling used.
+    !>
+    !> The parse engine calls this for options; `option_name` is the
+    !> registered spelling that matched. Actions whose effect depends on the
+    !> spelling, such as `--name`/`--no-name`, override it.
+    subroutine action_apply_option(self, option_name, dest, value, args, &
+        outcome, errors)
+        class(ActionType), intent(in) :: self
+        character(len=*), intent(in) :: option_name
+        character(len=*), intent(in) :: dest
+        type(ValueBox), intent(in) :: value
+        type(Namespace), intent(inout) :: args
+        integer, intent(out) :: outcome
+        type(ErrorStack), intent(inout) :: errors
+
+        call self%apply(dest, value, args, outcome, errors)
+    end subroutine action_apply_option
+
+    pure logical function action_replaces_default(self) result(replaces)
+        class(ActionType), intent(in) :: self
+
+        replaces = .false.
+    end function action_replaces_default
 
 end module fclap_actions_abstract

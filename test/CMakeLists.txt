@@ -25,11 +25,17 @@ target_link_libraries(
   PRIVATE
   "${PROJECT_NAME}-lib"
 )
+foreach(fixture IN ITEMS invalid_definition namespace_misuse)
+  add_executable("${PROJECT_NAME}-${fixture}" "fixtures/${fixture}.f90")
+  target_link_libraries("${PROJECT_NAME}-${fixture}" PRIVATE "${PROJECT_NAME}-lib")
+endforeach()
 add_test(
   NAME "${PROJECT_NAME}-cli-policy"
   COMMAND
   "${CMAKE_COMMAND}"
   "-DFCLAP_CLI=$<TARGET_FILE:${PROJECT_NAME}-cli-fixture>"
+  "-DFCLAP_INVALID_CLI=$<TARGET_FILE:${PROJECT_NAME}-invalid_definition>"
+  "-DFCLAP_MISUSE_CLI=$<TARGET_FILE:${PROJECT_NAME}-namespace_misuse>"
   "-P"
   "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/check_cli.cmake"
 )

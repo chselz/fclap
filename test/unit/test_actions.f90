@@ -1,6 +1,6 @@
 module test_actions
     use fclap, only : ArgumentParser, ActionType, Namespace, ErrorStack, &
-        ValueBox, ip, new_value, &
+        ValueBox, new_value, &
         new_nargs, NARGS_ZERO, NARGS_ONE, ACTION_CONTINUE, &
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED, store, store_const, &
         store_true, store_false, append, count, StoreAction, StoreConstAction, &
@@ -73,7 +73,7 @@ contains
         type(StoreConstAction) :: const_op
         type(StoreTrueAction) :: true_op
         type(StoreFalseAction) :: false_op
-        character(len=16) :: text
+        character(len=:), allocatable :: text
         logical :: flag
         integer :: outcome, stat
 
@@ -115,17 +115,17 @@ contains
         type(ValueBox) :: value
         type(AppendAction) :: append_op
         type(CountAction) :: count_op
-        integer(ip), allocatable :: values(:)
-        integer(ip) :: occurrences
+        integer, allocatable :: values(:)
+        integer :: occurrences
         integer :: outcome, stat
 
         append_op = append()
-        value = new_value([1_ip, 2_ip])
+        value = new_value([1, 2])
         call append_op%apply("ids", value, args, outcome, errors)
-        value = new_value(3_ip)
+        value = new_value(3)
         call append_op%apply("ids", value, args, outcome, errors)
         call args%get("ids", values, stat)
-        call check(error, all(values == [1_ip, 2_ip, 3_ip]), .true.)
+        call check(error, all(values == [1, 2, 3]), .true.)
         if (allocated(error)) return
 
         count_op = count()
@@ -133,7 +133,7 @@ contains
         call count_op%apply("verbose", value, args, outcome, errors)
         call count_op%apply("verbose", value, args, outcome, errors)
         call args%get("verbose", occurrences, stat)
-        call check(error, occurrences, 2_ip)
+        call check(error, occurrences, 2)
         if (allocated(error)) return
         call check(error, errors%count(), 0)
     end subroutine test_append_and_count

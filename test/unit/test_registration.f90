@@ -1,6 +1,6 @@
 module test_registration
     use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ValidatorType, ValueBox, &
-        IntegerValue, LogicalValue, ListValue, new_value, ip, store, store_true, &
+        IntegerValue, LogicalValue, ListValue, new_value, store, store_true, &
         store_false, store_const, append, count, ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, &
         ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION, &
@@ -365,13 +365,13 @@ contains
 
         call parser%init(add_help=.false.)
         call parser%add_argument("--threads", data_type="int", default="2", &
-            choices=[1_ip, 2_ip, 4_ip], validator=nonnegative)
+            choices=[1, 2, 4], validator=nonnegative)
         call check(error, parser%argument_count(), 1)
         if (allocated(error)) return
         definition = parser%get_argument(1)
         select type (stored => definition%default_value%item)
         type is (IntegerValue)
-            call check(error, stored%value, 2_ip)
+            call check(error, int(stored%value), 2)
         class default
             call check(error, .false., "expected integer default")
         end select
@@ -379,16 +379,16 @@ contains
         call check(error, allocated(definition%validator), .true.)
         if (allocated(error)) return
 
-        call parser%add_argument("--wrong-type", data_type="string", default=1_ip)
+        call parser%add_argument("--wrong-type", data_type="string", default=1)
         call parser%add_argument("--wrong-choice", data_type="integer", &
-            default=3_ip, choices=[1_ip, 2_ip])
+            default=3, choices=[1, 2])
         call parser%add_argument("--wrong-shape", nargs=2, default="scalar")
         call parser%add_argument("--missing-const", nargs="?")
         call parser%add_argument("--extra-const", const="x")
         call parser%add_argument("--bad-const", nargs="?", const="x", &
             choices=[character(len=1) :: "a", "b"])
         call parser%add_argument("--negative-default", data_type="integer", &
-            default=-1_ip, validator=nonnegative)
+            default=-1, validator=nonnegative)
 
         call check(error, parser%argument_count(), 1)
         if (allocated(error)) return
@@ -418,7 +418,7 @@ contains
 
         select type (stored => value%item)
         type is (IntegerValue)
-            valid = stored%value >= 0_ip
+            valid = stored%value >= 0
         class default
             valid = .false.
         end select

@@ -1,3 +1,4 @@
+!> Stable numeric codes for configuration, parse, and namespace errors.
 module fclap_error_codes
     implicit none
 
@@ -13,6 +14,7 @@ module fclap_error_codes
     integer, parameter, public :: ERR_INVALID_GROUP         = 1007
     integer, parameter, public :: ERR_INVALID_TYPE_NAME     = 1008
     integer, parameter, public :: ERR_INVALID_LIFECYCLE     = 1009
+    integer, parameter, public :: ERR_INCOMPATIBLE_VALIDATOR = 1010
 
     ! Single-parser runtime errors (2000-2099)
     integer, parameter, public :: ERR_UNKNOWN_ARGUMENT    = 2001
@@ -26,6 +28,7 @@ module fclap_error_codes
     integer, parameter, public :: ERR_MUTEX_REQUIRED      = 2009
     integer, parameter, public :: ERR_REMOVED_ARGUMENT    = 2010
     integer, parameter, public :: ERR_DEPRECATED_ARGUMENT = 2011
+    integer, parameter, public :: ERR_UNEXPECTED_VALUE    = 2012
 
     ! Reserved subparser errors (2100-2199)
     integer, parameter, public :: ERR_UNKNOWN_SUBCOMMAND = 2101
@@ -34,6 +37,7 @@ module fclap_error_codes
     ! Namespace errors (3000-3099)
     integer, parameter, public :: ERR_NAMESPACE_MISSING_KEY   = 3001
     integer, parameter, public :: ERR_NAMESPACE_TYPE_MISMATCH = 3002
+    integer, parameter, public :: ERR_NAMESPACE_OUT_OF_RANGE  = 3004
 
     integer, parameter, public :: ERROR_FATAL   = 1
     integer, parameter, public :: ERROR_WARNING = 2

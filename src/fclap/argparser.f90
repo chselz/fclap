@@ -1,14 +1,20 @@
-!> Parser definition facade and transactional argument registration.
+!> Parser definition facade: registration, help, parsing, and dispatch.
+!>
+!> Argument definitions are validated by `fclap_registration`; tokens are
+!> consumed by `fclap_parse_engine`. This module owns parser state.
 module fclap_argparser
     use, intrinsic :: iso_fortran_env, only : error_unit, output_unit
     use fclap_actions_abstract, only : ActionType
-    use fclap_actions_builtin, only : StoreAction, StoreConstAction, &
-        HelpAction, VersionAction, help_action, version_action
-    use fclap_argument, only : Argument, derive_dest_from_names
-    use fclap_error_codes, only : ERR_INVALID_ARGUMENT_NAME, &
+    use fclap_actions_builtin, only : HelpAction, VersionAction, help_action, &
+        version_action
+    use fclap_argument, only : Argument
+    use fclap_error_codes, only : FCLAP_OK, ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, &
-        ERR_INCOMPATIBLE_ACTION, ERR_INVALID_DEFAULT, &
-        ERR_INVALID_TYPE_NAME, ERR_INVALID_LIFECYCLE, ERR_INVALID_GROUP
+        ERR_INCOMPATIBLE_ACTION, ERR_INVALID_GROUP, ERR_UNKNOWN_ARGUMENT, &
+        ERR_EXTRA_POSITIONAL, ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, &
+        ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, ERR_INVALID_VALUE, &
+        ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED, ERROR_WARNING
+    use fclap_error_entry, only : ErrorEntry
     use fclap_error_stack, only : ErrorStack
     use fclap_formatter_abstract, only : FormatterType
     use fclap_formatter_model, only : HelpModel
@@ -18,16 +24,15 @@ module fclap_argparser
     use fclap_groups_helppage, only : ArgumentGroup
     use fclap_groups_mutex, only : MutexGroup
     use fclap_namespace, only : Namespace
-    use fclap_nargs, only : NargsSpec, normalize_nargs, NARGS_SUCCESS, &
-        NARGS_OPTIONAL, NARGS_REMAINDER
+    use fclap_nargs, only : NARGS_REMAINDER
     use fclap_parse_engine, only : parse_definitions
     use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
         PARSE_HELP, PARSE_VERSION
+    use fclap_registration, only : check_names, build_argument, &
+        any_registered_name
     use fclap_validators_abstract, only : ValidatorType
     use fclap_value_abstract, only : ValueBox
-    use fclap_value_builtin, only : ListValue
-    use fclap_value_convert, only : CONVERT_SUCCESS, convert_value, &
-        normalize_type_name, value_in_choices, value_is_list, value_matches_type
+    use fclap_value_builtin, only : ListValue, StringValue
     implicit none
     private
 
@@ -78,6 +83,13 @@ module fclap_argparser
         procedure :: parse_tokens => parser_parse_tokens
         procedure :: try_parse_args => parser_try_parse_args
         procedure :: parse_args => parser_parse_args
+        procedure :: format_diagnostic => parser_format_diagnostic
+        procedure :: error => parser_error
+        procedure, private :: abort_invalid_definition => &
+            parser_abort_invalid_definition
+        procedure, private :: program_name => parser_program_name
+        procedure :: print_diagnostics => parser_print_diagnostics
+        procedure, private :: display_label => parser_display_label
         procedure, private :: append_argument => parser_append_argument
         procedure, private :: append_group => parser_append_group
         procedure, private :: append_subparser => parser_append_subparser
@@ -151,7 +163,7 @@ contains
     subroutine parser_add_argument(self, name1, name2, name3, name4, action, &
         nargs, data_type, default, const, choices, validator, required, help, &
         metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
-        print_choices, group)
+        print_choices, group, case_insensitive_choices)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name1
         character(len=*), intent(in), optional :: name2, name3, name4
@@ -168,30 +180,18 @@ contains
         character(len=*), intent(in), optional :: deprecated_msg, removed_msg
         logical, intent(in), optional :: print_default, print_choices
         type(GroupHandle), intent(in), optional :: group
+        logical, intent(in), optional :: case_insensitive_choices
 
-        character(len=:), allocatable :: names(:), canonical_type, action_type
-        character(len=:), allocatable :: candidate_dest, validation_message
-        class(ActionType), allocatable :: selected_action
-        type(NargsSpec) :: nargs_spec
-        type(ValueBox) :: default_value, const_value, choice_values
+        character(len=:), allocatable :: names(:), given(:), message, subject
         type(Argument) :: candidate
-        logical :: optional_names, required_value, has_default, has_const
-        logical :: has_choices, valid
-        integer :: stat, group_index
+        logical :: optional_names
+        integer :: code, group_index
 
-        call collect_names(name1, name2, name3, name4, names)
-        if (.not. validate_names(names, optional_names, validation_message)) then
-            call self%reject(ERR_INVALID_ARGUMENT_NAME, validation_message, name1)
-            return
-        end if
-        if (has_duplicate_name(names)) then
-            call self%reject(ERR_DUPLICATE_OPTION, &
-                "an alias is repeated in the same definition", name1)
-            return
-        end if
-        if (any_registered_name(self, names)) then
-            call self%reject(ERR_DUPLICATE_OPTION, &
-                "an option or positional name is already registered", name1)
+        if (.not. allocated(self%arguments)) allocate(self%arguments(0))
+        call check_names(self%arguments, action, name1, name2, name3, name4, &
+            names, given, optional_names, code, message)
+        if (code /= FCLAP_OK) then
+            call self%reject(code, message, name1, join_names(names))
             return
         end if
 
@@ -215,229 +215,28 @@ contains
             end if
         end if
 
-        if (present(dest)) then
-            candidate_dest = trim(dest)
-        else
-            candidate_dest = derive_dest_from_names(names)
-        end if
-        if (len(candidate_dest) == 0) then
-            call self%reject(ERR_INVALID_ARGUMENT_NAME, &
-                "the destination must not be empty", name1)
-            return
-        end if
-        if (self%has_dest(candidate_dest)) then
-            call self%reject(ERR_DUPLICATE_DEST, &
-                "the destination is already registered", candidate_dest)
+        ! An unallocated subparser destination is passed as an absent argument.
+        call build_argument(self%arguments, names, given, optional_names, &
+            self%subparser_dest, self%subparsers_enabled, action, nargs, &
+            data_type, default, const, choices, validator, required, help, &
+            metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
+            print_choices, case_insensitive_choices, candidate, code, message, &
+            subject)
+        if (code /= FCLAP_OK) then
+            call self%reject(code, message, subject, join_names(names))
             return
         end if
 
-        if (present(action)) then
-            allocate(selected_action, source=action)
-        else
-            allocate(StoreAction :: selected_action)
-        end if
-
-        if (present(nargs)) then
-            select type (nargs)
-            type is (integer)
-                call normalize_nargs(nargs, nargs_spec, stat)
-            type is (character(len=*))
-                call normalize_nargs(nargs, nargs_spec, stat)
-            class default
-                stat = -1
-            end select
-        else
-            call normalize_nargs(selected_action%default_nargs(), nargs_spec, stat)
-        end if
-        if (stat /= NARGS_SUCCESS) then
-            call self%reject(ERR_INVALID_NARGS, "invalid nargs value", candidate_dest)
-            return
-        end if
-        if (.not. selected_action%accepts_nargs(nargs_spec)) then
-            call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                "the action does not accept this nargs value", candidate_dest)
-            return
-        end if
-        if (optional_names .and. nargs_spec%value() == NARGS_REMAINDER) then
-            call self%reject(ERR_INVALID_NARGS, &
-                "remainder nargs is only valid for a positional argument", candidate_dest)
-            return
-        end if
-        if (self%subparsers_enabled .and. .not. optional_names .and. &
-            nargs_spec%value() == NARGS_REMAINDER) then
-            call self%reject(ERR_INVALID_NARGS, &
-                "remainder nargs cannot precede a subparser collection", &
-                candidate_dest)
-            return
-        end if
-        if (.not. positional_layout_is_valid(self, optional_names, nargs_spec)) then
-            call self%reject(ERR_INVALID_NARGS, &
-                "ambiguous or misplaced variable positional argument", candidate_dest)
-            return
-        end if
-
-        action_type = selected_action%value_type()
-        if (present(data_type)) then
-            call normalize_type_name(data_type, canonical_type, stat)
-        else if (len(action_type) > 0) then
-            call normalize_type_name(action_type, canonical_type, stat)
-        else
-            canonical_type = "string"
-            stat = CONVERT_SUCCESS
-        end if
-        if (stat /= CONVERT_SUCCESS) then
-            if (present(data_type)) then
-                call self%reject(ERR_INVALID_TYPE_NAME, &
-                    "unknown argument data type", candidate_dest)
-            else
-                call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                    "the action does not provide a supported value type", candidate_dest)
-            end if
-            return
-        end if
-        if (len(action_type) > 0 .and. action_type /= canonical_type) then
-            call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                "the action requires data type " // action_type, candidate_dest)
-            return
-        end if
-
-        if (present(deprecated_msg) .and. present(removed_msg)) then
-            call self%reject(ERR_INVALID_LIFECYCLE, &
-                "deprecated and removed messages are mutually exclusive", candidate_dest)
-            return
-        end if
-
-        if (optional_names) then
-            required_value = .false.
-            if (present(required)) required_value = required
-        else
-            required_value = nargs_spec%min_count() >= 1
-            if (present(required)) then
-                if (required .and. nargs_spec%min_count() == 0) then
-                    call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                        "a zero-minimum positional cannot be required", candidate_dest)
-                    return
-                end if
-            end if
-        end if
-
-        has_choices = present(choices)
-        if (has_choices) then
-            if (nargs_spec%max_count() == 0) then
-                call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                    "a zero-value action cannot define choices", candidate_dest)
-                return
-            end if
-            call convert_value(choices, canonical_type, choice_values, stat)
-            if (stat /= CONVERT_SUCCESS) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "choices are incompatible with the declared type", candidate_dest)
-                return
-            end if
-        end if
-        if (present(validator) .and. nargs_spec%max_count() == 0) then
-            call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                "a zero-value action cannot define a validator", candidate_dest)
-            return
-        end if
-
-        has_default = present(default)
-        if (has_default) then
-            call convert_value(default, canonical_type, default_value, stat)
-            if (stat /= CONVERT_SUCCESS) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "default value is incompatible with the declared type", candidate_dest)
-                return
-            end if
-        else
-            call selected_action%implicit_default(default_value, has_default)
-        end if
-        if (has_default) then
-            if (.not. value_matches_type(default_value, canonical_type)) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "default value has the wrong declared type", candidate_dest)
-                return
-            end if
-            if (value_is_list(default_value) .neqv. &
-                selected_action%produces_list(nargs_spec)) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "default value has the wrong scalar/list shape", candidate_dest)
+        if (group_index > 0) then
+            if (.not. self%groups(group_index)%item%accepts_member( &
+                candidate%required, candidate%is_positional(), &
+                candidate%nargs%min_count(), message)) then
+                call self%reject(ERR_INVALID_GROUP, message, candidate%dest, &
+                    join_names(names))
                 return
             end if
         end if
 
-        has_const = .false.
-        select type (concrete_action => selected_action)
-        type is (StoreConstAction)
-            const_value = concrete_action%constant%clone()
-            has_const = .true.
-            if (const_value%type_name() /= canonical_type) then
-                call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                    "store_const value does not match the declared type", candidate_dest)
-                return
-            end if
-        end select
-
-        if (present(const)) then
-            if (.not. optional_names .or. nargs_spec%value() /= NARGS_OPTIONAL) then
-                call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                    "const is only valid for an option with nargs='?'", candidate_dest)
-                return
-            end if
-            call convert_value(const, canonical_type, const_value, stat)
-            if (stat /= CONVERT_SUCCESS .or. value_is_list(const_value)) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "const value is incompatible with the declared type", candidate_dest)
-                return
-            end if
-            has_const = .true.
-        else if (optional_names .and. nargs_spec%value() == NARGS_OPTIONAL) then
-            call self%reject(ERR_INCOMPATIBLE_ACTION, &
-                "nargs='?' requires a const value", candidate_dest)
-            return
-        end if
-
-        if (has_default .and. has_choices) then
-            if (.not. value_in_choices(default_value, choice_values)) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "default value is not one of the allowed choices", candidate_dest)
-                return
-            end if
-        end if
-        if (has_const .and. has_choices) then
-            if (.not. value_in_choices(const_value, choice_values)) then
-                call self%reject(ERR_INVALID_DEFAULT, &
-                    "const value is not one of the allowed choices", candidate_dest)
-                return
-            end if
-        end if
-        if (present(validator)) then
-            if (has_default) then
-                call validate_value(validator, default_value, valid, validation_message)
-                if (.not. valid) then
-                    call self%reject(ERR_INVALID_DEFAULT, &
-                        default_validation_message(validation_message), candidate_dest)
-                    return
-                end if
-            end if
-            if (has_const) then
-                call validate_value(validator, const_value, valid, validation_message)
-                if (.not. valid) then
-                    call self%reject(ERR_INVALID_DEFAULT, &
-                        const_validation_message(validation_message), candidate_dest)
-                    return
-                end if
-            end if
-        end if
-
-        call candidate%init(names, nargs_spec, canonical_type, selected_action, &
-            dest=candidate_dest, default_value=default_value, &
-            const_value=const_value, choices=choice_values, &
-            has_default=has_default, has_const=has_const, &
-            has_choices=has_choices, validator=validator, required=required_value, &
-            help=help, metavar=metavar, visible=visible, &
-            deprecated_msg=deprecated_msg, removed_msg=removed_msg, &
-            print_default=print_default, print_choices=print_choices)
         call self%append_argument(candidate)
         if (group_index > 0) then
             call self%groups(group_index)%item%append_member( &
@@ -675,8 +474,14 @@ contains
             if (allocated(self%arguments(index)%dest)) then
                 model%arguments(index)%dest = self%arguments(index)%dest
             end if
-            model%arguments(index)%metavar = &
-                self%arguments(index)%effective_metavar()
+            if (self%arguments(index)%has_choices .and. &
+                .not. allocated(self%arguments(index)%metavar)) then
+                model%arguments(index)%metavar = &
+                    choices_metavar(self%arguments(index)%choices)
+            else
+                model%arguments(index)%metavar = &
+                    self%arguments(index)%effective_metavar()
+            end if
             if (allocated(self%arguments(index)%help)) then
                 model%arguments(index)%help = self%arguments(index)%help
             end if
@@ -704,6 +509,8 @@ contains
             model%arguments(index)%visible = self%arguments(index)%visible
             model%arguments(index)%has_default = &
                 self%arguments(index)%has_default
+            model%arguments(index)%implicit_default = &
+                self%arguments(index)%default_is_implicit
             model%arguments(index)%has_choices = &
                 self%arguments(index)%has_choices
             model%arguments(index)%print_default = &
@@ -807,7 +614,7 @@ contains
         if (allocated(self%subparser_names)) then
             command_names = self%subparser_names
         else
-            allocate(character(len=1) :: command_names(0))
+            command_names = [character(len=1) ::]
         end if
 
         if (allocated(self%version)) then
@@ -837,6 +644,8 @@ contains
         child_result = self%subparsers(child_index)%parse_tokens( &
             tokens(next_token_index:))
         call parsed%namespace%merge(child_result%namespace)
+        ! The child saw a slice of the line; report absolute token positions.
+        call child_result%errors%offset_token_indices(next_token_index - 1)
         call parsed%errors%merge(child_result%errors)
         parsed%outcome = child_result%outcome
         call extend_command_path(parsed%selected_command_path, &
@@ -872,13 +681,15 @@ contains
         type(Namespace) :: args
         type(ParseResult) :: parsed
 
+        if (.not. self%is_valid()) call self%abort_invalid_definition()
         parsed = self%try_parse_args()
+
+        ! Normal termination with an explicit status keeps compiler runtimes
+        ! from reporting a user's command-line mistake as a program crash.
         select case (parsed%outcome)
         case (PARSE_SUCCESS)
             args = parsed%namespace
-            if (parsed%errors%has_warnings()) then
-                call parsed%errors%print_all(error_unit)
-            end if
+            call self%print_diagnostics(parsed, error_unit)
         case (PARSE_HELP, PARSE_VERSION)
             if (allocated(parsed%text)) write(output_unit, '(a)') parsed%text
             flush(output_unit)
@@ -889,15 +700,138 @@ contains
             else
                 write(error_unit, '(a)') self%format_usage()
             end if
-            call parsed%errors%print_all(error_unit)
+            call self%print_diagnostics(parsed, error_unit)
             flush(error_unit)
-            error stop 2, quiet=.true.
+            stop 2, quiet=.true.
         case default
             write(error_unit, '(a)') "fclap: invalid parse outcome"
             flush(error_unit)
-            error stop 2, quiet=.true.
+            stop 2, quiet=.true.
         end select
     end function parser_parse_args
+
+    !> Report a user-level error after parsing and exit with status 2.
+    !>
+    !> Use this for checks argparse-style programs make themselves, such as
+    !> "input file does not exist", so they look like every other usage error.
+    subroutine parser_error(self, message)
+        class(ArgumentParser), intent(in) :: self
+        character(len=*), intent(in) :: message
+
+        write(error_unit, '(a)') self%format_usage()
+        write(error_unit, '(a)') self%program_name() // ": error: " // &
+            trim(message)
+        flush(error_unit)
+        stop 2, quiet=.true.
+    end subroutine parser_error
+
+    !> Stop for a broken parser definition. This is a programming error, so
+    !> it is reported distinctly from user errors with status 70 (EX_SOFTWARE).
+    subroutine parser_abort_invalid_definition(self)
+        class(ArgumentParser), intent(in) :: self
+        integer :: index
+
+        do index = 1, self%config_errors%count()
+            write(error_unit, '(a)') &
+                self%format_diagnostic(self%config_errors%get(index))
+        end do
+        flush(error_unit)
+        stop 70, quiet=.true.
+    end subroutine parser_abort_invalid_definition
+
+    function parser_program_name(self) result(prog)
+        class(ArgumentParser), intent(in) :: self
+        character(len=:), allocatable :: prog
+
+        if (allocated(self%prog)) then
+            prog = self%prog
+        else
+            prog = "program"
+        end if
+    end function parser_program_name
+
+    !> Format one diagnostic in argparse style for command-line users.
+    !>
+    !> Structured errors name destinations; this maps them back to the option
+    !> spellings a user typed, e.g. `prog: error: argument -j/--threads: ...`.
+    function parser_format_diagnostic(self, entry) result(text)
+        class(ArgumentParser), intent(in) :: self
+        type(ErrorEntry), intent(in) :: entry
+        character(len=:), allocatable :: text
+        character(len=:), allocatable :: label, message, severity, prog
+
+        if (entry%severity == ERROR_WARNING) then
+            severity = "warning"
+        else
+            severity = "error"
+        end if
+        prog = self%program_name()
+        message = ""
+        if (allocated(entry%message)) message = trim(entry%message)
+
+        ! Configuration codes describe the parser definition, not the input.
+        if (entry%code >= 1000 .and. entry%code < 2000) then
+            label = ""
+            if (allocated(entry%token)) then
+                label = trim(entry%token)
+            else if (allocated(entry%arg_name)) then
+                label = trim(entry%arg_name)
+            end if
+            if (len(label) > 0) message = "argument " // label // ": " // message
+            text = prog // ": invalid parser definition: " // message
+            return
+        end if
+
+        select case (entry%code)
+        case (ERR_UNKNOWN_ARGUMENT, ERR_EXTRA_POSITIONAL, ERR_UNKNOWN_SUBCOMMAND)
+            if (allocated(entry%token)) &
+                message = message // " '" // trim(entry%token) // "'"
+        case (ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, ERR_MISSING_SUBCOMMAND)
+            continue
+        case default
+            label = ""
+            if (allocated(entry%arg_name)) &
+                label = self%display_label(entry%arg_name)
+            if (len(label) > 0) message = "argument " // label // ": " // message
+            select case (entry%code)
+            case (ERR_INVALID_VALUE, ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED)
+                if (allocated(entry%token)) &
+                    message = message // " (got '" // trim(entry%token) // "')"
+            end select
+        end select
+        text = prog // ": " // severity // ": " // message
+    end function parser_format_diagnostic
+
+    !> Write every diagnostic of a parse result in command-line form.
+    subroutine parser_print_diagnostics(self, parsed, unit)
+        class(ArgumentParser), intent(in) :: self
+        type(ParseResult), intent(in) :: parsed
+        integer, intent(in) :: unit
+        integer :: index
+
+        do index = 1, parsed%errors%count()
+            write(unit, '(a)') self%format_diagnostic(parsed%errors%get(index))
+        end do
+    end subroutine parser_print_diagnostics
+
+    !> Map a destination to the spelling shown to users, searching children.
+    recursive function parser_display_label(self, dest) result(label)
+        class(ArgumentParser), intent(in) :: self
+        character(len=*), intent(in) :: dest
+        character(len=:), allocatable :: label
+        integer :: index
+
+        label = ""
+        do index = 1, self%argument_count()
+            if (self%arguments(index)%dest /= trim(dest)) cycle
+            label = self%arguments(index)%display_label()
+            return
+        end do
+        do index = 1, self%subparser_count()
+            label = self%subparsers(index)%display_label(dest)
+            if (len(label) > 0) return
+        end do
+    end function parser_display_label
 
     subroutine parser_append_argument(self, definition)
         class(ArgumentParser), intent(inout) :: self
@@ -983,10 +917,11 @@ contains
         integer :: argument_index, group_index, member_index, old_index
 
         call self%config_errors%merge(parent%config_errors)
+        if (.not. allocated(self%arguments)) allocate(self%arguments(0))
         allocate(index_map(parent%argument_count()), source=0)
         do argument_index = 1, parent%argument_count()
             if (is_special_argument(parent%arguments(argument_index))) cycle
-            if (any_registered_name(self, &
+            if (any_registered_name(self%arguments, &
                 parent%arguments(argument_index)%names)) then
                 call self%reject(ERR_DUPLICATE_OPTION, &
                     "a parent option or positional name is already registered", &
@@ -1086,12 +1021,16 @@ contains
         end do
     end subroutine parser_rebase_program
 
-    subroutine parser_reject(self, code, message, arg_name)
+    !> Record a configuration error. `spelling` names the definition as the
+    !> programmer wrote it (e.g. `-j/--threads`) and is stored as the token.
+    subroutine parser_reject(self, code, message, arg_name, spelling)
         class(ArgumentParser), intent(inout) :: self
         integer, intent(in) :: code
         character(len=*), intent(in) :: message, arg_name
+        character(len=*), intent(in), optional :: spelling
 
-        call self%config_errors%add(message, code=code, arg_name=arg_name)
+        call self%config_errors%add(message, code=code, arg_name=arg_name, &
+            token=spelling)
     end subroutine parser_reject
 
     subroutine parser_clear(self)
@@ -1103,7 +1042,10 @@ contains
         if (allocated(self%epilog)) deallocate(self%epilog)
         if (allocated(self%version)) deallocate(self%version)
         if (allocated(self%formatter)) deallocate(self%formatter)
+        ! Keep an allocated (possibly empty) array so it can always be passed
+        ! to procedures expecting the existing definitions.
         if (allocated(self%arguments)) deallocate(self%arguments)
+        allocate(self%arguments(0))
         if (allocated(self%groups)) deallocate(self%groups)
         if (allocated(self%subparser_dest)) deallocate(self%subparser_dest)
         if (allocated(self%subparser_title)) deallocate(self%subparser_title)
@@ -1117,173 +1059,6 @@ contains
         self%group_owner = 0
         call self%config_errors%clear()
     end subroutine parser_clear
-
-    logical function any_registered_name(self, names) result(found)
-        class(ArgumentParser), intent(in) :: self
-        character(len=*), intent(in) :: names(:)
-        integer :: index
-
-        found = .false.
-        do index = 1, size(names)
-            if (self%has_option(names(index))) then
-                found = .true.
-                return
-            end if
-        end do
-    end function any_registered_name
-
-    logical function positional_layout_is_valid(self, optional_names, nargs) &
-        result(valid)
-        class(ArgumentParser), intent(in) :: self
-        logical, intent(in) :: optional_names
-        type(NargsSpec), intent(in) :: nargs
-        integer :: index
-
-        valid = .true.
-        if (optional_names) return
-        do index = 1, self%argument_count()
-            if (.not. self%arguments(index)%is_positional()) cycle
-            if (self%arguments(index)%nargs_value() == NARGS_REMAINDER) then
-                valid = .false.
-                return
-            end if
-            if (nargs%is_variable() .and. self%arguments(index)%nargs%is_variable()) then
-                valid = .false.
-                return
-            end if
-        end do
-    end function positional_layout_is_valid
-
-    subroutine validate_value(validator, value, valid, message)
-        class(ValidatorType), intent(in) :: validator
-        type(ValueBox), intent(in) :: value
-        logical, intent(out) :: valid
-        character(len=:), allocatable, intent(out) :: message
-        integer :: index
-
-        select type (list => value%item)
-        type is (ListValue)
-            valid = .true.
-            message = ""
-            do index = 1, list%size()
-                call validator%validate(list%items(index), valid, message)
-                if (.not. valid) return
-            end do
-        class default
-            call validator%validate(value, valid, message)
-        end select
-    end subroutine validate_value
-
-    function default_validation_message(detail) result(message)
-        character(len=*), intent(in) :: detail
-        character(len=:), allocatable :: message
-
-        message = "default value failed validation"
-        if (len_trim(detail) > 0) message = message // ": " // trim(detail)
-    end function default_validation_message
-
-    function const_validation_message(detail) result(message)
-        character(len=*), intent(in) :: detail
-        character(len=:), allocatable :: message
-
-        message = "const value failed validation"
-        if (len_trim(detail) > 0) message = message // ": " // trim(detail)
-    end function const_validation_message
-
-    subroutine collect_names(name1, name2, name3, name4, names)
-        character(len=*), intent(in) :: name1
-        character(len=*), intent(in), optional :: name2, name3, name4
-        character(len=:), allocatable, intent(out) :: names(:)
-        integer :: number, max_length
-
-        number = 1
-        max_length = len_trim(name1)
-        if (present(name2)) then
-            number = number + 1
-            max_length = max(max_length, len_trim(name2))
-        end if
-        if (present(name3)) then
-            number = number + 1
-            max_length = max(max_length, len_trim(name3))
-        end if
-        if (present(name4)) then
-            number = number + 1
-            max_length = max(max_length, len_trim(name4))
-        end if
-
-        allocate(character(len=max_length) :: names(number))
-        names(1) = trim(name1)
-        number = 1
-        if (present(name2)) then
-            number = number + 1
-            names(number) = trim(name2)
-        end if
-        if (present(name3)) then
-            number = number + 1
-            names(number) = trim(name3)
-        end if
-        if (present(name4)) then
-            number = number + 1
-            names(number) = trim(name4)
-        end if
-    end subroutine collect_names
-
-    logical function validate_names(names, optional_names, message) result(valid)
-        character(len=*), intent(in) :: names(:)
-        logical, intent(out) :: optional_names
-        character(len=:), allocatable, intent(out) :: message
-        logical :: current_optional
-        integer :: index
-
-        valid = .false.
-        message = ""
-        optional_names = .false.
-        if (size(names) == 0) then
-            message = "at least one argument name is required"
-            return
-        end if
-        if (len_trim(names(1)) == 0) then
-            message = "argument names must not be empty"
-            return
-        end if
-        optional_names = names(1)(1:1) == '-'
-        if (.not. optional_names .and. size(names) /= 1) then
-            message = "a positional argument must have exactly one name"
-            return
-        end if
-
-        do index = 1, size(names)
-            if (len_trim(names(index)) == 0) then
-                message = "argument names must not be empty"
-                return
-            end if
-            if (trim(names(index)) == "-" .or. trim(names(index)) == "--") then
-                message = "'-' and '--' are reserved tokens"
-                return
-            end if
-            current_optional = names(index)(1:1) == '-'
-            if (current_optional .neqv. optional_names) then
-                message = "positional and optional names cannot be mixed"
-                return
-            end if
-        end do
-        valid = .true.
-    end function validate_names
-
-    pure logical function has_duplicate_name(names) result(duplicate)
-        character(len=*), intent(in) :: names(:)
-        integer :: left, right
-
-        duplicate = .false.
-        do left = 1, size(names) - 1
-            do right = left + 1, size(names)
-                if (trim(names(left)) == trim(names(right))) then
-                    duplicate = .true.
-                    return
-                end if
-            end do
-        end do
-    end function has_duplicate_name
 
     logical function valid_subcommand_name(name) result(valid)
         character(len=*), intent(in) :: name
@@ -1333,6 +1108,41 @@ contains
         combined(path_size + 1:) = suffix
         call move_alloc(combined, path)
     end subroutine extend_command_path
+
+    !> Show choices as the metavar, as argparse does: `{fast,slow}`.
+    function choices_metavar(choices) result(metavar)
+        type(ValueBox), intent(in) :: choices
+        character(len=:), allocatable :: metavar
+        integer :: index
+
+        metavar = "{"
+        select type (list => choices%item)
+        type is (ListValue)
+            do index = 1, list%size()
+                if (index > 1) metavar = metavar // ","
+                select type (item => list%items(index)%item)
+                type is (StringValue)
+                    metavar = metavar // item%value
+                class default
+                    metavar = metavar // list%items(index)%to_string()
+                end select
+            end do
+        end select
+        metavar = metavar // "}"
+    end function choices_metavar
+
+    !> Spell a definition's names the way diagnostics show them: `-j/--threads`.
+    function join_names(names) result(text)
+        character(len=*), intent(in) :: names(:)
+        character(len=:), allocatable :: text
+        integer :: index
+
+        text = ""
+        do index = 1, size(names)
+            if (index > 1) text = text // "/"
+            text = text // trim(names(index))
+        end do
+    end function join_names
 
     function get_prog_name() result(prog_name)
         character(len=:), allocatable :: prog_name

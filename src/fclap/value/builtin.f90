@@ -1,6 +1,6 @@
 !> Built-in scalar and list value implementations.
 module fclap_value_builtin
-    use fclap_utils_accuracy, only : ip, wp
+    use fclap_utils_accuracy, only : i8, ip, wp
     use fclap_value_abstract, only : ValueType, ValueBox
     implicit none
     private
@@ -20,8 +20,9 @@ module fclap_value_builtin
         procedure :: type_name => string_value_type_name
     end type StringValue
 
+    !> Integer value, stored at 64-bit range for every public integer kind
     type, extends(ValueType) :: IntegerValue
-        integer(ip) :: value = 0_ip
+        integer(i8) :: value = 0_i8
     contains
         procedure :: clone     => integer_value_clone
         procedure :: to_string => integer_value_to_string
@@ -61,10 +62,12 @@ module fclap_value_builtin
     interface new_value
         module procedure :: new_string_value
         module procedure :: new_integer_value
+        module procedure :: new_integer_i8_value
         module procedure :: new_real_value
         module procedure :: new_logical_value
         module procedure :: new_string_list_value
         module procedure :: new_integer_list_value
+        module procedure :: new_integer_i8_list_value
         module procedure :: new_real_list_value
         module procedure :: new_logical_list_value
     end interface new_value
@@ -126,13 +129,28 @@ contains
         allocate(cloned, source=self)
     end function real_value_clone
 
+    !> Shortest decimal text that reads back to the same value.
+    !>
+    !> Help and diagnostics then show `0.1` rather than `0.10000000000000001`
+    !> and `1.0` rather than `1.0000000000000000`.
     function real_value_to_string(self) result(text)
         class(RealValue), intent(in) :: self
         character(len=:), allocatable :: text
-        character(len=128) :: buffer
+        character(len=64) :: buffer
+        character(len=16) :: edit
+        real(wp) :: back
+        integer :: digits, io_status, position
 
-        write(buffer, '(g0)') self%value
-        text = trim(buffer)
+        do digits = 1, precision(self%value) + 2
+            write(edit, '(a,i0,a)') '(g0.', digits, ')'
+            write(buffer, edit) self%value
+            read(buffer, *, iostat=io_status) back
+            if (io_status == 0 .and. back == self%value) exit
+        end do
+        text = trim(adjustl(buffer))
+        position = scan(text, "E")
+        if (position > 0) text(position:position) = "e"
+        if (text(len(text):len(text)) == ".") text = text // "0"
     end function real_value_to_string
 
     function real_value_type_name(self) result(name)
@@ -258,11 +276,18 @@ contains
     function new_integer_value(value) result(box)
         integer(ip), intent(in) :: value
         type(ValueBox) :: box
+
+        box = new_integer_i8_value(int(value, kind=i8))
+    end function new_integer_value
+
+    function new_integer_i8_value(value) result(box)
+        integer(i8), intent(in) :: value
+        type(ValueBox) :: box
         type(IntegerValue) :: concrete
 
         concrete%value = value
         call box%set(concrete)
-    end function new_integer_value
+    end function new_integer_i8_value
 
     function new_real_value(value) result(box)
         real(wp), intent(in) :: value
@@ -298,17 +323,24 @@ contains
 
     function new_integer_list_value(values) result(box)
         integer(ip), intent(in) :: values(:)
+        type(ValueBox) :: box
+
+        box = new_integer_i8_list_value(int(values, kind=i8))
+    end function new_integer_list_value
+
+    function new_integer_i8_list_value(values) result(box)
+        integer(i8), intent(in) :: values(:)
         type(ValueBox) :: box, item
         type(ListValue) :: list
         integer :: index
 
         list%element_type = "integer"
         do index = 1, size(values)
-            item = new_integer_value(values(index))
+            item = new_integer_i8_value(values(index))
             call list%append(item)
         end do
         call box%set(list)
-    end function new_integer_list_value
+    end function new_integer_i8_list_value
 
     function new_real_list_value(values) result(box)
         real(wp), intent(in) :: values(:)

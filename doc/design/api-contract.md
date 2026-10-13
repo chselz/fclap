@@ -1,21 +1,20 @@
-# Phase 0 public API and behavior contract
+# Public API and behavior contract
 
 ## Status of this contract
 
-This document freezes the initial public vocabulary and observable behavior of
-the modular rewrite. Procedure implementation details may change, but changes
-to the names or semantics recorded here require an explicit design update and
-corresponding test changes.
+This document records the public vocabulary and observable behavior of fclap.
+Procedure implementation details may change, but changes to the names or
+semantics recorded here require an explicit design update and corresponding
+test changes.
 
-The initial contract covers ordinary and mutually exclusive argument groups.
-Phase 7 extends the frozen surface with parent parsers, owned subparsers, and
-recursive command dispatch as specified below.
+The contract covers argument registration, ordinary and mutually exclusive
+groups, parent parsers, owned subparsers, and recursive command dispatch.
 
 ## Public module
 
 Normal applications import from `fclap` rather than internal modules.
 
-The initial facade exports:
+The facade exports:
 
 - `ArgumentParser`
 - `Argument`
@@ -27,11 +26,13 @@ The initial facade exports:
 - `ActionType`
 - `ValidatorType`
 - `FormatterType`
-- Built-in action factories.
-- Built-in validator factories.
+- Built-in action factories and their concrete types (`StoreAction`,
+  `StoreConstAction`, `StoreTrueAction`, `StoreFalseAction`,
+  `BooleanOptionalAction`, `AppendAction`, `CountAction`).
+- Built-in validator factories and their concrete types
+  (`LowerBoundValidator`, `UpperBoundValidator`, `RangeValidator`).
 - Parse outcome, nargs, error, and severity constants.
 - Help-model and concrete value types required by extension interfaces.
-- The public storage kinds `ip` and `wp`.
 - `get_fclap_version`, `fclap_version_string`, and
   `fclap_version_compact`.
 
@@ -160,6 +161,7 @@ removed_msg                   optional character
 print_default                 optional logical
 print_choices                 optional logical
 group                         optional GroupHandle
+case_insensitive_choices      optional logical
 ```
 
 The integer- and character-`nargs` forms are facade overloads that immediately
@@ -170,7 +172,7 @@ action's default arity.
 objects. The parser owns polymorphic clones created with `allocate(...,
 source=...)`; it never retains pointers to caller-owned factory results.
 
-Only one explicit validator is accepted initially. Choices are an independent
+Only one explicit validator is accepted per argument. Choices are an independent
 built-in constraint. Multiple general validators will later use a composite
 validator factory so callers do not need to construct heterogeneous arrays.
 
@@ -200,8 +202,8 @@ Accepted type names are:
 | Canonical | Accepted aliases | Initial storage |
 |---|---|---|
 | `string` | `character`, `char` | Deferred-length character value |
-| `integer` | `int` | `integer(ip)` |
-| `real` | `float`, `double` | `real(wp)` |
+| `integer` | `int` | `integer(int64)` range; read as default `integer` or `int64` |
+| `real` | `float`, `double` | `real(real64)`; read as `real64` or `real32` |
 | `logical` | `bool`, `boolean` | Default logical |
 
 Type names are case-insensitive and normalized at registration. An unknown type
@@ -211,13 +213,15 @@ Logical value tokens are case-insensitive. The accepted true spellings are
 `true`, `t`, `1`, `yes`, and `on`; false spellings are `false`, `f`, `0`, `no`,
 and `off`. The formatter emits `.true.` and `.false.` for logical values.
 
-Additional integer and real kinds are deferred. The design must not prevent
-adding kind-specific converters and value types later.
+Integers are stored with `int64` range and reals as `real64`. Generic
+interfaces accept 32-bit and 64-bit integers and `real32`/`real64` reals, so
+default `integer` literals and a project's own double-precision kind need no
+fclap kind parameter. Narrowing on retrieval is range-checked.
 
 ### Defaults and constants
 
 - A non-character default must have the declared intrinsic type category.
-  Supported integer or real kinds are converted to the initial storage kind
+  Supported integer or real kinds are converted to the storage kind (`int64` or `real64`)
   with range checking. There is no implicit integer-to-real,
   real-to-integer, logical-to-numeric, or numeric-to-logical conversion.
 - A character default may be parsed using the declared type as a convenience.
@@ -226,14 +230,14 @@ adding kind-specific converters and value types later.
 - An invalid default rejects the entire argument definition.
 - A default inserted into a namespace is not marked explicitly seen.
 - An absent optional argument without a default has no namespace entry.
-- `store_true`, `store_false`, and `count` provide implicit defaults of false,
-  true, and zero respectively, unless an explicit compatible default is given.
+- `store_true`, `boolean_optional`, `store_false`, and `count` provide
+  implicit defaults of false, false, true, and zero respectively, unless an
+  explicit compatible default is given.
 - `const` is required for an optional value-taking argument using `nargs="?"`.
   It is used when the option is present without a value.
 
-`default` and `const` list support is restricted to types supported by the
-initial `Namespace`. Exact accepted list forms are fixed while implementing the
-value layer and must be tested before being documented as public examples.
+A `default` may be a rank-one character, integer, real, or logical array for
+list-producing arguments; `const` is always a scalar.
 
 ### Required state
 
@@ -275,7 +279,7 @@ value layer and must be tested before being documented as public examples.
   multi-value occurrence.
 - A remainder consumer must be the last positional argument.
 - Ambiguous combinations of multiple variable positional consumers are
-  registration errors in the initial implementation.
+  registration errors.
 
 ## Built-in actions
 
@@ -286,6 +290,7 @@ store()
 store_const(value)
 store_true()
 store_false()
+boolean_optional()
 append()
 count()
 ```
@@ -300,7 +305,11 @@ Action behavior is:
 - `StoreConstAction`: store its typed constant and consume no values.
 - `StoreTrueAction`: store true and consume no values.
 - `StoreFalseAction`: store false and consume no values.
-- `AppendAction`: append converted values in encounter order.
+- `BooleanOptionalAction`: register `--no-name` beside every long `--name`;
+  store true for the positive spelling and false for the negated one, consume
+  no values, and let the last occurrence win.
+- `AppendAction`: append converted values in encounter order; the first
+  explicit occurrence replaces a `default=` list.
 - `CountAction`: increment the current integer count and consume no values.
 - `HelpAction`: request help and stop further token processing without error.
 - `VersionAction`: request version output and stop further token processing
@@ -310,24 +319,38 @@ The abstract action contract consists of:
 
 1. An `apply` deferred binding receiving destination, converted values,
    namespace, action outcome, and error stack.
-2. An overridable query for default `nargs`.
-3. An overridable query validating explicit `nargs` compatibility.
+2. Overridable queries for the default `nargs` (`default_nargs`), explicit
+   `nargs` compatibility (`accepts_nargs`), list results (`produces_list`),
+   the stored value type (`value_type`), and an implicit default
+   (`implicit_default`).
 
 Actions do not convert raw text, enforce choices, own argument names, format
 help, print, or terminate the process.
 
 ## Built-in validators
 
-The initial factories are generic over supported integer and real types:
+The factories are generic over supported integer and real types, and all
+bounds are inclusive:
 
 ```fortran
 not_less_than(lower_bound)
 not_bigger_than(upper_bound)
+in_range(lower_bound, upper_bound)
 ```
+
+A bound whose type does not match the argument's `data_type`, or an
+`in_range` whose lower bound exceeds its upper bound, is rejected at
+registration with `ERR_INCOMPATIBLE_VALIDATOR`.
 
 Choices are represented internally by a validator but remain a dedicated
 `choices=` registration keyword because that interface is concise and their
 values must also be available to formatters.
+
+String choices compare exactly unless `case_insensitive_choices=.true.`. Then
+ASCII letter case is ignored and an accepted value, default, or const is
+stored with the declared choice's spelling. The option requires string
+choices (`ERR_INCOMPATIBLE_ACTION` otherwise), and choices that differ only by
+case are rejected with `ERR_INVALID_DEFAULT`.
 
 Validators receive converted values. A multi-value argument applies its normal
 per-value validators to every value and reports the failing value and argument
@@ -360,7 +383,9 @@ different parser.
 - An optional mutex group permits zero or one explicitly seen members.
 - A required mutex group requires exactly one explicitly seen member.
 - Namespace defaults do not count as seen.
-- One argument belongs to at most one help group in the initial design.
+- Mutex members must be omissible. A `required=.true.` option or a positional
+  needing at least one value is rejected with `ERR_INVALID_GROUP`.
+- One argument belongs to at most one help group.
 - A mutex group may optionally be associated with one help group when group
   nesting is implemented; it is otherwise displayed in the standard options
   section.
@@ -498,9 +523,17 @@ This delegates to `try_parse_args` and applies only the outer process policy:
   zero.
 - Version requested writes the version text to `output_unit` and exits with
   status zero.
+- An invalid parser definition writes `prog: invalid parser definition: ...`
+  lines to `error_unit` and exits with status 70, before reading any input.
+- `ArgumentParser%error(message)` writes usage and `prog: error: message` to
+  `error_unit` and exits with status two, for checks the program makes after
+  parsing.
 - Failure writes concise usage and formatted fatal errors to `error_unit` and
-  exits with status two.
+  exits with status two through normal termination, so no runtime backtrace
+  is printed.
 - Warnings are written to `error_unit` but do not change a successful result.
+- Diagnostics use the argparse form `prog: error: argument -j/--threads:
+  message`, produced by `ArgumentParser%format_diagnostic`.
 
 The exact Fortran mechanism used to provide a quiet portable exit status is an
 implementation detail. The observable status and selected output unit are part
@@ -542,24 +575,48 @@ PARSE_VERSION
 - A `ParseResult` is self-contained; a later parse does not modify it.
 - `selected_command_path` is unallocated when no command was selected and is a
   root-to-leaf array for recursive command dispatch.
+- As in argparse, an exact `-h`/`--help` or `--version` later on the command
+  line (before `--`) wins over an unknown-option or extra-positional failure:
+  the outcome is `PARSE_HELP` or `PARSE_VERSION` and only warnings are kept.
+  Conversion and validation failures still win.
 
 ## Token grammar and edge cases
 
 ### Option recognition
 
-- Matching is exact and case-sensitive.
+- Matching is case-sensitive. An exact registered spelling always wins,
+  including multi-letter single-dash options such as `-np`.
 - Long-option abbreviation is not supported.
-- `--option=value`, combined short options, and attached short-option values are
-  deferred.
+- `--name=value` and `-n=value` split at the first `=` when the text before it
+  is a registered option. The attached text is the only value of that
+  occurrence, so it may begin with `-`. Flags reject an attached value with
+  `ERR_UNEXPECTED_VALUE`; options needing more than one value report
+  `ERR_MISSING_VALUE`.
+- `-nVALUE` attaches the rest of the token to a one-letter option that takes
+  values.
+- A token whose first letter is a one-letter flag is a cluster such as `-vvn`.
+  Every letter must be a registered one-letter option; the first one that
+  takes values ends the cluster and receives the remaining text, or the
+  following tokens when nothing remains.
+- A lone `-` is an ordinary value, conventionally standard input or output.
 - Options may appear before, between, or after fixed positionals until `--` is
   encountered.
-- A known option token terminates variable value consumption unless remainder
-  mode is active.
+- A known option token, in any of the spellings above, terminates variable
+  value consumption unless remainder mode is active.
 - An unknown token beginning with `-` is an unknown-option error, except when a
   numeric value is currently expected and the token converts successfully.
-- Consequently, initial optional string values beginning with `-` are not
-  supported until `--option=value` is implemented. Such strings can still be
-  supplied as positionals after `--`.
+- String values beginning with `-` are supplied with the attached form
+  (`--pattern=-x`) or as positionals after `--`.
+
+### Numeric tokens
+
+- Integers are an optional sign followed by decimal digits and are stored with
+  64-bit range; out-of-range text is `ERR_INVALID_VALUE`.
+- Reals are decimal literals with an optional `e`, `E`, `d`, or `D` exponent,
+  or the case-insensitive `inf`, `infinity`, and `nan`, each with an optional
+  sign.
+- Surrounding blanks are ignored. Any other text, including Fortran
+  list-directed forms such as `2*7`, `4,5`, `5/`, or a lone `,`, is rejected.
 
 ### End-of-options marker
 
@@ -581,7 +638,10 @@ remainder mode consumes all text verbatim after its own activation point.
 ### Repeated options
 
 - Store replaces the previous occurrence.
-- Append accumulates.
+- Append accumulates. The first explicit occurrence replaces a `default=`
+  list (a deliberate difference from argparse, which extends it).
+- `boolean_optional` stores true for `--name` and false for the generated
+  `--no-name`; the last occurrence wins.
 - Count increments.
 - Store-true, store-false, and store-const are idempotent except for their final
   stored value.
@@ -609,25 +669,31 @@ Primary operations are:
 logical = args%contains("threads")
 call args%get("threads", threads, stat)
 call args%get("files", files, stat)
+n = args%size()
+call args%remove("threads")
+call args%clear()
 ```
 
 `get` is a generic subroutine selected by the output argument's intrinsic type,
-kind, and rank. `stat` is optional for concise use when the caller knows the
-parser contract, but robust applications and all failure tests provide it.
+kind, and rank. `stat` follows Fortran's `iostat` convention: when present it
+reports the outcome; when absent, any failure stops the program with a message
+naming the key, because it indicates a programming error.
 
 - `stat=FCLAP_OK` on success.
 - A missing key returns `ERR_NAMESPACE_MISSING_KEY`.
-- A type or kind mismatch returns `ERR_NAMESPACE_TYPE_MISMATCH`.
+- A type or rank mismatch returns `ERR_NAMESPACE_TYPE_MISMATCH`.
+- A value outside a narrower requested kind returns
+  `ERR_NAMESPACE_OUT_OF_RANGE`.
+- String outputs are `character(len=:), allocatable` and receive the exact
+  stored length; fixed-length character variables do not match `get`.
 - On failure, an already allocated or initialized output remains unchanged.
-- No getter performs implicit numeric or scalar/list conversion.
+- No getter performs scalar/list conversion; numeric kinds convert only within
+  range.
 - List outputs are allocatable arrays and are allocated or replaced on success.
-- Fixed-length character outputs follow normal Fortran assignment and can
-  truncate; an allocatable-character convenience getter may be added without
-  changing stored values.
-- Namespace getters do not print or terminate.
+- With `stat` present, namespace getters do not print or terminate.
 
-Internal namespace mutation bindings used by actions are not re-exported from
-the top-level `fclap` module unless required for custom action implementations.
+The mutation bindings `set`, `append`, `set_value`, `append_value`, and
+`remove` are public so that custom actions and tests can populate a namespace.
 `Namespace%merge(other, overwrite)` is public. `overwrite` defaults to true;
 false preserves values already present in the receiving namespace. Both modes
 deep-copy polymorphic stored values.
@@ -648,19 +714,19 @@ token index, when applicable
 Error codes and structured context are stable API. Full human-readable message
 text is not stable except where a formatter snapshot test explicitly owns it.
 
-Initial severity constants are:
+Severity constants are:
 
 ```text
 ERROR_FATAL
 ERROR_WARNING
 ```
 
-`ErrorStack` provides `add`, `clear`, `count`, `has_errors`,
-`has_fatal_errors`, `has_warnings`, indexed inspection, merging, and explicit
-format/print operations. `has_errors` means the stack has at least one entry of
+`ErrorStack` provides `add`, `append`, `clear`, `count`, `has_errors`,
+`has_fatal_errors`, `has_warnings`, indexed inspection, merging,
+`offset_token_indices`, and explicit format/print operations. `has_errors` means the stack has at least one entry of
 any severity; use `has_fatal_errors` to determine parse failure.
 
-### Stable initial codes
+### Stable codes
 
 | Code | Value | Meaning |
 |---|---:|---|
@@ -674,6 +740,7 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_INVALID_GROUP` | 1007 | Invalid group handle or membership. |
 | `ERR_INVALID_TYPE_NAME` | 1008 | Unknown data type name. |
 | `ERR_INVALID_LIFECYCLE` | 1009 | Conflicting deprecation/removal configuration. |
+| `ERR_INCOMPATIBLE_VALIDATOR` | 1010 | Validator cannot check the argument type, or has an empty range. |
 | `ERR_UNKNOWN_ARGUMENT` | 2001 | Unknown option token. |
 | `ERR_MISSING_VALUE` | 2002 | An argument did not receive its minimum values. |
 | `ERR_EXTRA_POSITIONAL` | 2003 | Positional capacity was exceeded. |
@@ -685,14 +752,15 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_MUTEX_REQUIRED` | 2009 | No member of a required mutex group was supplied. |
 | `ERR_REMOVED_ARGUMENT` | 2010 | A removed argument was used. |
 | `ERR_DEPRECATED_ARGUMENT` | 2011 | Warning that a deprecated argument was used. |
+| `ERR_UNEXPECTED_VALUE` | 2012 | An attached value was given to an option that takes none. |
 | `ERR_UNKNOWN_SUBCOMMAND` | 2101 | Unknown subcommand at the current parser level. |
 | `ERR_MISSING_SUBCOMMAND` | 2102 | Required subcommand missing at the current parser level. |
 | `ERR_NAMESPACE_MISSING_KEY` | 3001 | Namespace key not present. |
 | `ERR_NAMESPACE_TYPE_MISMATCH` | 3002 | Requested type, kind, or rank does not match. |
+| `ERR_NAMESPACE_OUT_OF_RANGE` | 3004 | Stored value does not fit the requested narrower kind. |
 
 Configuration codes occupy 1000-1999, single-parser runtime codes 2000-2099,
-subparser codes 2100-2199, namespace codes 3000-3099, and internal invariant
-codes 9000-9999.
+subparser codes 2100-2199, and namespace codes 3000-3099.
 
 ## Formatting contract
 
@@ -708,9 +776,12 @@ call parser%print_help(unit)
 The optional output unit defaults to `output_unit`. Formatting functions have
 no I/O side effects.
 
-`StandardFormatter` initially guarantees:
+`StandardFormatter` guarantees:
 
-- Lowercase `usage:` prefix.
+- Lowercase `usage:` prefix; usage lists options before positionals.
+- Choices shown as the metavar (`{a,b}`) unless an explicit `metavar` is given.
+- Implicit action defaults (e.g. a flag's `.false.`) are not annotated.
+- Reals printed in their shortest round-trip form.
 - `positional arguments:` and `options:` headings.
 - Registration order within each section and group.
 - Alias spelling separated by comma and space.
@@ -724,7 +795,7 @@ no I/O side effects.
 - Subcommand choices appear as `{name,...}` in usage, bracketed when the
   collection is optional, and as rows under the configured command heading.
 
-The exact wrapping algorithm is fixed by formatter tests during Phase 5. Other
+The exact wrapping algorithm is fixed by the formatter tests. Other
 formatters do not change parsing behavior.
 
 ## Abstract extension contracts
@@ -735,12 +806,18 @@ The following types are intended extension points:
 - `ValidatorType`
 - `FormatterType`
 
-Their deferred procedure signatures become public API once implemented. Before
+Their deferred procedure signatures become public API once implemented.
+`ActionType` also offers overridable hooks with neutral defaults:
+`option_names` (add spellings at registration), `apply_option` (react to the
+matched spelling), and `replaces_default` (start empty on the first explicit
+occurrence). `ValidatorType` offers `accepts_type(type_name)`, which rejects
+argument types the validator cannot check; the default accepts every type.
+Before
 the first stable release, at least one test-only concrete extension outside the
 implementation module must compile and work for each abstract type. This proves
 that the contract does not rely on private downcasts or parser internals.
 
-`GroupType` is an internal polymorphic design initially. Public group
+`GroupType` is internal and not exported. Public group
 subclassing is deferred because externally implemented groups would need a
 stable parse-state view contract.
 
@@ -757,11 +834,9 @@ All Fortran unit and parser-semantic tests use `test-drive`.
 - Parser semantics use `parse_tokens`; actual process command-line and exit-code
   behavior is limited to small fixture executable smoke tests.
 - Formatter tests compare complete strings.
-- Every retained behavior in `docs/design/feature-matrix.md` must be mapped to at
-  least one named test before `old/` is removed.
-
-Phase 8 satisfied this gate in `docs/design/legacy-test-map.md`; the mapped
-suite passed before the legacy directory was removed.
+- Every implemented behavior in `doc/design/feature-matrix.md` is covered by
+  at least one named test; `doc/design/legacy-test-map.md` records the mapping
+  for behavior carried over from the original prototype.
 
 ## Installed package surface
 
@@ -780,10 +855,8 @@ Meson installation in CI.
 These decisions are intentionally postponed until their implementation phase:
 
 - Callback dispatch for subcommands.
-- Kind-specific integer and real type spelling.
-- Composite validator syntax.
-- `--option=value`, combined short flags, and attached short values.
+- Composite validator syntax beyond the inclusive `in_range` validator.
 - Public array-of-aliases registration.
 
-Deferring these items does not permit the initial implementation to introduce
+Deferring these items does not permit the implementation to introduce
 ownership or dependency cycles that would prevent them later.

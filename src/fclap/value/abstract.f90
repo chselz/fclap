@@ -18,7 +18,6 @@ module fclap_value_abstract
     contains
         procedure :: set          => value_box_set
         procedure :: clear        => value_box_clear
-        procedure :: is_allocated => value_box_is_allocated
         procedure :: clone        => value_box_clone
         procedure :: to_string    => value_box_to_string
         procedure :: type_name    => value_box_type_name
@@ -59,12 +58,6 @@ contains
 
         if (allocated(self%item)) deallocate(self%item)
     end subroutine value_box_clear
-
-    pure logical function value_box_is_allocated(self) result(is_allocated)
-        class(ValueBox), intent(in) :: self
-
-        is_allocated = allocated(self%item)
-    end function value_box_is_allocated
 
     function value_box_clone(self) result(cloned)
         class(ValueBox), intent(in) :: self

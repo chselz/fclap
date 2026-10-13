@@ -25,6 +25,9 @@ test_srcs = files(
   'test_formatter.f90',
   'test_groups.f90',
   'test_subparsers.f90',
+  'test_conversion.f90',
+  'test_cli_syntax.f90',
+  'test_usability.f90',
 )
 
 tester = executable(

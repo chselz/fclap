@@ -5,7 +5,7 @@ module fclap_actions_accumulate
     use fclap_error_stack, only : ErrorStack
     use fclap_namespace, only : Namespace
     use fclap_nargs, only : NargsSpec, NARGS_ZERO
-    use fclap_utils_accuracy, only : ip
+    use fclap_utils_accuracy, only : i8
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue, new_value
     implicit none
@@ -19,6 +19,7 @@ module fclap_actions_accumulate
         procedure :: apply => append_apply
         procedure :: accepts_nargs => append_accepts_nargs
         procedure :: produces_list => append_produces_list
+        procedure :: replaces_default => append_replaces_default
     end type AppendAction
 
     type, extends(ActionType) :: CountAction
@@ -74,18 +75,18 @@ contains
         type(Namespace), intent(inout) :: args
         integer, intent(out) :: outcome
         type(ErrorStack), intent(inout) :: errors
-        integer(ip) :: current
+        integer(i8) :: current
         integer :: stat
 
-        current = 0_ip
-        call args%get_integer(dest, current, stat)
+        current = 0_i8
+        call args%get_integer_i8(dest, current, stat)
         if (stat /= FCLAP_OK .and. stat /= ERR_NAMESPACE_MISSING_KEY) then
             call errors%add("count destination is not an integer", code=stat, &
                 arg_name=dest)
             outcome = ACTION_CONTINUE
             return
         end if
-        call args%set_integer(dest, current + 1_ip)
+        call args%set_integer_i8(dest, current + 1_i8)
         outcome = ACTION_CONTINUE
     end subroutine count_apply
 
@@ -103,6 +104,13 @@ contains
 
         produces_list = .true.
     end function append_produces_list
+
+    !> Explicit occurrences replace a default list instead of extending it.
+    pure logical function append_replaces_default(self) result(replaces)
+        class(AppendAction), intent(in) :: self
+
+        replaces = .true.
+    end function append_replaces_default
 
     pure integer function count_default_nargs(self) result(value)
         class(CountAction), intent(in) :: self
@@ -129,7 +137,7 @@ contains
         type(ValueBox), intent(out) :: value
         logical, intent(out) :: has_default
 
-        value = new_value(0_ip)
+        value = new_value(0_i8)
         has_default = .true.
     end subroutine count_default
 

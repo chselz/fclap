@@ -3,7 +3,7 @@ module test_subparsers
         GroupHandle, HelpModel, ParseResult, FCLAP_OK, PARSE_SUCCESS, &
         PARSE_FAILURE, PARSE_HELP, ERR_DUPLICATE_DEST, ERR_MISSING_REQUIRED, &
         ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, &
-        ERR_VALIDATION_FAILED, ip, not_less_than, store_true
+        ERR_VALIDATION_FAILED, not_less_than, store_true
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -49,7 +49,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser, run_parser
         type(ParseResult) :: result
-        character(len=32) :: value
+        character(len=:), allocatable :: value
         logical :: verbose, force
         integer :: stat
 
@@ -91,14 +91,14 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser, remote_parser, add_parser
         type(ParseResult) :: result
-        character(len=32) :: value
-        integer(ip) :: priority
+        character(len=:), allocatable :: value
+        integer :: priority
         integer :: stat
 
         call add_parser%init(add_help=.false.)
         call add_parser%add_argument("--scope", default="leaf")
         call add_parser%add_argument("--priority", data_type="integer", &
-            default=1_ip)
+            default=1)
 
         call remote_parser%init(add_help=.false.)
         call remote_parser%add_argument("--scope", default="remote")
@@ -130,7 +130,7 @@ contains
         call check(error, trim(value), "add")
         if (allocated(error)) return
         call result%namespace%get("priority", priority, stat)
-        call check(error, priority, 3_ip)
+        call check(error, priority, 3)
     end subroutine test_nested_dispatch
 
     subroutine test_unknown_subcommand(error)
@@ -150,7 +150,7 @@ contains
         entry = result%errors%get(1)
         call check(error, entry%code, ERR_UNKNOWN_SUBCOMMAND)
         if (allocated(error)) return
-        call check(error, entry%flag, "unknown")
+        call check(error, entry%token, "unknown")
         if (allocated(error)) return
         call check(error, result%namespace%contains("command"), .false.)
     end subroutine test_unknown_subcommand
@@ -206,7 +206,7 @@ contains
         type(ArgumentParser) :: parser, child
         type(ParseResult) :: result
         type(ErrorEntry) :: entry
-        character(len=32) :: value
+        character(len=:), allocatable :: value
         integer :: stat
 
         call child%init(add_help=.false.)
@@ -303,14 +303,14 @@ contains
         type(GroupHandle) :: shared
         type(ParseResult) :: result
         type(ErrorEntry) :: entry
-        integer(ip) :: level
+        integer :: level
         logical :: verbose
         integer :: stat
 
         call parent%init(add_help=.true.)
         shared = parent%add_argument_group("shared options")
         call parent%add_argument("--level", data_type="integer", &
-            default=1_ip, validator=not_less_than(1_ip), group=shared)
+            default=1, validator=not_less_than(1), group=shared)
         call parent%add_argument("--verbose", action=store_true(), group=shared)
 
         call parser%init_with_parents([parent], prog="child", add_help=.true.)
@@ -338,7 +338,7 @@ contains
         call check(error, result%outcome, PARSE_SUCCESS)
         if (allocated(error)) return
         call result%namespace%get("level", level, stat)
-        call check(error, level, 2_ip)
+        call check(error, level, 2)
         if (allocated(error)) return
         call result%namespace%get("verbose", verbose, stat)
         call check(error, verbose, .true.)

@@ -22,12 +22,44 @@ An installed CMake package provides the ``fclap::fclap`` target:
    find_package(fclap 0.1 CONFIG REQUIRED)
    target_link_libraries(my_program PRIVATE fclap::fclap)
 
+CMake projects can also build fclap from source with ``FetchContent`` or
+``add_subdirectory``. The target has the same ``fclap::fclap`` name, and
+fclap's own test suite is skipped, so test-drive is not required:
+
+.. code-block:: cmake
+
+   include(FetchContent)
+   FetchContent_Declare(
+     fclap
+     GIT_REPOSITORY https://github.com/chselz/fclap.git
+     GIT_TAG main
+   )
+   FetchContent_MakeAvailable(fclap)
+   target_link_libraries(my_program PRIVATE fclap::fclap)
+
+Set ``FCLAP_BUILD_TESTING=ON`` to build fclap's tests in that configuration.
+
 Meson installations provide ``fclap.pc``:
 
 .. code-block:: meson
 
    fclap_dep = dependency('fclap', version: '>=0.1.0')
    executable('my_program', 'main.f90', dependencies: fclap_dep)
+
+To build fclap as a Meson subproject instead, add
+``subprojects/fclap.wrap``:
+
+.. code-block:: ini
+
+   [wrap-git]
+   url = https://github.com/chselz/fclap.git
+   revision = main
+
+   [provide]
+   fclap = fclap_dep
+
+The same ``dependency('fclap')`` call then falls back to the subproject when
+no installed fclap is found. fclap's tests are not built as a subproject.
 
 Applications should import public names only through ``use fclap``. The
 additional module files installed beside ``fclap.mod`` are compiler-required
@@ -45,7 +77,38 @@ The basic example is compiled and smoke-tested by fpm:
 ``parse_args`` reads the process command line. It returns a ``Namespace`` on
 success, prints and exits successfully for help or version, and prints
 structured diagnostics before exiting with status 2 on failure. This is the
-closest interface to Python's ``argparse``.
+closest interface to Python's ``argparse``. A mistake in the parser definition
+itself, such as an option registered twice, is not the user's fault:
+``parse_args`` then prints ``prog: invalid parser definition: ...`` naming the
+argument and exits with status 70.
+
+The example accepts the usual command-line spellings:
+
+.. code-block:: console
+
+   $ fclap-basic input.dat --threads=4 -v
+   $ fclap-basic input.dat -j4 -v
+   $ fclap-basic - -vj 4          # '-' is an ordinary value (stdin)
+   $ fclap-basic input.dat -j 0
+   usage: fclap-basic [-h] [-v] [-j THREADS] INPUT
+   fclap-basic: error: argument -j/--threads: value must not be less than 1 (got '0')
+
+The example reads its values without ``stat=``. That is safe for values that
+always exist (positionals, flags, and options with defaults): if a key is
+mistyped or the variable has the wrong type, retrieval stops with a message
+naming the key instead of silently leaving the variable unset. Pass ``stat``
+for optional values that may be absent. Strings are read into
+``character(len=:), allocatable`` variables, which receive the exact value, so
+long paths are never cut off. Import names with an ``only`` list; ``use
+fclap`` without one shadows the ``count`` intrinsic.
+
+Report checks your program makes after parsing with ``parser%error``, which
+prints usage and ``prog: error: <message>`` and exits with status 2:
+
+.. code-block:: fortran
+
+   inquire(file=input, exist=found)
+   if (.not. found) call parser%error("input file '" // input // "' not found")
 
 Parser construction
 -------------------
@@ -78,32 +141,40 @@ are aliases for one optional argument:
    call parser%add_argument("-o", "--output", metavar="FILE", &
        default="result.dat", help="output file")
 
-The destination defaults to the longest long option with leading hyphens
-removed and internal hyphens changed to underscores. Override it with
-``dest=``. Names and destinations must be unique.
+The destination defaults to the longest long option (or the longest alias when
+there is no long option) with leading hyphens removed and internal hyphens
+changed to underscores. Override it with ``dest=``. Names and destinations
+must be unique.
 
 Value types
 ~~~~~~~~~~~
 
 The canonical ``data_type`` names are ``string``, ``integer``, ``real``, and
-``logical``. The aliases ``int``, ``float``, ``double``, and ``bool`` are also
-accepted. Values and defaults are converted to the declared type:
+``logical``. The aliases ``character``, ``char``, ``int``, ``float``,
+``double``, ``bool``, and ``boolean`` are also accepted. Values and defaults are converted to the declared type:
 
 .. code-block:: fortran
 
    call parser%add_argument("--iterations", data_type="integer", default=20)
-   call parser%add_argument("--tolerance", data_type="real", default=1.0e-8)
+   call parser%add_argument("--tolerance", data_type="real", default=1.0e-8_wp)
    call parser%add_argument("--enabled", data_type="logical", default=.true.)
 
-Use the public kinds ``ip`` and ``wp`` for stored integer and real values.
-Namespace retrieval reports ``FCLAP_OK``, ``ERR_NAMESPACE_MISSING_KEY``, or
-``ERR_NAMESPACE_TYPE_MISMATCH`` through its optional status argument.
+Integers need no kind parameter: plain literals such as ``default=20``,
+``choices=[0, 1, 2]``, or ``not_less_than(1)`` and plain ``integer`` variables
+work everywhere, and ``integer(int64)`` is accepted where values exceed 32
+bits. Reals are stored in double precision. Write real literals with your
+project's double-precision kind, as above with ``_wp`` from your own kind
+module (or ``real64`` from ``iso_fortran_env``): ``1.0e-8`` alone is a
+single-precision value whose rounding error is kept. ``real(real32)``
+variables can also receive values.
+Namespace retrieval reports ``FCLAP_OK`` or an ``ERR_NAMESPACE_*`` code
+through its optional status argument.
 
 Choices and validators
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Choices are converted before parsing. Bound validators operate on converted
-integer or real values:
+integer or real values, and all bounds are inclusive:
 
 .. code-block:: fortran
 
@@ -112,7 +183,24 @@ integer or real values:
    call parser%add_argument("--threads", data_type="integer", &
        validator=not_less_than(1))
    call parser%add_argument("--ratio", data_type="real", &
-       validator=not_bigger_than(1.0))
+       validator=not_bigger_than(1.0_wp))
+   call parser%add_argument("--level", data_type="integer", &
+       validator=in_range(0, 3))
+
+The bound must have the argument's type: ``not_less_than(0)`` on a ``real``
+argument is a configuration error; write ``not_less_than(0.0_wp)``.
+
+Choices are compared exactly by default. Pass
+``case_insensitive_choices=.true.`` to accept any letter case for string
+choices; the value is stored with the spelling you declared, so program code
+only has to compare one form:
+
+.. code-block:: fortran
+
+   call parser%add_argument("--closure", &
+       choices=[character(len=3) :: "HNC", "KH", "PY"], default="HNC", &
+       case_insensitive_choices=.true.)
+   ! --closure hnc, --closure Hnc, and --closure HNC all store "HNC"
 
 Invalid defaults, choices, or validator combinations are configuration errors
 and the invalid argument is not registered.
@@ -126,13 +214,17 @@ Actions are concrete values returned by public factory functions:
 
    call parser%add_argument("--verbose", action=store_true())
    call parser%add_argument("--color", action=store_false())
+   call parser%add_argument("--cache", action=boolean_optional(), &
+       default=.true.)
    call parser%add_argument("--level", action=count())
    call parser%add_argument("--tag", action=append())
    call parser%add_argument("--mode", action=store_const("fast"))
 
 ``store`` is the default. ``store_true`` defaults to false, ``store_false``
 defaults to true, ``count`` defaults to zero, and ``append`` accumulates a
-typed list. Repeated ``store`` occurrences use the last value.
+typed list; explicit ``--tag`` occurrences replace a ``default=`` list.
+``boolean_optional`` registers both ``--cache`` and ``--no-cache``; the last
+one given wins. Repeated ``store`` occurrences use the last value.
 
 Number of values
 ~~~~~~~~~~~~~~~~
@@ -221,6 +313,11 @@ members:
 A handle belongs to exactly one initialized parser. Stale, foreign, or invalid
 handles produce configuration errors.
 
+Members of a mutually exclusive group must be omissible. A ``required=.true.``
+option or a positional that needs a value would conflict with every other
+member, so it is rejected with ``ERR_INVALID_GROUP``; make the group itself
+required instead.
+
 Parent parsers
 --------------
 
@@ -243,7 +340,9 @@ Subcommands
 -----------
 
 Child parsers are registered as deep snapshots, so later changes to the source
-child do not affect the command tree:
+child do not affect the command tree. Add every argument to a child *before*
+calling ``add_parser``; anything added afterwards is silently not part of the
+parent:
 
 .. literalinclude:: ../../example/subcommands.f90
    :language: fortran

@@ -1,7 +1,8 @@
 module test_parse_actions
-    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, ip, wp, &
+    use, intrinsic :: iso_fortran_env, only : wp => real64
+    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, &
         append, count, store_const, store_true, store_false, FCLAP_OK, &
-        PARSE_SUCCESS, PARSE_FAILURE, ERR_INVALID_VALUE
+        PARSE_SUCCESS, PARSE_FAILURE, ERR_INVALID_VALUE, ERR_MISSING_VALUE
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -17,7 +18,8 @@ contains
             new_unittest("typed scalar conversion", test_scalar_conversion), &
             new_unittest("repeated built-in actions", test_repeated_actions), &
             new_unittest("conversion failures are atomic", &
-                test_conversion_failures) &
+                test_conversion_failures), &
+            new_unittest("append missing value", test_append_missing_value) &
         ]
     end subroutine collect_parse_actions
 
@@ -25,7 +27,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
-        integer(ip) :: integer_value
+        integer :: integer_value
         real(wp) :: real_value
         logical :: logical_value
         integer :: stat
@@ -42,7 +44,7 @@ contains
         call result%namespace%get("integer", integer_value, stat)
         call check(error, stat, FCLAP_OK)
         if (allocated(error)) return
-        call check(error, integer_value, 1_ip)
+        call check(error, integer_value, 1)
         if (allocated(error)) return
         call result%namespace%get("real", real_value, stat)
         call check(error, stat, FCLAP_OK)
@@ -59,9 +61,9 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
-        character(len=16) :: value, mode
+        character(len=:), allocatable :: value, mode
         character(len=:), allocatable :: tags(:), empty(:)
-        integer(ip) :: occurrences
+        integer :: occurrences
         logical :: verbose, quiet
         integer :: stat
 
@@ -94,7 +96,7 @@ contains
         call check(error, quiet, .false.)
         if (allocated(error)) return
         call result%namespace%get("count", occurrences, stat)
-        call check(error, occurrences, 2_ip)
+        call check(error, occurrences, 2)
         if (allocated(error)) return
         call result%namespace%get("tag", tags, stat)
         call check(error, size(tags), 3)
@@ -144,12 +146,59 @@ contains
         entry = result%errors%get(1)
         call check(error, entry%code, ERR_INVALID_VALUE)
         if (allocated(error)) return
-        call check(error, entry%flag, "wrong")
+        call check(error, entry%token, "wrong")
         if (allocated(error)) return
-        call check(error, entry%flag_index, 3)
+        call check(error, entry%token_index, 3)
         if (allocated(error)) return
         call check(error, result%namespace%contains("values"), .false.)
     end subroutine test_conversion_failures
+
+    subroutine test_append_missing_value(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        character(len=:), allocatable :: tags(:)
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--tag", action=append())
+        call parser%add_argument("--verbose", action=store_true())
+
+        ! A trailing occurrence has no value at all.
+        result = parser%parse_tokens([character(len=5) :: "--tag"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_VALUE)
+        if (allocated(error)) return
+        call check(error, entry%arg_name, "tag")
+        if (allocated(error)) return
+        call check(error, entry%token, "--tag")
+        if (allocated(error)) return
+        call check(error, entry%token_index, 1)
+        if (allocated(error)) return
+        call check(error, result%namespace%contains("tag"), .false.)
+        if (allocated(error)) return
+
+        ! A following known option is not consumed as the missing value, and
+        ! the failed occurrence appends nothing to earlier accepted values.
+        result = parser%parse_tokens([character(len=9) :: &
+            "--tag", "a", "--tag", "--verbose"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_VALUE)
+        if (allocated(error)) return
+        call check(error, entry%token_index, 3)
+        if (allocated(error)) return
+        call result%namespace%get("tag", tags, stat)
+        call check(error, size(tags), 1)
+        if (allocated(error)) return
+        call check(error, trim(tags(1)), "a")
+    end subroutine test_append_missing_value
 
     subroutine check_invalid_conversion(error, result, dest, token, token_index)
         type(error_type), allocatable, intent(out) :: error
@@ -167,9 +216,9 @@ contains
         if (allocated(error)) return
         call check(error, entry%arg_name, dest)
         if (allocated(error)) return
-        call check(error, entry%flag, token)
+        call check(error, entry%token, token)
         if (allocated(error)) return
-        call check(error, entry%flag_index, token_index)
+        call check(error, entry%token_index, token_index)
         if (allocated(error)) return
         call check(error, result%namespace%contains(dest), .false.)
     end subroutine check_invalid_conversion

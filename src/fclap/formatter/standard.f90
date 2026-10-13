@@ -9,6 +9,9 @@ module fclap_formatter_standard
     private
     public :: StandardFormatter
 
+    ! Joins the words of one usage item so wrapping never splits the item.
+    character(len=*), parameter :: USAGE_JOINER = achar(31)
+
     type, extends(FormatterType) :: StandardFormatter
         logical :: show_defaults = .true.
         logical :: show_choices = .true.
@@ -77,21 +80,24 @@ contains
         character(len=:), allocatable :: res
         character(len=:), allocatable :: body, term
         logical, allocatable :: emitted(:)
-        integer :: group_index, index, member_index, width
+        integer :: group_index, index, member_index, width, pass
 
         width = effective_width(self)
         body = ""
         if (allocated(model%usage)) then
             body = trim(model%usage)
         else
-            if (allocated(model%prog)) body = trim(model%prog)
+            if (allocated(model%prog)) body = atomic_term(trim(model%prog))
             allocate(emitted(model_argument_count(model)), source=.false.)
+            ! Options first, then positionals, as argparse lists them.
+            do pass = 1, 2
             do index = 1, model_argument_count(model)
                 if (emitted(index)) cycle
                 if (.not. model%arguments(index)%visible) then
                     emitted(index) = .true.
                     cycle
                 end if
+                if (model%arguments(index)%is_optional .neqv. (pass == 1)) cycle
                 group_index = mutex_group_for_argument(model, index)
                 if (group_index > 0) then
                     term = mutex_usage_term(model, model%groups(group_index))
@@ -112,17 +118,44 @@ contains
                 end if
                 if (len(term) == 0) cycle
                 if (len(body) > 0) body = body // " "
-                body = body // term
+                body = body // atomic_term(term)
+            end do
             end do
             term = subcommand_usage_term(model)
             if (len(term) > 0) then
                 if (len(body) > 0) body = body // " "
-                body = body // term
+                body = body // atomic_term(term)
             end if
         end if
 
         res = wrap_text("usage: " // body, 0, len("usage: "), width)
+        res = replace_joiners(res)
     end function standard_format_usage
+
+    !> Protect the blanks inside one usage item from line wrapping.
+    pure function atomic_term(term) result(joined)
+        character(len=*), intent(in) :: term
+        character(len=len(term)) :: joined
+        integer :: position
+
+        joined = term
+        do position = 1, len(joined)
+            if (joined(position:position) == " ") &
+                joined(position:position) = USAGE_JOINER
+        end do
+    end function atomic_term
+
+    pure function replace_joiners(text) result(plain)
+        character(len=*), intent(in) :: text
+        character(len=len(text)) :: plain
+        integer :: position
+
+        plain = text
+        do position = 1, len(plain)
+            if (plain(position:position) == USAGE_JOINER) &
+                plain(position:position) = " "
+        end do
+    end function replace_joiners
 
     function format_section(self, model, optional_section, heading, width) &
         result(section)
@@ -276,8 +309,9 @@ contains
 
         text = ""
         if (allocated(argument%help)) text = trim(argument%help)
+        ! Implicit defaults such as `.false.` for a flag carry no information.
         if (self%show_defaults .and. argument%has_default .and. &
-            argument%print_default) then
+            argument%print_default .and. .not. argument%implicit_default) then
             call append_note(text, &
                 "default: " // allocated_text(argument%default_text))
         end if
@@ -316,23 +350,15 @@ contains
         end do
     end function argument_label
 
+    !> Usage item of one argument; optional options are bracketed.
     function usage_term(argument) result(term)
         type(HelpArgument), intent(in) :: argument
         character(len=:), allocatable :: term
-        character(len=:), allocatable :: suffix
 
-        suffix = value_pattern(argument%metavar, argument%nargs)
-        if (argument%is_optional) then
-            if (.not. allocated(argument%names)) then
-                term = ""
-                return
-            end if
-            term = trim(argument%names(1))
-            if (len(suffix) > 0) term = term // " " // suffix
-            if (.not. argument%required) term = "[" // term // "]"
-        else
-            term = suffix
-        end if
+        term = bare_usage_term(argument)
+        if (len(term) == 0) return
+        if (argument%is_optional .and. .not. argument%required) &
+            term = "[" // term // "]"
     end function usage_term
 
     function bare_usage_term(argument) result(term)

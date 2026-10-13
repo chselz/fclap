@@ -1,6 +1,6 @@
 !> Conversion and comparison helpers shared by registration and parsing.
 module fclap_value_convert
-    use fclap_utils_accuracy, only : i1, i2, i4, i8, ip, sp, wp
+    use fclap_utils_accuracy, only : i1, i2, i4, i8, sp, wp
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
         LogicalValue, ListValue, new_value
@@ -18,6 +18,8 @@ module fclap_value_convert
     public :: value_matches_type
     public :: value_in_choices
     public :: values_equal
+    public :: canonicalize_choice
+    public :: has_ambiguous_choices
 
 contains
 
@@ -78,10 +80,9 @@ contains
         character(len=*), intent(in) :: type_name
         type(ValueBox), intent(out) :: value
         integer, intent(out) :: stat
-        integer(ip) :: integer_value
+        integer(i8) :: integer_value
         real(wp) :: real_value
         logical :: logical_value
-        integer :: io_status
 
         stat = CONVERT_TYPE_ERROR
         select type (input)
@@ -91,49 +92,34 @@ contains
                 value = new_value(trim(input))
                 stat = CONVERT_SUCCESS
             case ("integer")
-                read(input, *, iostat=io_status) integer_value
-                if (io_status == 0) then
-                    value = new_value(integer_value)
-                    stat = CONVERT_SUCCESS
-                else
-                    stat = CONVERT_VALUE_ERROR
-                end if
+                call parse_integer(input, integer_value, stat)
+                if (stat == CONVERT_SUCCESS) value = new_value(integer_value)
             case ("real")
-                read(input, *, iostat=io_status) real_value
-                if (io_status == 0) then
-                    value = new_value(real_value)
-                    stat = CONVERT_SUCCESS
-                else
-                    stat = CONVERT_VALUE_ERROR
-                end if
+                call parse_real(input, real_value, stat)
+                if (stat == CONVERT_SUCCESS) value = new_value(real_value)
             case ("logical")
                 call parse_logical(input, logical_value, stat)
                 if (stat == CONVERT_SUCCESS) value = new_value(logical_value)
             end select
         type is (integer(kind=i1))
             if (type_name == "integer") then
-                value = new_value(int(input, kind=ip))
+                value = new_value(int(input, kind=i8))
                 stat = CONVERT_SUCCESS
             end if
         type is (integer(kind=i2))
             if (type_name == "integer") then
-                value = new_value(int(input, kind=ip))
+                value = new_value(int(input, kind=i8))
                 stat = CONVERT_SUCCESS
             end if
         type is (integer(kind=i4))
             if (type_name == "integer") then
-                value = new_value(int(input, kind=ip))
+                value = new_value(int(input, kind=i8))
                 stat = CONVERT_SUCCESS
             end if
         type is (integer(kind=i8))
             if (type_name == "integer") then
-                if (input <= int(huge(integer_value), kind=i8) .and. &
-                    input >= -int(huge(integer_value), kind=i8)) then
-                    value = new_value(int(input, kind=ip))
-                    stat = CONVERT_SUCCESS
-                else
-                    stat = CONVERT_VALUE_ERROR
-                end if
+                value = new_value(input)
+                stat = CONVERT_SUCCESS
             end if
         type is (real(kind=sp))
             if (type_name == "real") then
@@ -173,6 +159,120 @@ contains
         end select
     end subroutine parse_logical
 
+    !> Convert a strict decimal integer literal: an optional sign and digits.
+    !>
+    !> List-directed input is deliberately avoided because it accepts value
+    !> separators, repeat counts, and null values that are not numbers.
+    subroutine parse_integer(input, value, stat)
+        character(len=*), intent(in) :: input
+        integer(i8), intent(out) :: value
+        integer, intent(out) :: stat
+        character(len=:), allocatable :: text
+        integer :: io_status
+
+        value = 0_i8
+        stat = CONVERT_VALUE_ERROR
+        text = trim(adjustl(input))
+        if (.not. is_integer_literal(text)) return
+        read(text, *, iostat=io_status) value
+        if (io_status /= 0) then
+            value = 0_i8
+            return
+        end if
+        stat = CONVERT_SUCCESS
+    end subroutine parse_integer
+
+    !> Convert a strict real literal with optional fraction and exponent.
+    !>
+    !> Accepted forms are decimal literals using an optional `e`, `E`, `d`, or
+    !> `D` exponent, and the case-insensitive special values `inf`,
+    !> `infinity`, and `nan`.
+    subroutine parse_real(input, value, stat)
+        character(len=*), intent(in) :: input
+        real(wp), intent(out) :: value
+        integer, intent(out) :: stat
+        character(len=:), allocatable :: text
+        integer :: io_status
+
+        value = 0.0_wp
+        stat = CONVERT_VALUE_ERROR
+        text = trim(adjustl(input))
+        if (.not. is_real_literal(text)) return
+        read(text, *, iostat=io_status) value
+        if (io_status /= 0) then
+            value = 0.0_wp
+            return
+        end if
+        stat = CONVERT_SUCCESS
+    end subroutine parse_real
+
+    pure logical function is_integer_literal(text) result(valid)
+        character(len=*), intent(in) :: text
+        integer :: first
+
+        valid = .false.
+        if (len(text) == 0) return
+        first = 1
+        if (text(1:1) == '+' .or. text(1:1) == '-') first = 2
+        if (first > len(text)) return
+        valid = verify(text(first:), "0123456789") == 0
+    end function is_integer_literal
+
+    pure logical function is_real_literal(text) result(valid)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable :: body
+        integer :: first, position, digits, fraction_digits, exponent_digits
+
+        valid = .false.
+        if (len(text) == 0) return
+        first = 1
+        if (text(1:1) == '+' .or. text(1:1) == '-') first = 2
+        if (first > len(text)) return
+        body = lowercase(text(first:))
+        if (body == "inf" .or. body == "infinity" .or. body == "nan") then
+            valid = .true.
+            return
+        end if
+
+        position = 1
+        call skip_digits(body, position, digits)
+        if (position <= len(body)) then
+            if (body(position:position) == '.') then
+                position = position + 1
+                call skip_digits(body, position, fraction_digits)
+                digits = digits + fraction_digits
+            end if
+        end if
+        if (digits == 0) return
+
+        if (position <= len(body)) then
+            if (body(position:position) /= 'e' .and. &
+                body(position:position) /= 'd') return
+            position = position + 1
+            if (position <= len(body)) then
+                if (body(position:position) == '+' .or. &
+                    body(position:position) == '-') position = position + 1
+            end if
+            call skip_digits(body, position, exponent_digits)
+            if (exponent_digits == 0) return
+        end if
+        valid = position > len(body)
+    end function is_real_literal
+
+    !> Advance past consecutive decimal digits and report how many there were.
+    pure subroutine skip_digits(text, position, number)
+        character(len=*), intent(in) :: text
+        integer, intent(inout) :: position
+        integer, intent(out) :: number
+
+        number = 0
+        do while (position <= len(text))
+            if (verify(text(position:position), "0123456789") /= 0) exit
+            number = number + 1
+            position = position + 1
+        end do
+    end subroutine skip_digits
+
     pure logical function value_is_list(value) result(is_list)
         type(ValueBox), intent(in) :: value
 
@@ -198,11 +298,18 @@ contains
         end select
     end function value_matches_type
 
-    recursive logical function values_equal(left, right) result(equal)
+    !> Compare two values; `ignore_case` makes string comparison ASCII
+    !> case-insensitive and has no effect on other types.
+    recursive logical function values_equal(left, right, ignore_case) &
+        result(equal)
         type(ValueBox), intent(in) :: left, right
+        logical, intent(in), optional :: ignore_case
+        logical :: fold
         integer :: index
 
         equal = .false.
+        fold = .false.
+        if (present(ignore_case)) fold = ignore_case
         if (.not. allocated(left%item) .or. .not. allocated(right%item)) return
         if (left%type_name() /= right%type_name()) return
 
@@ -210,7 +317,12 @@ contains
         type is (StringValue)
             select type (right_value => right%item)
             type is (StringValue)
-                equal = left_value%value == right_value%value
+                if (fold) then
+                    equal = lowercase(left_value%value) == &
+                        lowercase(right_value%value)
+                else
+                    equal = left_value%value == right_value%value
+                end if
             end select
         type is (IntegerValue)
             select type (right_value => right%item)
@@ -235,7 +347,7 @@ contains
                 equal = .true.
                 do index = 1, left_value%size()
                     if (.not. values_equal(left_value%items(index), &
-                        right_value%items(index))) then
+                        right_value%items(index), fold)) then
                         equal = .false.
                         return
                     end if
@@ -244,47 +356,104 @@ contains
         end select
     end function values_equal
 
-    logical function value_in_choices(value, choices) result(accepted)
+    logical function value_in_choices(value, choices, ignore_case) &
+        result(accepted)
         type(ValueBox), intent(in) :: value, choices
-        integer :: value_index, choice_index
+        logical, intent(in), optional :: ignore_case
+        integer :: value_index
 
         accepted = .false.
         if (.not. allocated(choices%item)) return
+        if (.not. allocated(value%item)) return
         select type (allowed => choices%item)
         type is (ListValue)
             select type (candidate_list => value%item)
             type is (ListValue)
                 accepted = .true.
                 do value_index = 1, candidate_list%size()
-                    if (.not. item_is_allowed(candidate_list%items(value_index), allowed)) then
+                    if (choice_index(candidate_list%items(value_index), &
+                        allowed, ignore_case) == 0) then
                         accepted = .false.
                         return
                     end if
                 end do
             class default
-                do choice_index = 1, allowed%size()
-                    if (values_equal(value, allowed%items(choice_index))) then
-                        accepted = .true.
-                        return
-                    end if
-                end do
+                accepted = choice_index(value, allowed, ignore_case) > 0
             end select
         end select
     end function value_in_choices
 
-    logical function item_is_allowed(value, choices) result(accepted)
+    !> Replace an accepted value, or every item of an accepted list, by the
+    !> declared choice it matches, so case-insensitive input is stored with
+    !> the spelling the program registered.
+    subroutine canonicalize_choice(value, choices, ignore_case)
+        type(ValueBox), intent(inout) :: value
+        type(ValueBox), intent(in) :: choices
+        logical, intent(in), optional :: ignore_case
+        type(ListValue) :: canonical
+        integer :: index, match
+
+        if (.not. allocated(choices%item)) return
+        if (.not. allocated(value%item)) return
+        select type (allowed => choices%item)
+        type is (ListValue)
+            select type (candidate_list => value%item)
+            type is (ListValue)
+                call canonical%initialize(candidate_list%item_type())
+                do index = 1, candidate_list%size()
+                    match = choice_index(candidate_list%items(index), &
+                        allowed, ignore_case)
+                    if (match > 0) then
+                        call canonical%append(allowed%items(match))
+                    else
+                        call canonical%append(candidate_list%items(index))
+                    end if
+                end do
+                call value%set(canonical)
+            class default
+                match = choice_index(value, allowed, ignore_case)
+                if (match > 0) value = allowed%items(match)%clone()
+            end select
+        end select
+    end subroutine canonicalize_choice
+
+    !> Report whether two declared choices would match the same input.
+    logical function has_ambiguous_choices(choices, ignore_case) &
+        result(ambiguous)
+        type(ValueBox), intent(in) :: choices
+        logical, intent(in), optional :: ignore_case
+        integer :: left, right
+
+        ambiguous = .false.
+        if (.not. allocated(choices%item)) return
+        select type (allowed => choices%item)
+        type is (ListValue)
+            do left = 1, allowed%size() - 1
+                do right = left + 1, allowed%size()
+                    if (values_equal(allowed%items(left), &
+                        allowed%items(right), ignore_case)) then
+                        ambiguous = .true.
+                        return
+                    end if
+                end do
+            end do
+        end select
+    end function has_ambiguous_choices
+
+    integer function choice_index(value, choices, ignore_case) result(match)
         type(ValueBox), intent(in) :: value
         type(ListValue), intent(in) :: choices
+        logical, intent(in), optional :: ignore_case
         integer :: index
 
-        accepted = .false.
+        match = 0
         do index = 1, choices%size()
-            if (values_equal(value, choices%items(index))) then
-                accepted = .true.
+            if (values_equal(value, choices%items(index), ignore_case)) then
+                match = index
                 return
             end if
         end do
-    end function item_is_allowed
+    end function choice_index
 
     pure function lowercase(input) result(output)
         character(len=*), intent(in) :: input

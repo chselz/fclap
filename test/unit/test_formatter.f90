@@ -47,7 +47,7 @@ contains
         call parser%add_argument("-o", "--output", default="out.txt", &
             help="output file")
 
-        expected = "usage: demo [-h] INPUT [-o OUTPUT]" // nl // nl // &
+        expected = "usage: demo [-h] [-o OUTPUT] INPUT" // nl // nl // &
             "Copy one input file." // nl // nl // &
             "positional arguments:" // nl // &
             "  INPUT                 input file" // nl // nl // &
@@ -58,7 +58,7 @@ contains
             "See the manual for details."
 
         call check(error, parser%format_usage(), &
-            "usage: demo [-h] INPUT [-o OUTPUT]")
+            "usage: demo [-h] [-o OUTPUT] INPUT")
         if (allocated(error)) return
         call check(error, parser%format_help(), expected)
     end subroutine test_standard_help
@@ -109,12 +109,13 @@ contains
             print_choices=.true.)
 
         expected = &
-            "usage: demo [--mode MODE] [--plain PLAIN] [--old OLD] " // &
+            "usage: demo [--mode {fast,safe}] [--plain {fast,safe}] " // &
+            "[--old OLD] " // &
             "[--nodefault NODEFAULT] [--jobs JOBS]" // &
             nl // nl // "options:" // nl // &
-            "  --mode MODE           execution mode (default: 'fast') " // &
+            "  --mode {fast,safe}    execution mode (default: 'fast') " // &
             "(choices: ['fast', 'safe'])" // nl // &
-            "  --plain PLAIN         (default: 'safe')" // nl // &
+            "  --plain {fast,safe}   (default: 'safe')" // nl // &
             "  --old OLD             legacy mode (deprecated: use --mode)" // &
             nl // "  --nodefault NODEFAULT suppressed default" // nl // &
             "  --jobs JOBS           workers (default: 2)"
@@ -136,8 +137,8 @@ contains
         call parser%add_argument("--many", nargs="+")
 
         call check(error, parser%format_usage(), &
-            "usage: tool HEAD [TAIL ...] [--pair PAIR PAIR] " // &
-            "[--maybe [MAYBE]] [--many MANY [MANY ...]]")
+            "usage: tool [--pair PAIR PAIR] [--maybe [MAYBE]] " // &
+            "[--many MANY [MANY ...]] HEAD [TAIL ...]")
     end subroutine test_nargs_usage
 
     subroutine test_wrapping(error)

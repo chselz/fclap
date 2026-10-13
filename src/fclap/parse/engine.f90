@@ -3,11 +3,13 @@ module fclap_parse_engine
     use fclap_actions_abstract, only : ACTION_CONTINUE, &
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
     use fclap_argument, only : Argument
+    use fclap_error_entry, only : ErrorEntry
+    use fclap_namespace, only : Namespace
     use fclap_error_codes, only : ERROR_WARNING, ERR_DEPRECATED_ARGUMENT, &
         ERR_EXTRA_POSITIONAL, ERR_INVALID_CHOICE, ERR_INVALID_VALUE, &
         ERR_MISSING_REQUIRED, ERR_MISSING_VALUE, ERR_REMOVED_ARGUMENT, &
         ERR_UNKNOWN_ARGUMENT, ERR_VALIDATION_FAILED, ERR_UNKNOWN_SUBCOMMAND, &
-        ERR_MISSING_SUBCOMMAND
+        ERR_MISSING_SUBCOMMAND, ERR_UNEXPECTED_VALUE
     use fclap_error_stack, only : ErrorStack
     use fclap_groups_abstract, only : GroupBox
     use fclap_nargs, only : NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
@@ -18,7 +20,8 @@ module fclap_parse_engine
     use fclap_validators_choices, only : ChoicesValidator, choices_validator
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue
-    use fclap_value_convert, only : CONVERT_SUCCESS, convert_value
+    use fclap_value_convert, only : CONVERT_SUCCESS, convert_value, &
+        canonicalize_choice
     implicit none
     private
 
@@ -28,6 +31,12 @@ module fclap_parse_engine
     integer, parameter :: BOUNDARY_UNKNOWN_OPTION = 3
     integer, parameter :: BOUNDARY_LIMIT = 4
     integer, parameter :: BOUNDARY_SUBCOMMAND = 5
+
+    ! How an option token names a registered option.
+    integer, parameter :: OPTION_NONE = 0
+    integer, parameter :: OPTION_EXACT = 1
+    integer, parameter :: OPTION_ATTACHED = 2
+    integer, parameter :: OPTION_CLUSTER = 3
 
     public :: parse_definitions
 
@@ -46,8 +55,8 @@ contains
         integer, intent(out), optional :: next_token_index
         type(ParseResult) :: parsed
         type(ParseContext) :: context
-        character(len=:), allocatable :: token
-        integer :: argument_index, action_outcome
+        character(len=:), allocatable :: token, attached
+        integer :: argument_index, action_outcome, form
 
         call context%init(tokens, size(arguments))
         if (present(has_subcommands)) then
@@ -84,12 +93,20 @@ contains
             end if
 
             argument_index = 0
+            form = OPTION_NONE
             if (context%options_enabled) then
-                argument_index = find_option(arguments, token)
+                call resolve_option(arguments, token, argument_index, form, &
+                    attached)
             end if
-            if (argument_index > 0) then
+            if (form == OPTION_EXACT) then
                 call consume_option(arguments, argument_index, context, &
-                    action_outcome)
+                    action_outcome, token)
+            else if (form == OPTION_ATTACHED) then
+                call consume_option(arguments, argument_index, context, &
+                    action_outcome, token, attached, &
+                    attached_spelling(token, attached))
+            else if (form == OPTION_CLUSTER) then
+                call consume_cluster(arguments, context, action_outcome, token)
             else
                 argument_index = next_positional(arguments, context)
                 if (context%options_enabled .and. token_starts_option(token)) then
@@ -130,6 +147,8 @@ contains
         if (action_outcome == ACTION_CONTINUE .and. &
             .not. context%errors%has_fatal_errors()) then
             call materialize_empty_positionals(arguments, context, action_outcome)
+        else if (context%errors%has_fatal_errors()) then
+            call find_later_exit_request(arguments, context, action_outcome)
         end if
 
         if (action_outcome == ACTION_HELP_REQUESTED) then
@@ -142,7 +161,7 @@ contains
         end if
 
         call check_required(arguments, context)
-        call validate_groups(groups, context)
+        call validate_groups(arguments, groups, context)
         if (context%subcommands_enabled .and. context%subcommand_required .and. &
             .not. allocated(context%selected_command_path)) then
             call context%errors%add("a subcommand is required", &
@@ -154,6 +173,47 @@ contains
             call finish_result(parsed, context, PARSE_SUCCESS, next_token_index)
         end if
     end function parse_definitions
+
+    !> Let `-h` or `--version` later on the line win over an unrecognized
+    !> token, as argparse does; conversion and validation errors still win.
+    !>
+    !> When an exit request is found, fatal diagnostics are dropped so help
+    !> and version outcomes never carry errors.
+    subroutine find_later_exit_request(arguments, context, action_outcome)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(inout) :: context
+        integer, intent(inout) :: action_outcome
+        type(ErrorEntry) :: last
+        type(ErrorStack) :: kept, scratch_errors
+        type(Namespace) :: scratch
+        type(ValueBox) :: no_value
+        character(len=:), allocatable :: token
+        integer :: position, argument_index, outcome, index
+
+        last = context%errors%get(context%errors%count())
+        if (last%code /= ERR_UNKNOWN_ARGUMENT .and. &
+            last%code /= ERR_EXTRA_POSITIONAL) return
+
+        do position = context%cursor, size(context%tokens)
+            token = trim(context%tokens(position))
+            if (token == "--") return
+            argument_index = find_option(arguments, token)
+            if (argument_index == 0) cycle
+            if (arguments(argument_index)%nargs_value() /= NARGS_ZERO) cycle
+            call arguments(argument_index)%action%apply( &
+                arguments(argument_index)%dest, no_value, scratch, outcome, &
+                scratch_errors)
+            if (outcome == ACTION_CONTINUE) cycle
+
+            action_outcome = outcome
+            do index = 1, context%errors%count()
+                last = context%errors%get(index)
+                if (last%severity == ERROR_WARNING) call kept%append(last)
+            end do
+            context%errors = kept
+            return
+        end do
+    end subroutine find_later_exit_request
 
     subroutine configure_empty_subcommands(context, required)
         type(ParseContext), intent(inout) :: context
@@ -175,28 +235,45 @@ contains
         end do
     end subroutine apply_defaults
 
-    subroutine consume_option(arguments, index, context, action_outcome)
+    !> Consume one option occurrence starting at the current token.
+    !>
+    !> `option_token` is the spelling used in diagnostics. When `attached` is
+    !> present the option was written as `--name=value` or `-nVALUE`, and that
+    !> text is the only value of this occurrence.
+    subroutine consume_option(arguments, index, context, action_outcome, &
+        option_token, attached, option_name)
         type(Argument), intent(in) :: arguments(:)
         integer, intent(in) :: index
         type(ParseContext), intent(inout) :: context
         integer, intent(out) :: action_outcome
+        character(len=*), intent(in) :: option_token
+        character(len=*), intent(in), optional :: attached
+        !> Registered spelling that matched; defaults to `option_token`
+        character(len=*), intent(in), optional :: option_name
         type(ValueBox) :: value
-        character(len=:), allocatable :: option_token
+        character(len=:), allocatable :: name
         integer :: option_token_index, available, boundary, count
         integer :: minimum, maximum
         logical :: continue_parsing
 
         action_outcome = ACTION_CONTINUE
-        option_token = context%current_token()
+        name = option_token
+        if (present(option_name)) name = option_name
         option_token_index = context%cursor
         call record_lifecycle(arguments(index), option_token, option_token_index, &
             context, continue_parsing)
         if (.not. continue_parsing) return
         call context%advance()
 
+        if (present(attached)) then
+            call consume_attached_value(arguments(index), index, context, &
+                action_outcome, option_token, option_token_index, attached, name)
+            return
+        end if
+
         if (arguments(index)%nargs_value() == NARGS_ZERO) then
             call execute_action(arguments(index), index, value, context, &
-                action_outcome, mark_explicit=.true.)
+                action_outcome, mark_explicit=.true., option_name=name)
             return
         end if
 
@@ -225,10 +302,147 @@ contains
         end if
 
         call execute_action(arguments(index), index, value, context, &
-            action_outcome, mark_explicit=.true.)
+            action_outcome, mark_explicit=.true., option_name=name)
         if (context%errors%has_fatal_errors()) return
         call advance_values(context, count)
     end subroutine consume_option
+
+    !> Apply the single value written inside an option token.
+    subroutine consume_attached_value(definition, index, context, &
+        action_outcome, option_token, option_token_index, attached, option_name)
+        type(Argument), intent(in) :: definition
+        integer, intent(in) :: index
+        type(ParseContext), intent(inout) :: context
+        integer, intent(out) :: action_outcome
+        character(len=*), intent(in) :: option_token, attached, option_name
+        integer, intent(in) :: option_token_index
+        type(ValueBox) :: value, item
+        type(ListValue) :: list
+
+        action_outcome = ACTION_CONTINUE
+        if (definition%nargs%max_count() == 0) then
+            call context%errors%add("option does not take a value", &
+                code=ERR_UNEXPECTED_VALUE, arg_name=definition%dest, &
+                token=option_token, token_index=option_token_index)
+            return
+        end if
+        if (definition%nargs%min_count() > 1) then
+            call add_missing_value(context, definition, option_token, &
+                option_token_index)
+            return
+        end if
+
+        if (definition%nargs%produces_list()) then
+            call list%initialize(definition%data_type)
+            call convert_and_validate_text(definition, context, attached, &
+                option_token_index, item)
+            if (context%errors%has_fatal_errors()) return
+            call list%append(item)
+            call value%set(list)
+        else
+            call convert_and_validate_text(definition, context, attached, &
+                option_token_index, value)
+            if (context%errors%has_fatal_errors()) return
+        end if
+        call execute_action(definition, index, value, context, &
+            action_outcome, mark_explicit=.true., option_name=option_name)
+    end subroutine consume_attached_value
+
+    !> Consume combined single-letter options such as `-vvx` or `-vj4`.
+    !>
+    !> Every letter must name a registered one-letter option. Flags are applied
+    !> in order; the first letter whose option takes values ends the cluster
+    !> and receives the remaining text, or the following tokens when the
+    !> remainder is empty.
+    subroutine consume_cluster(arguments, context, action_outcome, token)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(inout) :: context
+        integer, intent(out) :: action_outcome
+        character(len=*), intent(in) :: token
+        type(ValueBox) :: value
+        integer :: argument_index, position
+        logical :: continue_parsing
+
+        action_outcome = ACTION_CONTINUE
+        do position = 2, len(token)
+            argument_index = find_option(arguments, "-" // token(position:position))
+            if (argument_index == 0) then
+                call add_unknown_option(context, token, context%cursor)
+                return
+            end if
+
+            if (arguments(argument_index)%nargs_value() /= NARGS_ZERO) then
+                if (position < len(token)) then
+                    call consume_option(arguments, argument_index, context, &
+                        action_outcome, token, token(position + 1:), &
+                        "-" // token(position:position))
+                else
+                    call consume_option(arguments, argument_index, context, &
+                        action_outcome, token, &
+                        option_name="-" // token(position:position))
+                end if
+                return
+            end if
+
+            call record_lifecycle(arguments(argument_index), token, &
+                context%cursor, context, continue_parsing)
+            if (.not. continue_parsing) return
+            call execute_action(arguments(argument_index), argument_index, &
+                value, context, action_outcome, mark_explicit=.true., &
+                option_name="-" // token(position:position))
+            if (context%errors%has_fatal_errors()) return
+            if (action_outcome /= ACTION_CONTINUE) exit
+        end do
+        call context%advance()
+    end subroutine consume_cluster
+
+    !> Classify a token as a registered option, an option with an attached
+    !> value, or a cluster of one-letter flags.
+    !>
+    !> An exact registered spelling always wins. Otherwise `--name=value` and
+    !> `-n=value` split at the first `=`, and `-nVALUE` attaches everything
+    !> after a one-letter option that takes values. A one-letter flag followed
+    !> by more letters forms a cluster.
+    subroutine resolve_option(arguments, token, argument_index, form, attached)
+        type(Argument), intent(in) :: arguments(:)
+        character(len=*), intent(in) :: token
+        integer, intent(out) :: argument_index, form
+        character(len=:), allocatable, intent(out) :: attached
+        integer :: separator
+
+        form = OPTION_NONE
+        attached = ""
+        argument_index = find_option(arguments, token)
+        if (argument_index > 0) then
+            form = OPTION_EXACT
+            return
+        end if
+        if (.not. token_starts_option(token)) return
+
+        separator = index(token, "=")
+        if (separator > 2) then
+            argument_index = find_option(arguments, token(:separator - 1))
+            if (argument_index > 0) then
+                form = OPTION_ATTACHED
+                attached = token(separator + 1:)
+                return
+            end if
+        end if
+
+        if (len(token) > 2 .and. token(2:2) /= "-") then
+            argument_index = find_option(arguments, token(1:2))
+            if (argument_index > 0) then
+                if (arguments(argument_index)%nargs_value() == NARGS_ZERO) then
+                    form = OPTION_CLUSTER
+                else
+                    form = OPTION_ATTACHED
+                    attached = token(3:)
+                end if
+                return
+            end if
+        end if
+        argument_index = 0
+    end subroutine resolve_option
 
     subroutine consume_positional(arguments, index, context, action_outcome)
         type(Argument), intent(in) :: arguments(:)
@@ -328,7 +542,7 @@ contains
                     boundary = BOUNDARY_MARKER
                     return
                 end if
-                if (find_option(arguments, token) > 0) then
+                if (names_option(arguments, token)) then
                     boundary = BOUNDARY_KNOWN_OPTION
                     return
                 end if
@@ -372,28 +586,42 @@ contains
         type(ParseContext), intent(inout) :: context
         integer, intent(in) :: token_index
         type(ValueBox), intent(out) :: value
+
+        call convert_and_validate_text(definition, context, &
+            trim(context%tokens(token_index)), token_index, value)
+    end subroutine convert_and_validate_token
+
+    subroutine convert_and_validate_text(definition, context, token, &
+        token_index, value)
+        type(Argument), intent(in) :: definition
+        type(ParseContext), intent(inout) :: context
+        character(len=*), intent(in) :: token
+        integer, intent(in) :: token_index
+        type(ValueBox), intent(out) :: value
         type(ChoicesValidator) :: choice_check
-        character(len=:), allocatable :: token, message
+        character(len=:), allocatable :: message
         integer :: stat
         logical :: valid
 
-        token = trim(context%tokens(token_index))
         call convert_value(token, definition%data_type, value, stat)
         if (stat /= CONVERT_SUCCESS) then
-            call context%errors%add("argument value could not be converted", &
-                code=ERR_INVALID_VALUE, arg_name=definition%dest, token=token, &
-                token_index=token_index)
+            call context%errors%add("invalid " // definition%data_type // &
+                " value", code=ERR_INVALID_VALUE, arg_name=definition%dest, &
+                token=token, token_index=token_index)
             return
         end if
 
         if (definition%has_choices) then
-            choice_check = choices_validator(definition%choices)
+            choice_check = choices_validator(definition%choices, &
+                definition%case_insensitive_choices)
             call choice_check%validate(value, valid, message)
             if (.not. valid) then
                 call context%errors%add(message, code=ERR_INVALID_CHOICE, &
                     arg_name=definition%dest, token=token, token_index=token_index)
                 return
             end if
+            if (definition%case_insensitive_choices) &
+                call canonicalize_choice(value, definition%choices, .true.)
         end if
 
         if (allocated(definition%validator)) then
@@ -406,23 +634,52 @@ contains
                     arg_name=definition%dest, token=token, token_index=token_index)
             end if
         end if
-    end subroutine convert_and_validate_token
+    end subroutine convert_and_validate_text
 
+    !> Run an argument's action and record explicit presence.
+    !>
+    !> Options pass the matched spelling so actions such as `--no-name` can
+    !> react to it. An accumulating action that replaces its default starts
+    !> from an empty value on the first explicit occurrence.
     subroutine execute_action(definition, index, value, context, action_outcome, &
-        mark_explicit)
+        mark_explicit, option_name)
         type(Argument), intent(in) :: definition
         integer, intent(in) :: index
         type(ValueBox), intent(in) :: value
         type(ParseContext), intent(inout) :: context
         integer, intent(out) :: action_outcome
         logical, intent(in) :: mark_explicit
+        character(len=*), intent(in), optional :: option_name
 
         action_outcome = ACTION_CONTINUE
-        call definition%action%apply(definition%dest, value, context%namespace, &
-            action_outcome, context%errors)
+        if (mark_explicit .and. definition%has_default) then
+            if (.not. context%was_seen(index) .and. &
+                definition%action%replaces_default()) then
+                call context%namespace%remove(definition%dest)
+            end if
+        end if
+        if (present(option_name)) then
+            call definition%action%apply_option(option_name, definition%dest, &
+                value, context%namespace, action_outcome, context%errors)
+        else
+            call definition%action%apply(definition%dest, value, &
+                context%namespace, action_outcome, context%errors)
+        end if
         if (context%errors%has_fatal_errors()) return
         if (mark_explicit) call context%mark_seen(index)
     end subroutine execute_action
+
+    !> Registered spelling of an attached-value option token: the text before
+    !> the attached value, without a separating `=`.
+    function attached_spelling(token, attached) result(name)
+        character(len=*), intent(in) :: token, attached
+        character(len=:), allocatable :: name
+
+        name = token(1:len(token) - len(attached))
+        if (len(name) > 0) then
+            if (name(len(name):len(name)) == "=") name = name(1:len(name) - 1)
+        end if
+    end function attached_spelling
 
     subroutine materialize_empty_positionals(arguments, context, action_outcome)
         type(Argument), intent(in) :: arguments(:)
@@ -497,15 +754,19 @@ contains
         end do
     end subroutine check_required
 
-    subroutine validate_groups(groups, context)
+    subroutine validate_groups(arguments, groups, context)
+        type(Argument), intent(in) :: arguments(:)
         type(GroupBox), intent(in) :: groups(:)
         type(ParseContext), intent(inout) :: context
+        character(len=:), allocatable :: labels(:)
         integer :: group_index
 
+        if (size(groups) == 0) return
+        call argument_labels(arguments, labels)
         do group_index = 1, size(groups)
             if (.not. allocated(groups(group_index)%item)) cycle
             call groups(group_index)%item%validate_presence( &
-                context%seen, group_index, context%errors)
+                context%seen, labels, group_index, context%errors)
         end do
     end subroutine validate_groups
 
@@ -523,6 +784,33 @@ contains
             end if
         end do
     end function find_option
+
+    !> Collect the user-facing spelling of every argument for diagnostics.
+    subroutine argument_labels(arguments, labels)
+        type(Argument), intent(in) :: arguments(:)
+        character(len=:), allocatable, intent(out) :: labels(:)
+        integer :: index, width
+
+        width = 1
+        do index = 1, size(arguments)
+            width = max(width, len(arguments(index)%display_label()))
+        end do
+        allocate(character(len=width) :: labels(size(arguments)))
+        do index = 1, size(arguments)
+            labels(index) = arguments(index)%display_label()
+        end do
+    end subroutine argument_labels
+
+    !> Report whether a token names an option in any supported spelling.
+    logical function names_option(arguments, token) result(found)
+        type(Argument), intent(in) :: arguments(:)
+        character(len=*), intent(in) :: token
+        character(len=:), allocatable :: attached
+        integer :: argument_index, form
+
+        call resolve_option(arguments, token, argument_index, form, attached)
+        found = form /= OPTION_NONE
+    end function names_option
 
     integer function next_positional(arguments, context) result(index)
         type(Argument), intent(in) :: arguments(:)
@@ -566,10 +854,11 @@ contains
         is_value = stat == CONVERT_SUCCESS
     end function token_is_numeric_value
 
+    !> A lone `-` is an ordinary value, conventionally standard input/output.
     pure logical function token_starts_option(token) result(starts_option)
         character(len=*), intent(in) :: token
 
-        starts_option = len_trim(token) > 0
+        starts_option = len_trim(token) > 1
         if (starts_option) starts_option = token(1:1) == '-'
     end function token_starts_option
 

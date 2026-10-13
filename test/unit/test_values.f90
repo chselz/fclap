@@ -99,7 +99,7 @@ contains
 
         select type (stored => item%item)
         type is (IntegerValue)
-            call check(error, stored%value, 2_ip)
+            call check(error, int(stored%value, kind=ip), 2_ip)
         class default
             call check(error, .false., "expected IntegerValue")
         end select

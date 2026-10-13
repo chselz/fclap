@@ -14,9 +14,9 @@ module fclap_error_stack
         type(ErrorEntry), allocatable :: items(:)
     contains
         procedure :: add       => error_stack_add
-        procedure :: add_error => error_stack_add
         procedure :: append    => error_stack_append_entry
         procedure :: merge     => error_stack_merge
+        procedure :: offset_token_indices => error_stack_offset_token_indices
         procedure :: count     => error_stack_count
         procedure :: get       => error_stack_get
         procedure :: has_errors
@@ -63,6 +63,20 @@ contains
             call self%append(other%items(index))
         end do
     end subroutine error_stack_merge
+
+    !> Shift every known token position, e.g. when a subcommand parsed a
+    !> slice of the command line and its positions must become absolute.
+    subroutine error_stack_offset_token_indices(self, offset)
+        class(ErrorStack), intent(inout) :: self
+        integer, intent(in) :: offset
+        integer :: index
+
+        do index = 1, self%count()
+            if (self%items(index)%token_index > 0) &
+                self%items(index)%token_index = &
+                self%items(index)%token_index + offset
+        end do
+    end subroutine error_stack_offset_token_indices
 
     pure integer function error_stack_count(self) result(number)
         class(ErrorStack), intent(in) :: self

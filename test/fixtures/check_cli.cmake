@@ -27,7 +27,7 @@ endif()
 if(NOT warning_stdout STREQUAL "")
   message(FATAL_ERROR "warning path wrote to stdout")
 endif()
-if(NOT warning_stderr MATCHES "\\[WARNING\\].*use --name")
+if(NOT warning_stderr MATCHES "fixture: warning: argument --legacy: use --name")
   message(FATAL_ERROR "warning path did not write the warning to stderr")
 endif()
 
@@ -79,6 +79,55 @@ endif()
 if(NOT failure_stderr MATCHES "^usage: fixture")
   message(FATAL_ERROR "failure path did not write usage to stderr")
 endif()
-if(NOT failure_stderr MATCHES "unknown option")
+if(NOT failure_stderr MATCHES "fixture: error: unknown option '--unknown'")
   message(FATAL_ERROR "failure path did not write the parser error")
+endif()
+# A command-line mistake is a normal termination, not a crash report.
+if(failure_stderr MATCHES "Backtrace|ERROR STOP|STOP 2")
+  message(FATAL_ERROR "failure path reported a runtime termination")
+endif()
+
+# An application check reported through parser%error looks like a usage error.
+execute_process(
+  COMMAND "${FCLAP_CLI}" --check
+  RESULT_VARIABLE check_status
+  OUTPUT_VARIABLE check_stdout
+  ERROR_VARIABLE check_stderr
+)
+if(NOT check_status EQUAL 2)
+  message(FATAL_ERROR "parser%error exited with ${check_status}, expected 2")
+endif()
+if(NOT check_stderr MATCHES "^usage: fixture" OR
+   NOT check_stderr MATCHES "fixture: error: check failed")
+  message(FATAL_ERROR "parser%error did not print usage and the message")
+endif()
+
+if(DEFINED FCLAP_INVALID_CLI)
+  # A broken parser definition is a programming error with its own status.
+  execute_process(
+    COMMAND "${FCLAP_INVALID_CLI}"
+    RESULT_VARIABLE invalid_status
+    ERROR_VARIABLE invalid_stderr
+  )
+  if(NOT invalid_status EQUAL 70)
+    message(FATAL_ERROR "invalid definition exited with ${invalid_status}, expected 70")
+  endif()
+  if(NOT invalid_stderr MATCHES "fixture: invalid parser definition: argument -x/--output:")
+    message(FATAL_ERROR "invalid definition did not name the option")
+  endif()
+endif()
+
+if(DEFINED FCLAP_MISUSE_CLI)
+  # Retrieving a mistyped key without stat= stops instead of being ignored.
+  execute_process(
+    COMMAND "${FCLAP_MISUSE_CLI}"
+    RESULT_VARIABLE misuse_status
+    ERROR_VARIABLE misuse_stderr
+  )
+  if(misuse_status EQUAL 0)
+    message(FATAL_ERROR "namespace misuse did not stop the program")
+  endif()
+  if(NOT misuse_stderr MATCHES "fclap: namespace key 'nmae': no such key")
+    message(FATAL_ERROR "namespace misuse did not name the key")
+  endif()
 endif()

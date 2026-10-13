@@ -1,3 +1,4 @@
+!> Abstract contract for help and usage formatters.
 module fclap_formatter_abstract
     use fclap_formatter_model, only : HelpModel
     implicit none

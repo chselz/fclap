@@ -4,7 +4,7 @@
 
 Build a modular Fortran command-line argument parser with a user interface inspired by Python's `argparse`. The implementation should use plain data types for parser state and polymorphic abstract types only at genuine extension points such as actions, validators, groups, and formatters.
 
-The code in `old/` is a behavioral reference, not a code base to port directly. Useful behavior must first be captured in tests and then reimplemented through the new module structure.
+The original prototype (formerly in `old/`) served as a behavioral reference, not a code base to port directly. Its useful behavior was captured in tests and reimplemented through the new module structure; the prototype was removed in Phase 8.
 
 ## Design principles
 
@@ -13,22 +13,24 @@ The code in `old/` is a behavioral reference, not a code base to port directly. 
 3. An `Argument` is predominantly metadata. It does not parse command lines or write to a namespace itself.
 4. Actions describe how accepted values affect the namespace. Conversion and validation happen before an action executes.
 5. The parsing core does not print, call `stop`, or call `error stop`. It returns a structured result containing the namespace, errors, and any help/version request.
-6. Only the high-level `parse_args` convenience routine may implement argparse-like printing and termination. Non-terminating callers use `parse_tokens` or `try_parse_args` and receive a `ParseResult`.
+6. Only the process-level conveniences terminate: `parse_args` (argparse-like printing and exit), `parser%error` (application-reported usage errors), and namespace retrieval without `stat=` (a programming error, following Fortran's `iostat` convention). Non-terminating callers use `parse_tokens` or `try_parse_args` and receive a `ParseResult`.
 7. Formatter implementations consume a data-only help model. They must not receive `class(*)` parser objects or depend on parser internals.
 8. Abstract types are used where users may add alternative behavior. `Argument`, `Namespace`, and `ArgumentParser` remain concrete types.
 9. New functionality is implemented as tested vertical slices. The project should remain buildable at every completed phase.
 
-## Target module structure
+## Module structure
 
 ```text
 src/fclap/
 |-- argparser.f90
 |-- argument.f90
+|-- registration.f90
 |-- nargs.f90
 |-- namespace.f90
 |-- value/
 |   |-- abstract.f90
-|   `-- builtin.f90
+|   |-- builtin.f90
+|   `-- convert.f90
 |-- actions/
 |   |-- abstract.f90
 |   |-- store.f90
@@ -42,12 +44,11 @@ src/fclap/
 |   `-- bounds.f90
 |-- groups/
 |   |-- abstract.f90
-|   |-- argument.f90
+|   |-- helppage.f90
 |   `-- mutex.f90
 |-- parse/
 |   |-- context.f90
 |   |-- result.f90
-|   |-- consumer.f90
 |   `-- engine.f90
 |-- formatter/
 |   |-- model.f90
@@ -59,7 +60,6 @@ src/fclap/
 |   `-- stack.f90
 `-- utils/
     |-- accuracy.f90
-    |-- system.f90
     `-- version.f90
 ```
 
@@ -79,7 +79,7 @@ Define an abstract `ValueType` for values stored in a namespace. Initial concret
 
 Because Fortran cannot directly create a heterogeneous allocatable array of abstract values, use a small `ValueBox` containing `class(ValueType), allocatable :: item`. A `NamespaceEntry` contains a destination key and a `ValueBox`; `Namespace` owns an allocatable array of entries.
 
-The namespace provides generic, type-safe `set`, `append`, and `get` bindings. Retrieval reports missing keys and type mismatches explicitly rather than silently returning arbitrary zero values. Initial numeric support may use the project's default integer kind and `wp` real kind; additional numeric kinds can be added after the parser behavior is stable.
+The namespace provides generic, type-safe `set`, `append`, and `get` bindings. Retrieval reports missing keys and type mismatches explicitly rather than silently returning arbitrary zero values. Integers are stored as `int64` and reals as `real64`; the generics accept default `integer`, `int64`, `real64`, and `real32` variables, and strings are returned in deferred-length allocatable variables.
 
 ### Argument definitions
 
@@ -90,7 +90,7 @@ The namespace provides generic, type-safe `set`, `append`, and `get` bindings. R
 - Normalized `nargs`.
 - Conversion metadata.
 - A polymorphic action.
-- Zero or more polymorphic validators.
+- At most one polymorphic validator.
 - A typed default value.
 - Choices and help-display metadata.
 - Required, visible, deprecated, and removed state.
@@ -117,12 +117,13 @@ The public interface should permit both `nargs=2` and `nargs="+"`. Prefer type-b
 
 `ActionType` is abstract and defines how converted values change a namespace. It does not own argument names, destination names, type conversion rules, or help text.
 
-Initial concrete actions are:
+Concrete actions are:
 
 - `StoreAction`
 - `StoreConstAction`
 - `StoreTrueAction`
 - `StoreFalseAction`
+- `BooleanOptionalAction`
 - `AppendAction`
 - `CountAction`
 - `HelpAction`
@@ -132,20 +133,19 @@ Public factory functions such as `store_true()`, `append()`, and `count()` retur
 
 ### Validators
 
-`ValidatorType` is abstract and validates already-converted values without storing them. Initial concrete validators are:
+`ValidatorType` is abstract and validates already-converted values without storing them. Concrete validators are:
 
 - `ChoicesValidator`
 - `LowerBoundValidator`
 - `UpperBoundValidator`
+- `RangeValidator`
 
-The existing `not_less_than` and future `not_bigger_than` concepts belong here rather than in the action hierarchy. Their intended interface is, for example:
+The bound validators `not_less_than`, `not_bigger_than`, and `in_range` belong here rather than in the action hierarchy. For example:
 
 ```fortran
 call parser%add_argument("--threads", data_type="integer", default=1, &
                          validator=not_less_than(1))
 ```
-
-An optional compatibility adapter for the former action-based spelling can be considered only after the new API is stable.
 
 ### Groups
 
@@ -158,7 +158,7 @@ Both types extend `GroupType` directly. A mutex group is not a subtype of a help
 
 Group validation receives the parse context's explicit `seen` state. A default value does not count as an argument supplied by the user.
 
-Initially, group creation should return a stable integer handle accepted by `add_argument`. A more Python-like `group%add_argument(...)` handle can be introduced later only after pointer lifetime, parser copying, and container reallocation are tested across supported compilers.
+Group creation returns a stable `GroupHandle` accepted by `add_argument`. A more Python-like `group%add_argument(...)` handle can be introduced later only after pointer lifetime, parser copying, and container reallocation are tested across supported compilers.
 
 ### Formatters
 
@@ -229,8 +229,8 @@ Token classification must not assume that every token beginning with `-` is an o
 
 Status: completed. The frozen Phase 0 artifacts are:
 
-- [`docs/design/feature-matrix.md`](docs/design/feature-matrix.md), which records legacy behavior and classifies initial, later, and unsupported features.
-- [`docs/design/api-contract.md`](docs/design/api-contract.md), which defines the initial public vocabulary, parsing outcomes, errors, and edge-case semantics.
+- [`doc/design/feature-matrix.md`](doc/design/feature-matrix.md), which records legacy behavior and classifies initial, later, and unsupported features.
+- [`doc/design/api-contract.md`](doc/design/api-contract.md), which defines the initial public vocabulary, parsing outcomes, errors, and edge-case semantics.
 
 1. Extract the useful behavior of `old/` into a feature matrix.
 2. Classify features as initial release, later compatibility, or intentionally unsupported.
@@ -442,6 +442,99 @@ Sphinx build with warnings treated as errors.
 5. Remove `old/` only after every retained behavior has a corresponding test.
 6. Confirm that installed module files and package metadata expose only the supported public API.
 
+### Phase 9: production hardening
+
+Status: completed. A production-readiness review found defects that the
+existing suite did not cover; each fix below has a regression test.
+
+- Numeric tokens are parsed strictly. List-directed input previously accepted
+  `2*7`, `4 foo`, `3,9`, and `5/`, and returned an undefined value for `,`.
+- `parse_args` terminates with a quiet `stop 2`; `error stop` made gfortran
+  print a backtrace for every command-line mistake.
+- `--name=value`, `-n=value`, `-nVALUE`, and flag clusters such as `-vvn` are
+  supported, and a lone `-` is an ordinary value.
+- Validators declare the argument types they can check, so an integer bound on
+  a real argument is a configuration error (`ERR_INCOMPATIBLE_VALIDATOR`)
+  instead of rejecting every value. `in_range(lower, upper)` was added.
+- Integers are stored with 64-bit range. `Namespace`, `store_const`, and the
+  bound validators accept `int32`/`int64` and `real32`/`real64`, and narrowing
+  retrieval reports `ERR_NAMESPACE_OUT_OF_RANGE`.
+- String retrieval can return the exact stored length instead of silently
+  truncating to a fixed-length variable.
+- Mutex diagnostics name the conflicting options, `parse_args` prints
+  argparse-style `prog: error: argument -j/--threads: ...` lines through
+  `format_diagnostic`, and usage wrapping never splits one usage item.
+- CMake passes `-std=f2018` to GNU through compile options, since CMake has no
+  Fortran standard property. It also exposes `fclap::fclap` in the build tree,
+  builds tests only for top-level builds (`FCLAP_BUILD_TESTING`), no longer
+  registers test-drive's own tests, and leaves a parent project's build type
+  alone. Meson overrides `dependency('fclap')` for subproject consumers and
+  runs the shared CLI policy script when CMake is available.
+- The `subcommands` and `library_mode` examples were restored. The Sphinx
+  configuration moved to `doc/source/conf.py`, all `docs/` paths now point to
+  `doc/`, and the generated `doc/build/` tree is no longer tracked.
+- CI adds an `add_subdirectory` consumer, plus fpm jobs for gfortran on macOS
+  and Windows and non-blocking ifx and LLVM flang jobs on Linux.
+
+Verification passed all 94 Test Drive cases with fpm (debug with GNU runtime
+checks, and release), fresh CMake/CTest and Meson builds, CMake, pkg-config,
+and `add_subdirectory` consumers, the CLI policy script under both build
+systems, the manifest audit, three example smoke runs, and a Sphinx build with
+warnings treated as errors. The CI portability jobs have not yet run.
+
+### Phase 10: usability and maintainability review
+
+Status: completed. A second review rated code quality B+, feature
+completeness B, and ease of use B-; this phase addresses its findings.
+
+- Registration validation moved from the 330-line `add_argument` into
+  `fclap_registration` (`argparser.f90` shrank from 1,478 to about 1,170
+  lines). Behaviour is unchanged and covered by the registration tests.
+- Mutex groups reject members that can never be omitted (required options,
+  positionals needing a value) through a new `GroupType%accepts_member` hook.
+- Errors inside subcommands report absolute token positions.
+- Invalid parser definitions are reported by `parse_args` as
+  `prog: invalid parser definition: argument -x/--output: ...` with exit
+  status 70, and configuration errors record the offending spelling.
+- Namespace retrieval without `stat=` stops with a message naming the key on
+  failure (Fortran's `iostat` convention); values that always exist can be
+  read without boilerplate.
+- `boolean_optional()` (`--x`/`--no-x`) and `ArgumentParser%error(message)`
+  were added. `ActionType` gained `option_names`, `apply_option`, and
+  `replaces_default` hooks.
+- `append` replaces a `default=` list on its first explicit occurrence, and
+  `-h`/`--version` after an unknown token still shows help, as in argparse.
+- The usage line lists options before positionals; help shows choices as
+  `{a,b}` metavars, hides implicit flag defaults, and prints reals in their
+  shortest form.
+- `ErrorEntry%flag`/`flag_index` were renamed to `token`/`token_index`.
+  Facade exports are grouped into application and extension interfaces, and
+  every module has a doc comment.
+- Portability is verified: all 109 Test Drive cases and the CLI policy pass
+  with GNU Fortran 13.3 (also ASan/UBSan), Intel ifx 2026.1.1 (also
+  `-check all`), and LLVM flang 20.1.8. The sanitizer run found one bug
+  introduced by the registration split (an unallocated argument array passed
+  to `copy_parent`), now fixed; CI gained a sanitizer job and a flang job
+  using the verified conda-forge setup.
+- Line coverage rose from 86.5% to 89.6%; `namespace.f90` and `bounds.f90`
+  are above 90%.
+
+### Phase 11: API cleanup
+
+Status: completed. The public interface keeps one spelling per operation.
+
+- Examples, tests, and documentation use plain integers and the
+  application's own real kind; the facade no longer exports `ip` and `wp`.
+- The generic `Namespace%get` returns scalar strings in
+  `character(len=:), allocatable` variables with their exact length. The
+  fixed-length getter and `ERR_NAMESPACE_TRUNCATED` were removed, so passing a
+  fixed-length variable is a compile-time error instead of a silent
+  truncation or an unallocated-variable bug.
+- The aliases `get_string_alloc`, `has_key`, `Namespace%init`, and
+  `ErrorStack%add_error`, and the unused `Argument%derive_dest` and
+  `ValueBox%is_allocated`, were removed.
+- The documentation was audited against the source and corrected.
+
 ## Testing strategy
 
 All Fortran unit and parser-behavior tests must use the `test-drive` framework. The current procedural legacy test program should be split into focused test modules collected by one test driver.
@@ -454,15 +547,19 @@ test/unit/
 |-- test_nargs.f90
 |-- test_errors.f90
 |-- test_values.f90
+|-- test_conversion.f90
 |-- test_namespace.f90
-|-- test_argument.f90
 |-- test_actions.f90
 |-- test_validators.f90
 |-- test_registration.f90
 |-- test_parse_engine.f90
+|-- test_parse_actions.f90
+|-- test_parse_nargs.f90
+|-- test_cli_syntax.f90
 |-- test_formatter.f90
 |-- test_groups.f90
-`-- test_subparsers.f90
+|-- test_subparsers.f90
+`-- test_usability.f90
 ```
 
 Each test should exercise one observable contract. Tests should not depend on printed diagnostics when the same behavior can be asserted through `ParseResult` and `ErrorStack`.
@@ -605,7 +702,7 @@ program example
 end program example
 ```
 
-Applications that must not terminate use `parse_tokens` or `try_parse_args` and inspect the returned `ParseResult`, as defined by the Phase 0 API contract.
+Applications that must not terminate use `parse_tokens` or `try_parse_args` and inspect the returned `ParseResult`, as defined by the API contract.
 
 ## Completion criteria
 
@@ -617,7 +714,7 @@ The modular rewrite is complete when:
 4. Reusing a parser for multiple explicit token arrays is safe.
 5. Defaults preserve their declared types and do not count as explicitly supplied values.
 6. `nargs`, `--`, and negative numeric values behave consistently.
-7. Custom actions, validators, groups, and formatters can be added without modifying the token-consumption engine.
+7. Custom actions, validators, and formatters can be added without modifying the token-consumption engine. (Groups are an internal extension point; `GroupType` is not exported.)
 8. Help output is deterministic and snapshot-tested.
 9. Public examples compile against only the `fclap` facade module.
 10. The initial CI workflow passes, with the expanded OS/compiler/build-system matrix documented and scheduled for incremental rollout.

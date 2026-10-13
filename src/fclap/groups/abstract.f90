@@ -35,6 +35,8 @@ module fclap_groups_abstract
         procedure :: make_help_snapshot => group_make_help_snapshot
         procedure, non_overridable :: validate_members => group_validate_members
         procedure :: validate_presence => group_validate_presence
+        !> Decide at registration whether an argument may join the group
+        procedure :: accepts_member => group_accepts_member
     end type GroupType
 
     !> Box permitting one owned array of heterogeneous concrete groups.
@@ -164,10 +166,26 @@ contains
         end do
     end subroutine group_validate_members
 
+    !> Ordinary groups accept every argument.
+    logical function group_accepts_member(self, required, positional, &
+        min_count, reason) result(accepted)
+        class(GroupType), intent(in) :: self
+        logical, intent(in) :: required, positional
+        integer, intent(in) :: min_count
+        character(len=:), allocatable, intent(out) :: reason
+
+        accepted = .true.
+        reason = ""
+    end function group_accepts_member
+
     !> Default validation for ordinary groups with no additional constraint.
-    subroutine group_validate_presence(self, seen, group_index, errors)
+    !>
+    !> `labels(i)` is the user-facing spelling of argument `i`, used to name
+    !> members in diagnostics.
+    subroutine group_validate_presence(self, seen, labels, group_index, errors)
         class(GroupType), intent(in) :: self
         logical, intent(in) :: seen(:)
+        character(len=*), intent(in) :: labels(:)
         integer, intent(in) :: group_index
         type(ErrorStack), intent(inout) :: errors
 

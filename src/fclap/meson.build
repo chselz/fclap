@@ -33,6 +33,7 @@ srcs += files(
   'validators/choices.f90',
   'validators/bounds.f90',
   'argument.f90',
+  'registration.f90',
   'groups/abstract.f90',
   'groups/helppage.f90',
   'groups/mutex.f90',

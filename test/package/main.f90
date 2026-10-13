@@ -1,21 +1,21 @@
 program package_consumer
     use fclap, only : Argument, ArgumentParser, ParseResult, FCLAP_OK, &
         PARSE_SUCCESS, &
-        fclap_version_string, get_fclap_version, ip, store_true
+        fclap_version_string, get_fclap_version, store_true
     implicit none
 
     type(ArgumentParser) :: parser
     type(Argument) :: definition
     type(ParseResult) :: result
     character(len=:), allocatable :: version
-    character(len=32) :: input
-    integer(ip) :: count
+    character(len=:), allocatable :: input
+    integer :: count
     integer :: stat
     logical :: verbose
 
     call parser%init(prog="consumer", add_help=.false.)
     call parser%add_argument("input")
-    call parser%add_argument("--count", data_type="integer", default=1_ip)
+    call parser%add_argument("--count", data_type="integer", default=1)
     call parser%add_argument("--verbose", action=store_true())
     definition = parser%get_argument(1)
     if (definition%primary_name() /= "input") error stop "inspection failed"
@@ -27,7 +27,7 @@ program package_consumer
     if (stat /= FCLAP_OK .or. trim(input) /= "input.dat") &
         error stop "string retrieval failed"
     call result%namespace%get("count", count, stat)
-    if (stat /= FCLAP_OK .or. count /= 2_ip) &
+    if (stat /= FCLAP_OK .or. count /= 2) &
         error stop "integer retrieval failed"
     call result%namespace%get("verbose", verbose, stat)
     if (stat /= FCLAP_OK .or. .not. verbose) &

@@ -53,7 +53,7 @@ contains
 
         allocate(self%seen(max(0, argument_count)), source=.false.)
         allocate(self%completed(max(0, argument_count)), source=.false.)
-        call self%namespace%init()
+        call self%namespace%clear()
         call self%errors%clear()
     end subroutine context_init
 

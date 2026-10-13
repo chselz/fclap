@@ -19,6 +19,16 @@ name = "basic"
 source-dir = "example"
 main = "basic.f90"
 
+[[example]]
+name = "subcommands"
+source-dir = "example"
+main = "subcommands.f90"
+
+[[example]]
+name = "library_mode"
+source-dir = "example"
+main = "library_mode.f90"
+
 [[test]]
 name = "tester"
 source-dir = "test/unit"

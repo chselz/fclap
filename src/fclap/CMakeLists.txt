@@ -36,6 +36,7 @@ list(
   "${dir}/validators/choices.f90"
   "${dir}/validators/bounds.f90"
   "${dir}/argument.f90"
+  "${dir}/registration.f90"
   "${dir}/groups/abstract.f90"
   "${dir}/groups/helppage.f90"
   "${dir}/groups/mutex.f90"

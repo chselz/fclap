@@ -56,6 +56,34 @@ Contributions are welcome via GitHub pull requests.
 - Be willing to accept criticism and work on improving your code.
 
 
+### Building and Testing
+
+fpm is the main development workflow; CMake and Meson must keep working too:
+
+```sh
+fpm test
+fpm run --example basic -- input.dat --threads 2
+
+cmake -S . -B _build -DCMAKE_BUILD_TYPE=Debug
+cmake --build _build
+ctest --test-dir _build --output-on-failure
+
+meson setup _meson
+meson test -C _meson --print-errorlogs
+```
+
+When you add or remove a source file, list it in `src/fclap/CMakeLists.txt`
+and `meson.build` as well (`python3 config/check-manifests.py` checks this),
+and register new test suites in `test/unit/main.f90`,
+`test/unit/CMakeLists.txt`, and `test/unit/meson.build`.
+
+- Expected failures are tested through `parse_tokens` by checking error codes
+  and structured fields, never by calling `parse_args`, which terminates.
+- Changes to the public interface update `doc/source/api/fclap.rst` and
+  `doc/design/api-contract.md`; build the documentation with
+  `sphinx-build -W -b html doc/source doc/build/html`.
+
+
 ### For New Contributors
 
 If you never created a pull request before, welcome :tada:.
@@ -64,7 +92,7 @@ You can learn how from
 
 Don't know where to start?
 You can start by looking through these
-[help-wanted issues](https://github.com/chselz/issues).
+[help-wanted issues](https://github.com/chselz/fclap/issues).
 
 
 ## Sign Your Work

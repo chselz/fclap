@@ -27,6 +27,8 @@ module fclap_formatter_model
         logical :: required = .false.
         logical :: visible = .true.
         logical :: has_default = .false.
+        !> The default comes from the action (e.g. `.false.` for a flag)
+        logical :: implicit_default = .false.
         logical :: has_choices = .false.
         logical :: print_default = .true.
         logical :: print_choices = .false.

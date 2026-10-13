@@ -1,5 +1,6 @@
 module test_parse_engine
-    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, ip, wp, &
+    use, intrinsic :: iso_fortran_env, only : wp => real64
+    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, &
         FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_DUPLICATE_OPTION, &
         ERR_UNKNOWN_ARGUMENT, ERR_MISSING_VALUE, ERR_EXTRA_POSITIONAL, &
         ERR_MISSING_REQUIRED
@@ -32,7 +33,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
-        character(len=32) :: input, output
+        character(len=:), allocatable :: input, output
         integer :: stat
 
         call parser%init(add_help=.false.)
@@ -63,7 +64,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: first, second
-        character(len=32) :: value
+        character(len=:), allocatable :: value
         character(len=1), allocatable :: no_tokens(:)
         integer :: stat
 
@@ -122,7 +123,7 @@ contains
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
         type(ErrorEntry) :: entry
-        character(len=16) :: value
+        character(len=:), allocatable :: value
         character(len=1), allocatable :: no_tokens(:)
         integer :: stat
 
@@ -175,9 +176,9 @@ contains
         if (allocated(error)) return
         call check(error, entry%arg_name, "--unknown")
         if (allocated(error)) return
-        call check(error, entry%flag, "--unknown")
+        call check(error, entry%token, "--unknown")
         if (allocated(error)) return
-        call check(error, entry%flag_index, 1)
+        call check(error, entry%token_index, 1)
     end subroutine test_unknown_option
 
     subroutine test_missing_option_value(error)
@@ -199,9 +200,9 @@ contains
         if (allocated(error)) return
         call check(error, entry%arg_name, "output")
         if (allocated(error)) return
-        call check(error, entry%flag, "-o")
+        call check(error, entry%token, "-o")
         if (allocated(error)) return
-        call check(error, entry%flag_index, 1)
+        call check(error, entry%token_index, 1)
         if (allocated(error)) return
         call check(error, result%namespace%contains("output"), .false.)
     end subroutine test_missing_option_value
@@ -211,7 +212,7 @@ contains
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
         type(ErrorEntry) :: entry
-        character(len=16) :: input
+        character(len=:), allocatable :: input
         integer :: stat
 
         call parser%init(add_help=.false.)
@@ -225,9 +226,9 @@ contains
         entry = result%errors%get(1)
         call check(error, entry%code, ERR_EXTRA_POSITIONAL)
         if (allocated(error)) return
-        call check(error, entry%flag, "two.dat")
+        call check(error, entry%token, "two.dat")
         if (allocated(error)) return
-        call check(error, entry%flag_index, 2)
+        call check(error, entry%token_index, 2)
         if (allocated(error)) return
 
         ! Values accepted before a later fatal token remain available.
@@ -241,7 +242,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
-        character(len=16) :: value
+        character(len=:), allocatable :: value
         integer :: stat
 
         call parser%init(add_help=.false.)
@@ -260,7 +261,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: option_parser, positional_parser
         type(ParseResult) :: result
-        integer(ip) :: level
+        integer :: level
         real(wp) :: offset
         integer :: stat
 
@@ -284,7 +285,7 @@ contains
         call result%namespace%get("level", level, stat)
         call check(error, stat, FCLAP_OK)
         if (allocated(error)) return
-        call check(error, level, -7_ip)
+        call check(error, level, -7)
     end subroutine test_negative_values
 
 end module test_parse_engine

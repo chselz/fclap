@@ -4,15 +4,28 @@ Public API reference
 Supported module
 ----------------
 
-Applications import the ``fclap`` facade:
+Applications import the ``fclap`` facade. Its exports are grouped into the
+*application interface* (parser, namespace, results, action and validator
+factories, error codes) and the *extension interface* (abstract
+types and the value, nargs, and help-model types they exchange). Most programs
+need only the first group:
 
 .. code-block:: fortran
 
    use fclap, only : ArgumentParser, Namespace, ParseResult
 
-The installed CMake target is ``fclap::fclap`` and the pkg-config package is
+The CMake target is ``fclap::fclap`` both for an installed package and for
+``add_subdirectory``/``FetchContent`` builds, and the pkg-config package is
 ``fclap``. Internal modules prefixed with ``fclap_`` are implementation
 dependencies and may change without compatibility guarantees.
+
+Always import with an ``only`` list. The facade exports short names such as
+``count``, ``store``, and ``append``; a bare ``use fclap`` shadows the
+``count`` intrinsic. Rename on import when needed:
+
+.. code-block:: fortran
+
+   use fclap, only : ArgumentParser, count_action => count
 
 ArgumentParser
 --------------
@@ -47,7 +60,7 @@ Argument registration
    call parser%add_argument(name1, name2, name3, name4, action, nargs, &
        data_type, default, const, choices, validator, required, help, &
        metavar, dest, visible, deprecated_msg, removed_msg, print_default, &
-       print_choices, group)
+       print_choices, group, case_insensitive_choices)
 
 ``name1`` is required; the other names are optional aliases. Important dummy
 argument types are:
@@ -72,10 +85,18 @@ argument types are:
      - supported intrinsic rank-one array
    * - ``validator``
      - ``class(ValidatorType)``
-   * - ``required``, ``visible``, ``print_default``, ``print_choices``
+   * - ``required``, ``visible``, ``print_default``, ``print_choices``,
+       ``case_insensitive_choices``
      - logical scalar
    * - ``group``
      - ``type(GroupHandle)``
+
+``case_insensitive_choices=.true.`` matches string choices without regard to
+ASCII letter case and stores the declared spelling: with
+``choices=["HNC", "KH", "PY"]``, the token ``hnc`` is stored as ``HNC``.
+Defaults and ``const`` values are matched and normalized the same way. It is
+valid only for string arguments with choices, and choices that differ only by
+case are rejected as ambiguous.
 
 Registration is transactional. Invalid definitions append a structured
 configuration error and are not partially committed.
@@ -90,7 +111,13 @@ Groups
 
 Both functions return ``GroupHandle``. All dummy arguments except the ordinary
 group's ``title`` are optional. Pass the result as ``group=handle`` to
-``add_argument``.
+``add_argument``. ``handle%is_valid()`` is false for a handle that was never
+assigned by a parser.
+
+Members of a mutually exclusive group must be omissible: a
+``required=.true.`` option or a positional that needs a value is rejected with
+``ERR_INVALID_GROUP``, because it would conflict with every other member. Use
+``required=.true.`` on the group instead.
 
 Subcommands
 ~~~~~~~~~~~
@@ -105,6 +132,12 @@ destination ``command``, and ``required=.false.``. ``name`` is required for
 ``add_parser``; ``subparser`` and ``help_text`` are optional. A supplied child
 is deep-copied and its complete program path is rebased under the parent.
 
+.. important::
+
+   ``add_parser`` stores a **snapshot**. Arguments, groups, or nested
+   subparsers added to the child variable after ``add_parser`` returns are not
+   seen by the parent. Build each child completely before registering it.
+
 Parsing and output
 ~~~~~~~~~~~~~~~~~~
 
@@ -117,7 +150,64 @@ Parsing and output
 ``tokens`` is a rank-one character array. The first two functions return
 ``ParseResult`` and never print or terminate. ``parse_args`` returns
 ``Namespace`` only on success and implements the process-level print/exit
-policy for help, version, warnings, and failures.
+policy for help, version, warnings, and failures. Failures end with a normal
+``stop 2`` so compiler runtimes do not print a backtrace for user mistakes.
+
+If the parser definition itself is invalid (for example a duplicated option),
+``parse_args`` prints each problem as ``prog: invalid parser definition:
+argument -x/--output: ...`` and stops with status 70 instead of treating it as
+a user error. ``parser%is_valid()`` and ``parser%get_config_errors()`` let
+programs check this earlier.
+
+As in argparse, ``-h`` or ``--version`` anywhere after an unrecognized option
+or a stray positional still shows help or the version. Conversion and
+validation errors are reported even when help follows.
+
+Report your own checks the same way the parser reports usage errors:
+
+.. code-block:: fortran
+
+   if (.not. file_exists) call parser%error("input file does not exist")
+
+``error`` prints the usage line and ``prog: error: <message>`` to
+``error_unit`` and stops with status 2.
+
+Diagnostics can be rendered in the same form ``parse_args`` prints:
+
+.. code-block:: fortran
+
+   text = parser%format_diagnostic(entry)
+   call parser%print_diagnostics(result, unit)
+
+``unit`` is required here; pass ``error_unit`` to match ``parse_args``.
+
+For example ``tool: error: argument -j/--threads: value must not be less than
+1 (got '0')`` or ``tool: warning: argument --old: use --new``.
+
+Token syntax
+~~~~~~~~~~~~
+
+The parser accepts, in order of precedence:
+
+- an exact registered spelling, including multi-letter single-dash options
+  such as ``-np``;
+- ``--name=value`` and ``-n=value``, split at the first ``=``; the attached
+  text is the only value of that occurrence and may begin with ``-``;
+- ``-nVALUE`` for a one-letter option that takes values (``-j4``,
+  ``-I/usr/include``);
+- clusters of one-letter flags such as ``-vvn``; the first letter that takes
+  values ends the cluster and receives the rest of the token (``-vj4``) or the
+  following tokens (``-vj 4``).
+
+A lone ``-`` is an ordinary value, conventionally standard input or output.
+``--`` ends option processing. An attached value given to a flag produces
+``ERR_UNEXPECTED_VALUE``; an attached value for an option that needs more than
+one value produces ``ERR_MISSING_VALUE``.
+
+Integer tokens must be an optional sign followed by decimal digits. Real
+tokens are decimal literals with an optional ``e``, ``E``, ``d``, or ``D``
+exponent, or ``inf``, ``infinity``, or ``nan``. Anything else, including
+Fortran list-directed forms such as ``2*7`` or ``4,5``, is ``ERR_INVALID_VALUE``.
 
 .. code-block:: fortran
 
@@ -160,7 +250,7 @@ normalized ``NargsSpec``, data type, polymorphic action and validator,
    yes = definition%matches_name("--output")
    yes = definition%is_positional()
    name = definition%primary_name()
-   dest = definition%derive_dest()
+   dest = definition%dest
    metavar = definition%effective_metavar()
    spelling = definition%nargs_display()
    value = definition%nargs_value()
@@ -176,20 +266,58 @@ Namespace
 
 .. code-block:: fortran
 
-   call args%get(key, scalar_or_allocatable_list, stat)
+   call args%get(key, scalar_or_list, stat)
    call args%set(key, scalar_or_list)
    call args%append(key, scalar, stat)
    present = args%contains(key)
-   present = args%has_key(key)
    count = args%size()
    call args%merge(other, overwrite)
+   call args%remove(key)
    call args%clear()
 
-The generic ``get``, ``set``, and ``append`` support character, ``integer(ip)``,
-``real(wp)``, and logical values. List outputs from ``get`` are allocatable.
-The optional ``stat`` is ``FCLAP_OK`` or a namespace error code. Retrieval
-leaves the output unchanged on failure. ``merge`` deep-copies values;
-``overwrite`` defaults to true.
+The generic ``get``, ``set``, and ``append`` support character, default
+``integer`` and ``integer(int64)``, double-precision ``real`` (``real64``) and
+``real(real32)``, and logical values. Plain integer literals and variables
+need no kind parameter. Integers are stored with 64-bit range;
+retrieving into a narrower kind returns ``ERR_NAMESPACE_OUT_OF_RANGE`` instead
+of wrapping.
+
+Strings and lists are returned in allocatable variables with their exact
+stored length and size:
+
+.. code-block:: fortran
+
+   character(len=:), allocatable :: path
+   character(len=:), allocatable :: tags(:)
+   integer, allocatable :: sizes(:)
+
+   call args%get("path", path)
+   call args%get("tag", tags)
+   call args%get("size", sizes)
+
+A fixed-length ``character(len=n)`` variable does not match ``get`` and is a
+compile-time error; assign from the allocatable result if a fixed buffer is
+needed.
+
+``stat`` follows Fortran's ``iostat`` convention. When it is present it
+receives ``FCLAP_OK`` or a namespace error code and the program continues.
+When it is absent, a failure (a mistyped key, a wrong variable type, or a
+value outside the requested kind) stops the program with a message naming the
+key. Values that always exist, such as
+positionals, flags, and options with defaults, can therefore be read without
+``stat``. Pass ``stat`` for optional values that may be absent:
+
+.. code-block:: fortran
+
+   call args%get("threads", threads)          ! always present: default 1
+   call args%get("output", output, stat)      ! optional, no default
+   if (stat == FCLAP_OK) call write_results(output)
+
+Retrieval leaves the output unchanged on failure. ``merge`` deep-copies
+values; ``overwrite`` defaults to true.
+
+Custom actions store ready-made values with ``set_value(key, box)`` and
+``append_value(key, box, stat)``, where ``box`` is a ``ValueBox``.
 
 ParseResult
 -----------
@@ -219,10 +347,14 @@ ParseResult
 Errors
 ------
 
-``ErrorEntry`` exposes ``code``, ``severity``, ``message``, optional
-``arg_name`` and ``flag``, and ``flag_index``. ``entry%to_string()`` returns a
-deterministic diagnostic without including the numeric error code. The code
-remains available separately for structured handling.
+``ErrorEntry`` exposes ``code``, ``severity``, ``message``, and optional
+``arg_name``, ``token``, and ``token_index``. ``token`` is the command-line
+token that caused the diagnostic and ``token_index`` its one-based position on
+the full command line, also inside subcommands. For configuration errors,
+``token`` holds the definition's spelling, such as ``-x/--output``.
+``entry%to_string()`` returns a deterministic diagnostic without including the
+numeric error code. The code remains available separately for structured
+handling.
 
 ``ErrorStack`` provides:
 
@@ -238,6 +370,7 @@ remains available separately for structured handling.
    yes = errors%has_warnings()
    text = errors%format_all()
    call errors%print_all(unit)
+   call errors%offset_token_indices(offset)
    call errors%clear()
 
 Outcome and severity constants are ``PARSE_SUCCESS``, ``PARSE_FAILURE``,
@@ -255,20 +388,51 @@ Built-in action factories are:
    store_const(value)
    store_true()
    store_false()
+   boolean_optional()
    append()
    count()
 
-Their concrete public types are ``StoreAction``, ``StoreConstAction``,
-``StoreTrueAction``, ``StoreFalseAction``, ``AppendAction``, and
-``CountAction``. Extend abstract ``ActionType`` by implementing ``apply``;
-override its arity, list-shape, value-type, or implicit-default methods when
-needed. An implementation reports ``ACTION_CONTINUE``,
-``ACTION_HELP_REQUESTED``, or ``ACTION_VERSION_REQUESTED`` through the action
-outcome argument.
+``boolean_optional()`` adds a ``--no-name`` spelling for every long
+``--name``: ``--cache`` stores true and ``--no-cache`` false, with the last
+occurrence winning. Its implicit default is false; pass ``default=.true.`` for
+features that are on unless disabled. Help lists both spellings.
 
-Built-in validator factories are ``not_less_than(bound)`` and
-``not_bigger_than(bound)``, returning ``LowerBoundValidator`` and
-``UpperBoundValidator``. Extend ``ValidatorType`` by implementing ``validate``.
+``append()`` collects every occurrence in order. Explicit occurrences replace
+a ``default=`` list rather than extending it, so ``--tag x`` with
+``default=["base"]`` gives ``["x"]``. This deliberately differs from argparse.
+
+Their concrete public types are ``StoreAction``, ``StoreConstAction``,
+``StoreTrueAction``, ``StoreFalseAction``, ``BooleanOptionalAction``,
+``AppendAction``, and ``CountAction``. Extend abstract ``ActionType`` by
+implementing ``apply``. Override ``default_nargs``, ``accepts_nargs``,
+``produces_list``, ``value_type``, or ``implicit_default`` when the action's
+arity, list shape, value type, or implicit default differs from ``store``, and
+optionally:
+
+- ``option_names(names, expanded)`` to add spellings at registration;
+- ``apply_option(option_name, ...)`` to react to the spelling that matched
+  (it calls ``apply`` by default);
+- ``replaces_default()`` to start from an empty value on the first explicit
+  occurrence.
+
+An implementation reports ``ACTION_CONTINUE``, ``ACTION_HELP_REQUESTED``, or
+``ACTION_VERSION_REQUESTED`` through the action outcome argument.
+
+Built-in validator factories are ``not_less_than(bound)``,
+``not_bigger_than(bound)``, and ``in_range(lower, upper)``, returning
+``LowerBoundValidator``, ``UpperBoundValidator``, and ``RangeValidator``. All
+bounds are inclusive and accept default ``integer``, ``integer(int64)``,
+double-precision, and ``real(real32)`` limits, e.g. ``in_range(1, 64)``.
+
+The limit kind must match the argument type: ``not_less_than(0)`` on a
+``real`` argument is rejected at registration with
+``ERR_INCOMPATIBLE_VALIDATOR``; write ``not_less_than(0.0_wp)``. An
+``in_range`` whose lower limit exceeds its upper limit is rejected the same
+way.
+
+Extend ``ValidatorType`` by implementing ``validate``. Override
+``accepts_type(type_name)`` to reject argument types the validator cannot
+check; the default accepts every type.
 
 Formatting
 ----------
@@ -283,6 +447,12 @@ and ``help_width`` components:
 
    formatter = StandardFormatter(help_width=100)
    call parser%init(formatter=formatter)
+
+The standard formatter follows argparse conventions: usage lists options
+before positionals, arguments with choices and no explicit ``metavar`` show
+the choices as metavar (``--mode {fast,slow}``), flags do not repeat their
+implicit ``.false.`` default, and real values are printed in their shortest
+exact form (``0.1``).
 
 Custom formatters implement ``format_usage(model)`` and
 ``format_help(model)``. The public data-only model types are ``HelpArgument``,
@@ -301,17 +471,23 @@ Construct and normalize ``NargsSpec`` values with:
 The type provides ``value``, ``is_valid``, ``min_count``, ``max_count``,
 ``is_variable``, ``produces_list``, and ``to_string`` queries. Public constants
 include ``NARGS_ZERO``, ``NARGS_ONE``, ``NARGS_OPTIONAL``,
-``NARGS_ZERO_OR_MORE``, ``NARGS_ONE_OR_MORE``, ``NARGS_REMAINDER``, and
-``NARGS_UNBOUNDED``; normalization reports ``NARGS_SUCCESS`` or
-``NARGS_INVALID_VALUE``.
+``NARGS_ZERO_OR_MORE``, ``NARGS_ONE_OR_MORE``, ``NARGS_REMAINDER``,
+``NARGS_UNBOUNDED``, and ``NARGS_INVALID`` (the value of an invalid spec);
+normalization reports ``NARGS_SUCCESS`` or ``NARGS_INVALID_VALUE``.
 
 ``ValueType``, ``ValueBox``, ``StringValue``, ``IntegerValue``, ``RealValue``,
 ``LogicalValue``, ``ListValue``, and ``new_value`` support custom action and
 validator extension code. Normal applications normally use ``Namespace``
 instead.
 
-``ip`` and ``wp`` are the integer and real storage kinds used by the public
-typed interfaces.
+Integer interfaces exist for both 32-bit and 64-bit kinds, so default
+``integer`` literals and variables match on every supported compiler; no kind
+suffix is needed.
+Real interfaces exist for ``real64`` and ``real32``; any project kind with the
+same precision, such as a ``wp = selected_real_kind(15)``, matches directly.
+A default-kind real literal such as ``default=0.1`` is widened to double
+precision and keeps its single-precision error; write ``0.1_wp`` with your
+project's own kind, or ``real64`` from ``iso_fortran_env``.
 
 Version information is available through ``fclap_version_string``,
 ``fclap_version_compact``, and:

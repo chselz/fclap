@@ -11,17 +11,21 @@ module fclap_validators_choices
 
     type, extends(ValidatorType) :: ChoicesValidator
         type(ValueBox) :: allowed
+        !> Compare strings without regard to ASCII letter case
+        logical :: ignore_case = .false.
     contains
         procedure :: validate => choices_validate
     end type ChoicesValidator
 
 contains
 
-    function choices_validator(allowed) result(validator)
+    function choices_validator(allowed, ignore_case) result(validator)
         type(ValueBox), intent(in) :: allowed
+        logical, intent(in), optional :: ignore_case
         type(ChoicesValidator) :: validator
 
         validator%allowed = allowed%clone()
+        if (present(ignore_case)) validator%ignore_case = ignore_case
     end function choices_validator
 
     subroutine choices_validate(self, value, valid, message)
@@ -30,7 +34,7 @@ contains
         logical, intent(out) :: valid
         character(len=:), allocatable, intent(out) :: message
 
-        valid = value_in_choices(value, self%allowed)
+        valid = value_in_choices(value, self%allowed, self%ignore_case)
         if (valid) then
             message = ""
         else

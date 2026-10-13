@@ -1,5 +1,6 @@
 module test_parse_nargs
-    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, ip, wp, &
+    use, intrinsic :: iso_fortran_env, only : wp => real64
+    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, &
         FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_MISSING_VALUE
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
@@ -28,8 +29,8 @@ contains
         type(ArgumentParser) :: parser, positional_parser
         type(ParseResult) :: result
         real(wp), allocatable :: point(:)
-        integer(ip), allocatable :: ids(:)
-        character(len=16) :: label
+        integer, allocatable :: ids(:)
+        character(len=:), allocatable :: label
         integer :: stat
 
         call parser%init(add_help=.false.)
@@ -55,7 +56,7 @@ contains
         call check(error, result%outcome, PARSE_SUCCESS)
         if (allocated(error)) return
         call result%namespace%get("ids", ids, stat)
-        call check(error, all(ids == [1_ip, 2_ip]), .true.)
+        call check(error, all(ids == [1, 2]), .true.)
         if (allocated(error)) return
         call result%namespace%get("label", label, stat)
         call check(error, trim(label), "final")
@@ -66,7 +67,7 @@ contains
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
         character(len=:), allocatable :: all_values(:), some_values(:)
-        character(len=16) :: color
+        character(len=:), allocatable :: color
         integer :: stat
 
         call parser%init(add_help=.false.)
@@ -105,7 +106,7 @@ contains
         type(ArgumentParser) :: parser, optional_parser, plus_parser
         type(ParseResult) :: result
         character(len=:), allocatable :: files(:)
-        character(len=16) :: output
+        character(len=:), allocatable :: output
         integer :: stat
 
         call parser%init(add_help=.false.)

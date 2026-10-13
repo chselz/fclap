@@ -14,6 +14,9 @@ program tester
     use test_formatter, only : collect_formatter
     use test_groups, only : collect_groups
     use test_subparsers, only : collect_subparsers
+    use test_conversion, only : collect_conversion
+    use test_cli_syntax, only : collect_cli_syntax
+    use test_usability, only : collect_usability
     implicit none
 
     type(testsuite_type), allocatable :: suites(:)
@@ -33,7 +36,10 @@ program tester
         new_testsuite("validators", collect_validators), &
         new_testsuite("formatter", collect_formatter), &
         new_testsuite("groups", collect_groups), &
-        new_testsuite("subparsers", collect_subparsers) &
+        new_testsuite("subparsers", collect_subparsers), &
+        new_testsuite("conversion", collect_conversion), &
+        new_testsuite("cli syntax", collect_cli_syntax), &
+        new_testsuite("usability", collect_usability) &
     ]
 
     do index = 1, size(suites)

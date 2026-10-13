@@ -64,11 +64,11 @@ contains
         if (allocated(error)) return
         call check(error, entry%arg_name, "--output")
         if (allocated(error)) return
-        call check(error, entry%flag_index, 2)
+        call check(error, entry%token_index, 2)
         if (allocated(error)) return
 
         expected = "[FATAL] option requires a value" // &
-            " (argument: --output) (flag: --output) (index: 2)" // &
+            " (argument: --output) (token: --output) (index: 2)" // &
             new_line('a') // &
             "[WARNING] option is deprecated (argument: --old)"
         call check(error, stack%format_all(), expected)

@@ -36,14 +36,13 @@ Run it with, for example:
 
    tutorial
    api/fclap
-   migration
    documentation
 
 Design references
 -----------------
 
 The frozen behavioral contract and compatibility matrix live in
-``docs/design/api-contract.md`` and ``docs/design/feature-matrix.md`` in the
+``doc/design/api-contract.md`` and ``doc/design/feature-matrix.md`` in the
 source distribution.
 
 Indices and tables
