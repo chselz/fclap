@@ -32,15 +32,12 @@ contains
         call check(error, stack%has_fatal_errors(), .false.)
         if (allocated(error)) return
         call check(error, stack%has_warnings(), .false.)
-        if (allocated(error)) return
-        call check(error, stack%format_all(), "")
     end subroutine test_empty_stack
 
     subroutine test_structured_entries(error)
         type(error_type), allocatable, intent(out) :: error
         type(ErrorStack) :: stack
         type(ErrorEntry) :: entry
-        character(len=:), allocatable :: expected
 
         call stack%add("option requires a value", code=ERR_MISSING_VALUE, &
             severity=ERROR_FATAL, arg_name="--output", token="--output", &
@@ -67,11 +64,8 @@ contains
         call check(error, entry%token_index, 2)
         if (allocated(error)) return
 
-        expected = "[FATAL] option requires a value" // &
-            " (argument: --output) (token: --output) (index: 2)" // &
-            new_line('a') // &
-            "[WARNING] option is deprecated (argument: --old)"
-        call check(error, stack%format_all(), expected)
+        entry = stack%get(2)
+        call check(error, entry%severity, ERROR_WARNING)
     end subroutine test_structured_entries
 
     subroutine test_merge_and_clear(error)

@@ -28,55 +28,69 @@ module fclap_formatter_standard
 
 contains
 
+    !> format the help text appropriately
+    !> important this is not a printing function only the formated text gets
+    !> returned to the caller of this function.
     function standard_format_help(self, model) result(res)
         class(StandardFormatter), intent(in) :: self
         type(HelpModel), intent(in) :: model
         character(len=:), allocatable :: res
-        character(len=:), allocatable :: block
+        character(len=:), allocatable :: section
         integer :: index, width
 
+        ! get the width of the output
         width = effective_width(self)
+        ! when the help page is printed also the information on the usage 
+        ! is printed before the explanation of the flags.
         res = self%format_usage(model)
 
         if (allocated(model%description)) then
             if (len_trim(model%description) > 0) then
                 if (self%raw_description) then
-                    block = trim(model%description)
+                    section = trim(model%description)
                 else
-                    block = wrap_text(trim(model%description), 0, 0, width)
+                    section = wrap_text(trim(model%description), 0, 0, width)
                 end if
-                call append_block(res, block)
+                call append_section(res, section)
             end if
         end if
 
-        block = format_section(self, model, .false., &
+        ! format the positional arguments
+        section = format_section(self, model, .false., &
             "positional arguments:", width)
-        call append_block(res, block)
+        call append_section(res, section)
 
-        block = format_section(self, model, .true., "options:", width)
-        call append_block(res, block)
+        ! format the optional arguments
+        section = format_section(self, model, .true., "options:", width)
+        call append_section(res, section)
 
+        ! format the argument groups
         do index = 1, model_group_count(model)
             if (model%groups(index)%is_mutex) cycle
-            block = format_help_group(self, model, model%groups(index), width)
-            call append_block(res, block)
+            section = format_help_group(self, model, model%groups(index), width)
+            call append_section(res, section)
         end do
 
-        block = format_subcommands(self, model, width)
-        call append_block(res, block)
+        ! format the subcommands
+        section = format_subcommands(self, model, width)
+        call append_section(res, section)
 
+        ! format the epilog
         if (allocated(model%epilog)) then
             if (len_trim(model%epilog) > 0) then
                 if (self%raw_description) then
-                    block = trim(model%epilog)
+                    section = trim(model%epilog)
                 else
-                    block = wrap_text(trim(model%epilog), 0, 0, width)
+                    section = wrap_text(trim(model%epilog), 0, 0, width)
                 end if
-                call append_block(res, block)
+                call append_section(res, section)
             end if
         end if
     end function standard_format_help
 
+    !> format the usage text appropriately
+    !> important this is not a printing function only the formated text gets
+    !> returned to the caller of this function.
     function standard_format_usage(self, model) result(res)
         class(StandardFormatter), intent(in) :: self
         type(HelpModel), intent(in) :: model
@@ -374,8 +388,7 @@ contains
             return
         end if
 
-        suffix = value_pattern(argument%metavar, argument%nargs, &
-            argument%delimiter)
+        suffix = value_pattern(argument)
         label = ""
         if (.not. allocated(argument%names)) return
         do index = 1, size(argument%names)
@@ -401,8 +414,7 @@ contains
         character(len=:), allocatable :: term
         character(len=:), allocatable :: suffix
 
-        suffix = value_pattern(argument%metavar, argument%nargs, &
-            argument%delimiter)
+        suffix = value_pattern(argument)
         if (argument%is_optional) then
             if (.not. allocated(argument%names)) then
                 term = ""
@@ -492,13 +504,31 @@ contains
         end do
     end function argument_in_help_group
 
-    function value_pattern(metavar, nargs, delimiter) result(pattern)
-        character(len=*), intent(in) :: metavar
-        integer, intent(in) :: nargs
-        !> Separator of values written as one token, if any
-        character(len=:), allocatable, intent(in) :: delimiter
+    !> Values of one argument as shown in usage and help, e.g. `N N N`.
+    !>
+    !> An explicit metavar that already contains the separator of a fixed
+    !> count describes every value, e.g. `EX,EY,EZ` or `X Y Z`, and is shown
+    !> once; any other metavar is repeated per value.
+    function value_pattern(argument) result(pattern)
+        type(HelpArgument), intent(in) :: argument
         character(len=:), allocatable :: pattern
-        integer :: index
+        character(len=:), allocatable :: metavar, delimiter, separator
+        integer :: nargs, position
+
+        metavar = trim(argument%metavar)
+        nargs = argument%nargs
+        if (allocated(argument%delimiter)) then
+            delimiter = argument%delimiter
+            separator = delimiter
+        else
+            separator = " "
+        end if
+        if (argument%explicit_metavar .and. nargs > 1) then
+            if (index(metavar, separator) > 0) then
+                pattern = metavar
+                return
+            end if
+        end if
 
         if (allocated(delimiter)) then
             ! One token holding the values, e.g. `N,N,N` or `N[,N...]`.
@@ -511,7 +541,7 @@ contains
                     trim(metavar) // "...]"
             case default
                 pattern = trim(metavar)
-                do index = 2, nargs
+                do position = 2, nargs
                     pattern = pattern // delimiter // trim(metavar)
                 end do
             end select
@@ -659,14 +689,15 @@ contains
         end do
     end function join_trimmed
 
-    subroutine append_block(text, block)
+    !> append a text section to another already existing text-holding variable
+    subroutine append_section(text, section)
         character(len=:), allocatable, intent(inout) :: text
-        character(len=*), intent(in) :: block
+        character(len=*), intent(in) :: section
 
-        if (len(block) == 0) return
+        if (len(section) == 0) return
         if (len(text) > 0) text = text // new_line('a') // new_line('a')
-        text = text // block
-    end subroutine append_block
+        text = text // section
+    end subroutine append_section
 
     pure integer function model_argument_count(model) result(number)
         type(HelpModel), intent(in) :: model

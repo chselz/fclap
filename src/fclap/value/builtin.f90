@@ -1,5 +1,6 @@
 !> Built-in scalar and list value implementations.
 module fclap_value_builtin
+    use, intrinsic :: ieee_arithmetic, only : ieee_is_finite, ieee_is_nan
     use fclap_utils_accuracy, only : i8, ip, wp
     use fclap_value_abstract, only : ValueType, ValueBox
     implicit none
@@ -131,27 +132,89 @@ contains
 
     !> Shortest decimal text that reads back to the same value.
     !>
-    !> Help and diagnostics then show `0.1` rather than `0.10000000000000001`
-    !> and `1.0` rather than `1.0000000000000000`.
+    !> Magnitudes from 1e-3 up to 1e6 use fixed notation, e.g. `0.1` or
+    !> `2.5`; others use scientific notation with one leading digit, e.g.
+    !> `1e-6` or `2.5e10`. Help and diagnostics then show `0.1` rather than
+    !> `0.10000000000000001` and `1e-6` rather than `0.1E-5`.
     function real_value_to_string(self) result(text)
         class(RealValue), intent(in) :: self
         character(len=:), allocatable :: text
+        real(wp) :: magnitude
+
+        if (ieee_is_nan(self%value)) then
+            text = "nan"
+        else if (.not. ieee_is_finite(self%value)) then
+            text = "inf"
+            if (self%value < 0.0_wp) text = "-inf"
+        else
+            magnitude = abs(self%value)
+            if (magnitude == 0.0_wp .or. (magnitude >= 1.0e-3_wp .and. &
+                magnitude < 1.0e6_wp)) then
+                text = shortest_fixed(self%value)
+            else
+                text = shortest_scientific(self%value)
+            end if
+        end if
+    end function real_value_to_string
+
+    !> Fixed notation with the fewest fraction digits that round-trip.
+    function shortest_fixed(value) result(text)
+        real(wp), intent(in) :: value
+        character(len=:), allocatable :: text
+        character(len=64) :: buffer
+        character(len=16) :: edit
+        real(wp) :: back
+        integer :: digits, io_status
+
+        do digits = 1, precision(value) + 6
+            write(edit, '(a,i0,a)') '(f0.', digits, ')'
+            write(buffer, edit) value
+            read(buffer, *, iostat=io_status) back
+            if (io_status == 0 .and. back == value) exit
+        end do
+        text = trim(adjustl(buffer))
+        ! F0.d may omit the zero before the decimal point, e.g. `.5`.
+        if (text(1:1) == ".") then
+            text = "0" // text
+        else if (text(1:2) == "-.") then
+            text = "-0" // text(2:)
+        end if
+    end function shortest_fixed
+
+    !> Scientific notation with the fewest mantissa digits that round-trip,
+    !> written without a `+` sign or leading zeros in the exponent.
+    function shortest_scientific(value) result(text)
+        real(wp), intent(in) :: value
+        character(len=:), allocatable :: text
+        character(len=:), allocatable :: mantissa, exponent, sign
         character(len=64) :: buffer
         character(len=16) :: edit
         real(wp) :: back
         integer :: digits, io_status, position
 
-        do digits = 1, precision(self%value) + 2
-            write(edit, '(a,i0,a)') '(g0.', digits, ')'
-            write(buffer, edit) self%value
+        do digits = 0, precision(value) + 2
+            write(edit, '(a,i0,a)') '(es40.', digits, 'e3)'
+            write(buffer, edit) value
             read(buffer, *, iostat=io_status) back
-            if (io_status == 0 .and. back == self%value) exit
+            if (io_status == 0 .and. back == value) exit
         end do
         text = trim(adjustl(buffer))
-        position = scan(text, "E")
-        if (position > 0) text(position:position) = "e"
-        if (text(len(text):len(text)) == ".") text = text // "0"
-    end function real_value_to_string
+        position = scan(text, "Ee")
+        mantissa = text(:position - 1)
+        exponent = text(position + 1:)
+        if (mantissa(len(mantissa):) == ".") &
+            mantissa = mantissa(:len(mantissa) - 1)
+        sign = ""
+        if (exponent(1:1) == "-") sign = "-"
+        if (scan(exponent(1:1), "+-") > 0) exponent = exponent(2:)
+        position = verify(exponent, "0")
+        if (position == 0) then
+            exponent = "0"
+        else
+            exponent = exponent(position:)
+        end if
+        text = mantissa // "e" // sign // exponent
+    end function shortest_scientific
 
     function real_value_type_name(self) result(name)
         class(RealValue), intent(in) :: self

@@ -894,8 +894,15 @@ no I/O side effects.
 
 - Lowercase `usage:` prefix; usage lists options before positionals.
 - Choices shown as the metavar (`{a,b}`) unless an explicit `metavar` is given.
+- A fixed count repeats the metavar per value (`--grid N N N`, with a
+  delimiter `--grid N,N,N`). An explicit `metavar` that already contains the
+  separator (a blank, or the delimiter) describes every value and is shown
+  once (`metavar="X Y Z"`, `metavar="EX,EY,EZ"`).
 - Implicit action defaults (e.g. a flag's `.false.`) are not annotated.
-- Reals printed in their shortest round-trip form.
+- Reals printed in their shortest round-trip form: fixed notation for
+  magnitudes from 1e-3 up to 1e6 and zero (`0.1`, `1.0`, `0.001`),
+  scientific notation with one leading digit otherwise (`1e-6`, `2.5e10`),
+  and `inf`, `-inf`, `nan` for special values.
 - `positional arguments:` and `options:` headings.
 - Registration order within each section and group.
 - Alias spelling separated by comma and space.

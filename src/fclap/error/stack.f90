@@ -1,6 +1,5 @@
 !> Ordered collection of structured fclap diagnostics.
 module fclap_error_stack
-    use, intrinsic :: iso_fortran_env, only : error_unit
     use fclap_error_codes, only : ERROR_FATAL, ERROR_WARNING
     use fclap_error_entry, only : ErrorEntry
     implicit none
@@ -22,8 +21,6 @@ module fclap_error_stack
         procedure :: has_errors
         procedure :: has_fatal_errors
         procedure :: has_warnings
-        procedure :: format_all
-        procedure :: print_all
         procedure :: clear
     end type ErrorStack
 
@@ -130,31 +127,6 @@ contains
             end if
         end do
     end function has_warnings
-
-    function format_all(self) result(text)
-        class(ErrorStack), intent(in) :: self
-        character(len=:), allocatable :: text
-        integer :: index
-
-        text = ""
-        do index = 1, self%count()
-            if (index > 1) text = text // new_line('a')
-            text = text // self%items(index)%to_string()
-        end do
-    end function format_all
-
-    subroutine print_all(self, unit)
-        class(ErrorStack), intent(in) :: self
-        integer, intent(in), optional :: unit
-        integer :: output, index
-
-        output = error_unit
-        if (present(unit)) output = unit
-
-        do index = 1, self%count()
-            write(output, '(a)') self%items(index)%to_string()
-        end do
-    end subroutine print_all
 
     subroutine clear(self)
         class(ErrorStack), intent(inout) :: self

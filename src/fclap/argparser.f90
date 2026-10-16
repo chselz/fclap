@@ -118,6 +118,7 @@ module fclap_argparser
         procedure, private :: abort_invalid_definition => &
             parser_abort_invalid_definition
         procedure, private :: program_name => parser_program_name
+        procedure :: format_diagnostics => parser_format_diagnostics
         procedure :: print_diagnostics => parser_print_diagnostics
         procedure, private :: display_label => parser_display_label
         procedure, private :: append_argument => parser_append_argument
@@ -793,6 +794,8 @@ contains
                 model%arguments(index)%metavar = &
                     self%arguments(index)%effective_metavar()
             end if
+            model%arguments(index)%explicit_metavar = &
+                allocated(self%arguments(index)%metavar)
             if (allocated(self%arguments(index)%help)) then
                 model%arguments(index)%help = self%arguments(index)%help
             end if
@@ -909,6 +912,7 @@ contains
         write(selected_unit, '(a)') self%format_usage()
     end subroutine parser_print_usage
 
+    !> actually print the help page
     subroutine parser_print_help(self, unit)
         class(ArgumentParser), intent(in) :: self
         integer, intent(in), optional :: unit
@@ -1088,7 +1092,7 @@ contains
         select case (parsed%outcome)
         case (PARSE_SUCCESS)
             args = parsed%namespace
-            call self%print_diagnostics(parsed, error_unit)
+            call self%print_diagnostics(parsed%errors)
         case (PARSE_HELP, PARSE_VERSION)
             if (allocated(parsed%text)) write(output_unit, '(a)') parsed%text
             flush(output_unit)
@@ -1101,7 +1105,7 @@ contains
             end if
             ! Help shown for an empty command line needs no error message.
             if (.not. is_empty_line_help(parsed)) &
-                call self%print_diagnostics(parsed, error_unit)
+                call self%print_diagnostics(parsed%errors)
             flush(error_unit)
             stop 2, quiet=.true.
         case default
@@ -1130,12 +1134,8 @@ contains
     !> it is reported distinctly from user errors with status 70 (EX_SOFTWARE).
     subroutine parser_abort_invalid_definition(self)
         class(ArgumentParser), intent(in) :: self
-        integer :: index
 
-        do index = 1, self%config_errors%count()
-            write(error_unit, '(a)') &
-                self%format_diagnostic(self%config_errors%get(index))
-        end do
+        call self%print_diagnostics(self%config_errors)
         flush(error_unit)
         stop 70, quiet=.true.
     end subroutine parser_abort_invalid_definition
@@ -1205,15 +1205,36 @@ contains
         text = prog // ": " // severity // ": " // message
     end function parser_format_diagnostic
 
-    !> Write every diagnostic of a parse result in command-line form.
-    subroutine parser_print_diagnostics(self, parsed, unit)
+    !> Format every diagnostic of a stack in command-line form, one per line.
+    !>
+    !> Use it on `result%errors` of a parse or on `get_config_errors()`.
+    function parser_format_diagnostics(self, errors) result(text)
         class(ArgumentParser), intent(in) :: self
-        type(ParseResult), intent(in) :: parsed
-        integer, intent(in) :: unit
+        type(ErrorStack), intent(in) :: errors
+        character(len=:), allocatable :: text
         integer :: index
 
-        do index = 1, parsed%errors%count()
-            write(unit, '(a)') self%format_diagnostic(parsed%errors%get(index))
+        text = ""
+        do index = 1, errors%count()
+            if (index > 1) text = text // new_line('a')
+            text = text // self%format_diagnostic(errors%get(index))
+        end do
+    end function parser_format_diagnostics
+
+    !> Write every diagnostic of a stack in command-line form.
+    !>
+    !> `unit` defaults to `error_unit`, where `parse_args` reports too.
+    subroutine parser_print_diagnostics(self, errors, unit)
+        class(ArgumentParser), intent(in) :: self
+        type(ErrorStack), intent(in) :: errors
+        integer, intent(in), optional :: unit
+        integer :: output, index
+
+        output = error_unit
+        if (present(unit)) output = unit
+
+        do index = 1, errors%count()
+            write(output, '(a)') self%format_diagnostic(errors%get(index))
         end do
     end subroutine parser_print_diagnostics
 

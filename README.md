@@ -1,7 +1,15 @@
-# fclap
+# fclap: Command Line Argument Parser Library for Fortran projects
+
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE.md)
+[![Release](https://img.shields.io/github/v/release/chselz/fclap)](https://github.com/chselz/fclap/releases/latest)
+[![Build](https://github.com/chselz/fclap/actions/workflows/ci.yml/badge.svg)](https://github.com/chselz/fclap/actions/workflows/ci.yml)
+[![Documentation Status](https://readthedocs.org/projects/fclap/badge/?version=latest)](https://fclap.readthedocs.io/en/latest/)
+[![codecov](https://codecov.io/gh/chselz/fclap/graph/badge.svg)](https://codecov.io/gh/chselz/fclap)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/chselz/fclap/blob/main/.pre-commit-config.yaml)
 
 fclap is a modular Fortran 2018 command-line argument parser inspired by
-Python's `argparse`. It provides typed values, generated help, structured
+Python's `argparse` usage style and partly by Rusts clap regarding features. 
+It provides typed values, generated help, structured
 non-terminating errors, groups, validators, parent parsers, and nested
 subcommands.
 
@@ -12,8 +20,7 @@ like `prog: error: argument -j/--threads: value must not be less than 1 (got '0'
 `--feature/--no-feature` flags come from `boolean_optional()`, and
 `parser%error("...")` reports your own post-parse checks the same way.
 
-The supported application interface is the `fclap` facade module. Import it
-with an `only` list; a bare `use fclap` shadows the `count` intrinsic:
+The supported application interface is the `fclap` facade module. 
 
 ```fortran
 program demo
@@ -31,7 +38,7 @@ program demo
 end program demo
 ```
 
-Three complete programs are compiled and smoke-tested by fpm:
+Three complete example programs demonstrating various capabilities of `fclap` are availible:
 
 - [`example/basic.f90`](example/basic.f90) demonstrates the terminating CLI
   facade, typed retrieval, a flag, a default, and a validator.
@@ -40,24 +47,33 @@ Three complete programs are compiled and smoke-tested by fpm:
 - [`example/library_mode.f90`](example/library_mode.f90) demonstrates
   non-terminating parsing and structured failure inspection.
 
-## Build and test
+## Installation
 
-fpm is the primary developer workflow:
+If your channel is not found here, please checkout the instructions for [building from source](#building-from-source).
+You can also find these instructions in the user documentation at [Installing fclap](https://fclap.readthedocs.io/en/latest/how-to/installation.html).
 
-```sh
-fpm build
-fpm test
-fpm run --example basic -- input.dat --threads 2 --verbose
+### Building from source
+To build this project from the source code in this repository you need to have 
+
+- a Fortran compiler supportin Fortran 2018
+
+- One of the supported build systems
+
+  - [meson](https://mesonbuild.com) version 0.55 or newer
+  - [CMake](https://cmake.org/) version 3.9 or newer
+  - [Fortran package manager (fpm)](https://github.com/fortran-lang/fpm) version 0.2.0 or newer
+
+Get the source by cloning the repository
+
 ```
-
-CMake builds the library, Test Drive suite, and CLI policy fixtures:
-
-```sh
-cmake -S . -B _build -DCMAKE_BUILD_TYPE=Debug
-cmake --build _build
-ctest --test-dir _build --output-on-failure
-cmake --install _build --prefix /path/to/prefix
+git clone https://github.com/chselz/fclap
+cd fclap
 ```
+Tests use [test-drive](https://github.com/fortran-lang/test-drive). CMake and Meson may
+resolve that dependency when no installed package is available.
+
+
+#### Building with meson
 
 Meson provides the same library and test coverage:
 
@@ -68,35 +84,46 @@ meson test -C _build --print-errorlogs
 meson install -C _build
 ```
 
-The project requires a Fortran 2018 compiler. Tests use
-[test-drive](https://github.com/fortran-lang/test-drive). CMake and Meson may
-resolve that dependency when no installed package is available.
+#### Building with CMake
 
-The full test suite and process-policy checks pass with these compilers on
-Linux; older versions are untested:
-
-| Compiler | Verified version | Notes |
-|---|---|---|
-| GNU Fortran | 13.3, 14 | also under ASan/UBSan and `-fcheck=all` |
-| Intel ifx | 2026.1.1 | also under `-check all` |
-| LLVM flang | 20.1.8 | conda-forge build; configure CMake with `-DTESTDRIVE_WITH_QP=OFF -DTESTDRIVE_WITH_XDP=OFF` because that runtime lacks quad-precision math (only test-drive needs it) |
-
-After changing a public derived type, an incremental gfortran build can retain
-incompatible module files. If compilation reports a derived-type component
-mismatch between fclap modules, refresh the generated fpm outputs and retry:
+CMake builds the library, Test Drive suite, and CLI policy fixtures:
 
 ```sh
-fpm clean --skip
+cmake -S . -B _build -DCMAKE_BUILD_TYPE=Debug
+cmake --build _build
+ctest --test-dir _build --output-on-failure
+cmake --install _build --prefix /path/to/prefix
+```
+
+#### Building with fpm
+
+To integrate TOML Fortran in your fpm project checkout the [Using the Fortran package manager](https://toml-f.readthedocs.io/en/latest/how-to/integration.html#using-the-fortran-package-manager) recipe.
+
+The Fortran package manager ([fpm](https://github.com/fortran-lang/fpm)) supports the addition of fclap as a dependency.
+In the package manifest, `fpm.toml`, you can add fclap dependency via:
+
+```toml
+[dependencies]
+fclap.git = "https://github.com/chselz/fclap"
+```
+
+Then build and test normally.
+
+```sh
+fpm build
 fpm test
+```
+
+Examples can be tested with
+
+```sh
+fpm run --example basic -- input.dat --threads 2 --verbose
 ```
 
 ## Documentation
 
 The [tutorial](doc/source/tutorial.rst),
-[public API reference](doc/source/api/fclap.rst), and
-[migration guide](doc/source/migration.rst) are maintained alongside the
-tested API contract. The detailed behavioral contract is in
-[`doc/design/api-contract.md`](doc/design/api-contract.md).
+[public API reference](doc/source/api/fclap.rst)
 
 Build the Sphinx documentation locally with:
 
@@ -107,8 +134,12 @@ sphinx-build -W -b html doc/source doc/build/html
 
 ## Contributing
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+This is a volunteer open source project and contributions are always welcome.
+Please, take a moment to read the [contributing guidelines](CONTRIBUTING.md) on how to get involved in fclap
+
 
 ## License
 
-fclap is distributed under the [MIT License](LICENSE.md).
+TOML-Fortran is free software: you can redistribute it and/or modify it under the terms of the [MIT license](LICENSE-MIT).
+
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an _as is_ basis, without warranties or conditions of any kind, either express or implied. See the License for the specific language governing permissions and limitations under the License.

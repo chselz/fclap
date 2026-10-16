@@ -18,8 +18,12 @@ module fclap_nargs
     integer, parameter, public :: NARGS_SUCCESS       = 0
     integer, parameter, public :: NARGS_INVALID_VALUE = 1
 
+    !> Type containing one specification of an argument flag
     type, public :: NargsSpec
+        ! private so that the user cannot overwrite the code variable
         private
+        !> For every flag save how many args are allowed
+        !> Default is nargs=1 -> --threads 1
         integer :: code = NARGS_ONE
     contains
         procedure :: value         => nargs_spec_value
@@ -52,6 +56,7 @@ module fclap_nargs
 
 contains
 
+    !> constructor function to get a NargsSpec type where nargs has been specified to be a certain integer
     pure function new_nargs_integer(value) result(spec)
         integer, intent(in) :: value
         type(NargsSpec) :: spec
@@ -63,6 +68,9 @@ contains
         end if
     end function new_nargs_integer
 
+    !> constructor function for if a character like "?" has been provided
+    !> returns a NargsSpec type with the character resolved to the internal nargs representation
+    !> i.e. which value nargs has e.g. "?" -> zero or more ->-2
     pure function new_nargs_character(value) result(spec)
         character(len=*), intent(in) :: value
         type(NargsSpec) :: spec
@@ -71,6 +79,7 @@ contains
         call normalize_nargs_character(value, spec, stat)
     end function new_nargs_character
 
+    !> basically the same as new_nargs_integer but also returns stat
     pure subroutine normalize_nargs_integer(value, spec, stat)
         integer, intent(in) :: value
         type(NargsSpec), intent(out) :: spec
@@ -85,12 +94,14 @@ contains
         end if
     end subroutine normalize_nargs_integer
 
+    !> function resolves the input character of the user provided for nargs
     pure subroutine normalize_nargs_character(value, spec, stat)
         character(len=*), intent(in) :: value
         type(NargsSpec), intent(out) :: spec
         integer, intent(out) :: stat
         character(len=:), allocatable :: normalized
 
+        ! get rid of whitespaces before and after the provided string
         normalized = trim(adjustl(value))
         select case (normalized)
         case ("?")
@@ -162,6 +173,9 @@ contains
             value == NARGS_REMAINDER
     end function nargs_is_valid
 
+    !> This function checks if the nargs value specified by the user is valid
+    !> e.g. nargs =-7 for --threads makes no sense and will be rejected
+    !> function returns bool
     pure logical function is_valid_public_integer(value) result(valid)
         integer, intent(in) :: value
 

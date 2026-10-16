@@ -275,17 +275,24 @@ Report your own checks the same way the parser reports usage errors:
 ``error`` prints the usage line and ``prog: error: <message>`` to
 ``error_unit`` and stops with status 2.
 
-Diagnostics can be rendered in the same form ``parse_args`` prints:
+The parser is the single place diagnostics are rendered. ``parse_args``
+uses the same functions, so library-mode callers that handle errors themselves
+print exactly what a command-line user would see:
 
 .. code-block:: fortran
 
    text = parser%format_diagnostic(entry)
-   call parser%print_diagnostics(result, unit)
+   text = parser%format_diagnostics(result%errors)
+   call parser%print_diagnostics(result%errors, unit)
 
-``unit`` is required here; pass ``error_unit`` to match ``parse_args``.
+``format_diagnostics`` joins one line per entry. ``print_diagnostics`` writes
+to ``error_unit`` unless ``unit`` is given. Both accept any ``ErrorStack``,
+including ``parser%get_config_errors()``.
 
-For example ``tool: error: argument -j/--threads: value must not be less than
-1 (got '0')`` or ``tool: warning: argument --old: use --new``.
+Each line names the program and the severity, for example ``tool: error:
+argument -j/--threads: value must not be less than 1 (got '0')`` for a fatal
+diagnostic or ``tool: warning: argument --old: use --new`` for a warning.
+Configuration errors read ``tool: invalid parser definition: ...``.
 
 Token syntax
 ~~~~~~~~~~~~
@@ -472,9 +479,9 @@ the full command line, also inside subcommands. ``suggestion`` holds the
 known option, subcommand, or string choice closest to a mistyped ``token``
 (Jaro similarity above 0.7) and is unallocated when nothing is close enough. For configuration errors,
 ``token`` holds the definition's spelling, such as ``-x/--output``.
-``entry%to_string()`` returns a deterministic diagnostic without including the
-numeric error code. The code remains available separately for structured
-handling.
+Render entries with ``parser%format_diagnostic(entry)``; the parser maps
+destinations back to the option spellings users type. The numeric code is not
+part of the text and remains available separately for structured handling.
 
 ``ErrorStack`` provides:
 
@@ -489,8 +496,6 @@ handling.
    yes = errors%has_errors()
    yes = errors%has_fatal_errors()
    yes = errors%has_warnings()
-   text = errors%format_all()
-   call errors%print_all(unit)
    call errors%offset_token_indices(offset)
    call errors%clear()
 
@@ -577,7 +582,13 @@ The standard formatter follows argparse conventions: usage lists options
 before positionals, arguments with choices and no explicit ``metavar`` show
 the choices as metavar (``--mode {fast,slow}``), flags do not repeat their
 implicit ``.false.`` default, and real values are printed in their shortest
-exact form (``0.1``).
+exact form (``0.1``, ``1e-6``, ``2.5e10``).
+
+A fixed ``nargs`` repeats the metavar once per value (``--grid N N N``, or
+``--grid N,N,N`` with ``delimiter=","``). An explicit ``metavar`` that already
+contains the separator describes all values and is shown as given, e.g.
+``metavar="EX,EY,EZ"`` for ``nargs=3, delimiter=","`` renders
+``--efield EX,EY,EZ``.
 
 Custom formatters implement ``format_usage(model)`` and
 ``format_help(model)``. The public data-only model types are ``HelpArgument``,

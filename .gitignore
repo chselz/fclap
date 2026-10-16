@@ -7,6 +7,11 @@
 *.o
 *.obj
 
+# Coverage data
+*.gcda
+*.gcno
+*.gcov
+
 # Precompiled Headers
 *.gch
 *.pch
@@ -45,3 +50,6 @@ __pycache__
 
 # VSCode folders
 .vscode/
+
+# Claude folders
+.claude/

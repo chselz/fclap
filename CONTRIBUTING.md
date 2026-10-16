@@ -84,6 +84,51 @@ and register new test suites in `test/unit/main.f90`,
   `sphinx-build -W -b html doc/source doc/build/html`.
 
 
+### Pre-commit checks
+
+Install the hooks once in your checkout:
+
+```sh
+python -m pip install 'pre-commit>=4,<5'
+pre-commit install
+pre-commit run --all-files
+```
+
+CI runs the same checks on every push and pull request. The hooks validate YAML
+and TOML, detect merge conflicts, run Fortitude on the project's Fortran files,
+and check the CMake and Meson source manifests. Fortitude's initial rule set in
+`fortitude.toml` covers correctness, portability, and obsolete features without
+enforcing a new formatting style. Generated and third-party sources are excluded.
+
+### Code coverage
+
+The coverage CI job runs the CMake unit suite and CLI policy checks with GNU
+Fortran instrumentation, then uploads a gcovr XML report to Codecov. Only files
+under `src/` contribute to the reported coverage.
+
+To reproduce it locally with GNU Fortran 14:
+
+```sh
+python -m pip install 'gcovr>=8.6,<9'
+cmake -S . -B _coverage -GNinja \
+  -DCMAKE_Fortran_COMPILER=gfortran-14 -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_Fortran_FLAGS="--coverage -O0"
+cmake --build _coverage --parallel 2
+ctest --test-dir _coverage --output-on-failure
+gcovr --root . --filter src/ --gcov-executable gcov-14 \
+  --xml-pretty --output _coverage/coverage.xml --print-summary _coverage
+```
+
+Use matching compiler and gcov versions. Remove the `_coverage` build directory
+before starting a fresh measurement so old execution counts are not accumulated.
+
+Maintainers must enable `chselz/fclap` in Codecov, grant its GitHub app access to
+the repository for pull request comments and status checks, and store the
+repository's upload token in the GitHub Actions secret `CODECOV_TOKEN`.
+Public fork pull requests use Codecov's tokenless upload support. The badge and
+coverage comparisons become available after the first successful upload; upload
+the default branch before expecting meaningful pull request comparisons.
+
 ### For New Contributors
 
 If you never created a pull request before, welcome :tada:.

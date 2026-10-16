@@ -1,0 +1,13 @@
+[check]
+target-std = "f2018"
+extend-exclude = ["subprojects", "_deps"]
+
+# Start with correctness, portability, and obsolete-feature checks. Keep
+# formatting and broader convention changes separate from adopting the linter.
+select = [
+    "E",
+    "C001", "C051", "C061", "C071", "C072", "C081", "C082",
+    "C091", "C092", "C101", "C122", "C141", "C143", "C151",
+    "C161", "C181", "C182", "C191",
+    "OB", "PORT",
+]

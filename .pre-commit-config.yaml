@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+
+  - repo: https://github.com/PlasmaFAIR/fortitude-pre-commit
+    rev: v0.9.0
+    hooks:
+      - id: fortitude
+        files: ^(src|test|example)/.*\.[fF]90$
+
+  - repo: local
+    hooks:
+      - id: check-source-manifests
+        name: Check CMake and Meson source manifests
+        entry: python3 config/check-manifests.py
+        language: python
+        pass_filenames: false
+        always_run: true

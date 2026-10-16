@@ -1,4 +1,5 @@
 !> Data-only snapshot consumed by help formatters.
+!> These Types hold the data associated with what is printed out when the usage or help page is shown
 module fclap_formatter_model
     implicit none
     private
@@ -17,6 +18,9 @@ module fclap_formatter_model
         character(len=:), allocatable :: names(:)
         character(len=:), allocatable :: dest
         character(len=:), allocatable :: metavar
+        !> The metavar was given at registration, not derived from the
+        !> destination or the choices
+        logical :: explicit_metavar = .false.
         character(len=:), allocatable :: help
         character(len=:), allocatable :: default_text
         character(len=:), allocatable :: choices_text

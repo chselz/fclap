@@ -495,7 +495,7 @@ definitions are assembled dynamically:
 
    if (.not. parser%is_valid()) then
        errors = parser%get_config_errors()
-       call errors%print_all()
+       call parser%print_diagnostics(errors)
    end if
 
 Parsing an invalid parser returns ``PARSE_FAILURE`` without consuming input.

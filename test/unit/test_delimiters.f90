@@ -21,7 +21,9 @@ contains
                 test_environment), &
             new_unittest("invalid delimiter definitions", &
                 test_invalid_definitions), &
-            new_unittest("usage shows the delimiter", test_usage) &
+            new_unittest("usage shows the delimiter", test_usage), &
+            new_unittest("explicit metavar of a delimited count", &
+                test_explicit_metavar) &
         ]
     end subroutine collect_delimiters
 
@@ -232,5 +234,32 @@ contains
             "[--species SPECIES[,SPECIES...]]" // new_line('a') // &
             "       [--tags [TAGS[:TAGS...]]]")
     end subroutine test_usage
+
+    subroutine test_explicit_metavar(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=1) :: nl
+
+        nl = new_line('a')
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--efield", data_type="real", nargs=3, &
+            delimiter=",", metavar="EX,EY,EZ", help="electric field")
+        call parser%add_argument("--field", data_type="real", nargs=3, &
+            delimiter=",", metavar="E", help="field")
+        ! A metavar derived from choices is repeated despite its comma.
+        call parser%add_argument("--axes", nargs=2, delimiter=",", &
+            choices=[character(len=1) :: "x", "y"], help="axes")
+
+        call check(error, parser%format_usage(), &
+            "usage: tool [--efield EX,EY,EZ] [--field E,E,E] " // &
+            "[--axes {x,y},{x,y}]")
+        if (allocated(error)) return
+        call check(error, parser%format_help(), &
+            "usage: tool [--efield EX,EY,EZ] [--field E,E,E] " // &
+            "[--axes {x,y},{x,y}]" // nl // nl // "options:" // nl // &
+            "  --efield EX,EY,EZ     electric field" // nl // &
+            "  --field E,E,E         field" // nl // &
+            "  --axes {x,y},{x,y}    axes")
+    end subroutine test_explicit_metavar
 
 end module test_delimiters

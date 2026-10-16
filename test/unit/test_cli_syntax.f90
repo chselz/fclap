@@ -28,6 +28,8 @@ contains
             new_unittest("range validator", test_range_validator), &
             new_unittest("mutex diagnostics name options", test_mutex_messages), &
             new_unittest("command-line diagnostic format", test_cli_diagnostics), &
+            new_unittest("whole stack uses the diagnostic format", &
+                test_stack_diagnostics), &
             new_unittest("usage wrapping keeps items intact", test_usage_wrapping) &
         ]
     end subroutine collect_cli_syntax
@@ -327,6 +329,30 @@ contains
         call check(error, parser%format_diagnostic(result%errors%get(1)), &
             "tool: error: argument INPUT: required argument was not supplied")
     end subroutine test_cli_diagnostics
+
+    subroutine test_stack_diagnostics(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, broken
+        type(ParseResult) :: result
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("input")
+        call parser%add_argument("--old", deprecated_msg="use --new")
+
+        result = parser%parse_tokens([character(len=7) :: "in", "--old", "x", &
+            "--bogus"])
+        call check(error, parser%format_diagnostics(result%errors), &
+            "tool: warning: argument --old: use --new" // new_line('a') // &
+            "tool: error: unknown option '--bogus'")
+        if (allocated(error)) return
+
+        call broken%init(prog="tool", add_help=.false.)
+        call broken%add_argument("-x", "--output")
+        call broken%add_argument("--output")
+        call check(error, broken%format_diagnostics(broken%get_config_errors()), &
+            "tool: invalid parser definition: argument --output: " // &
+            "an option or positional name is already registered")
+    end subroutine test_stack_diagnostics
 
     subroutine test_usage_wrapping(error)
         type(error_type), allocatable, intent(out) :: error

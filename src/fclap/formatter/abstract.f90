@@ -9,6 +9,8 @@ module fclap_formatter_abstract
     !> Abstract formatter type
     type, abstract :: FormatterType
     contains
+        ! Formatting of the help text and usage 
+        ! these are not printing functions
         procedure(format_help_interface), deferred :: format_help
         procedure(format_usage_interface), deferred :: format_usage
     end type FormatterType

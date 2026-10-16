@@ -25,6 +25,8 @@ contains
             new_unittest("defaults choices and lifecycle", &
                 test_annotations), &
             new_unittest("nargs usage forms", test_nargs_usage), &
+            new_unittest("explicit metavar of a fixed count", &
+                test_explicit_metavar), &
             new_unittest("deterministic line wrapping", test_wrapping), &
             new_unittest("help model is a snapshot", test_help_model_snapshot), &
             new_unittest("external formatter extension", &
@@ -140,6 +142,31 @@ contains
             "usage: tool [--pair PAIR PAIR] [--maybe [MAYBE]] " // &
             "[--many MANY [MANY ...]] HEAD [TAIL ...]")
     end subroutine test_nargs_usage
+
+    subroutine test_explicit_metavar(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=1) :: nl
+
+        nl = new_line('a')
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("corner", nargs=2, metavar="ROW COL", &
+            help="corner")
+        call parser%add_argument("--point", nargs=3, metavar="X Y Z", &
+            help="point")
+        call parser%add_argument("--size", nargs=3, metavar="N", help="size")
+
+        call check(error, parser%format_usage(), &
+            "usage: tool [--point X Y Z] [--size N N N] ROW COL")
+        if (allocated(error)) return
+        call check(error, parser%format_help(), &
+            "usage: tool [--point X Y Z] [--size N N N] ROW COL" // nl // &
+            nl // "positional arguments:" // nl // &
+            "  ROW COL               corner" // nl // nl // &
+            "options:" // nl // &
+            "  --point X Y Z         point" // nl // &
+            "  --size N N N          size")
+    end subroutine test_explicit_metavar
 
     subroutine test_wrapping(error)
         type(error_type), allocatable, intent(out) :: error

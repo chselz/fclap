@@ -1,6 +1,6 @@
 !> One structured diagnostic: code, severity, message, and context.
 module fclap_error_entry
-    use fclap_error_codes, only : ERROR_FATAL, ERROR_WARNING
+    use fclap_error_codes, only : ERROR_FATAL
 
     implicit none
 
@@ -25,7 +25,6 @@ module fclap_error_entry
         character(len=:), allocatable :: suggestion
     contains
         procedure :: init => error_entry_init
-        procedure :: to_string => error_entry_to_string
     end type ErrorEntry
 
 contains
@@ -50,35 +49,4 @@ contains
         end if
     end subroutine error_entry_init
 
-    function error_entry_to_string(self) result(str)
-        class(ErrorEntry), intent(in) :: self
-        character(len=:), allocatable :: str
-        character(len=32) :: prefix
-        character(len=32) :: number
-
-        if (self%severity == ERROR_FATAL) then
-            prefix = "FATAL"
-        else if (self%severity == ERROR_WARNING) then
-            prefix = "WARNING"
-        else
-            prefix = "ERROR"
-        end if
-
-        str = "[" // trim(prefix) // "]"
-        if (allocated(self%message)) str = str // " " // self%message
-        if (allocated(self%arg_name)) then
-            str = str // " (argument: " // trim(self%arg_name) // ")"
-        end if
-        if (allocated(self%token)) then
-            str = str // " (token: " // trim(self%token) // ")"
-        end if
-        if (self%token_index > 0) then
-            write(number, '(i0)') self%token_index
-            str = str // " (index: " // trim(number) // ")"
-        end if
-        if (allocated(self%suggestion)) then
-            str = str // " (suggestion: " // self%suggestion // ")"
-        end if
-    end function
-    
 end module fclap_error_entry
