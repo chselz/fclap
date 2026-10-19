@@ -3,39 +3,39 @@
 !> Import names with an `only` list: short factory names such as `count`
 !> would otherwise shadow intrinsics.
 module fclap
-    use fclap_argparser, only : ArgumentParser
-    use fclap_argument, only : Argument
     use fclap_actions_abstract, only : ActionType, ACTION_CONTINUE, &
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
     use fclap_actions_builtin, only : StoreAction, StoreConstAction, &
         StoreTrueAction, StoreFalseAction, BooleanOptionalAction, AppendAction, &
         CountAction, store, store_const, store_true, store_false, &
         boolean_optional, append, count
+    use fclap_argparser, only : ArgumentParser
+    use fclap_argument, only : Argument
+    use fclap_error_codes
+    use fclap_error_entry, only : ErrorEntry
+    use fclap_error_stack, only : ErrorStack
+    use fclap_formatter_abstract, only : FormatterType
+    use fclap_formatter_model, only : HelpArgument, HelpGroup, HelpCommand, &
+        HelpModel
+    use fclap_formatter_standard, only : StandardFormatter
+    use fclap_groups_abstract, only : GroupHandle
     use fclap_namespace, only : Namespace
-    use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
-        PARSE_HELP, PARSE_VERSION, SOURCE_NONE, SOURCE_DEFAULT, &
-        SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE
     use fclap_nargs, only : NargsSpec, new_nargs, normalize_nargs, &
         NARGS_INVALID, NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
         NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO, NARGS_ONE, &
         NARGS_UNBOUNDED, NARGS_SUCCESS, NARGS_INVALID_VALUE
-    use fclap_error_entry, only : ErrorEntry
-    use fclap_error_stack, only : ErrorStack
-    use fclap_error_codes
-    use fclap_value_abstract, only : ValueType, ValueBox
-    use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
-        LogicalValue, ListValue, new_value
+    use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
+        PARSE_HELP, PARSE_VERSION, SOURCE_NONE, SOURCE_DEFAULT, &
+        SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE
     use fclap_validators_abstract, only : ValidatorType
     use fclap_validators_bounds, only : LowerBoundValidator, &
         UpperBoundValidator, RangeValidator, not_less_than, not_bigger_than, &
         in_range
+    use fclap_value_abstract, only : ValueType, ValueBox
+    use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
+        LogicalValue, ListValue, new_value
     use fclap_version, only : get_fclap_version, fclap_version_string, &
         fclap_version_compact
-    use fclap_formatter_model, only : HelpArgument, HelpGroup, HelpCommand, &
-        HelpModel
-    use fclap_formatter_abstract, only : FormatterType
-    use fclap_formatter_standard, only : StandardFormatter
-    use fclap_groups_abstract, only : GroupHandle
     implicit none
     private
 

@@ -477,7 +477,7 @@ Commands can have short aliases:
 
 .. code-block:: fortran
 
-   call parser%add_parser("checkout", checkout, help_text="switch branches", &
+   call parser%add_parser("checkout", checkout, help="switch branches", &
        aliases=[character(len=2) :: "co"])
 
 ``prog co main`` then runs ``checkout``; the command destination and path

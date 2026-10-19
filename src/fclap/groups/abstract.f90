@@ -9,7 +9,7 @@ module fclap_groups_abstract
     public :: GroupType, GroupBox, GroupHandle
     public :: new_group_handle, new_group_owner_id
 
-    integer, save :: next_owner_id = 1
+    integer :: next_owner_id = 1
 
     !> Stable value identifying one group owned by one parser initialization.
     type :: GroupHandle
@@ -158,7 +158,7 @@ contains
         do index = 1, size(self%members)
             if (self%members(index) >= 1 .and. &
                 self%members(index) <= size(seen)) cycle
-            write(number, '(i0)') group_index
+            write(number, "(i0)") group_index
             call errors%add( &
                 "group contains an invalid argument index", &
                 code=ERR_INVALID_GROUP, arg_name="group " // trim(number))

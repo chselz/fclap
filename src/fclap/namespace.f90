@@ -732,7 +732,7 @@ contains
         if (present(stat)) then
             stat = value
         else if (value /= FCLAP_OK) then
-            write(error_unit, '(a)') "fclap: namespace key '" // trim(key) // &
+            write(error_unit, "(a)") "fclap: namespace key '" // trim(key) // &
                 "': " // status_reason(value)
             flush(error_unit)
             error stop 1

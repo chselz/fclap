@@ -177,6 +177,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
+        type(ErrorEntry) :: entry
 
         call parser%init(prog="tool", add_help=.false.)
         call parser%add_argument("-v", "--verbose", action=store_true())
@@ -189,8 +190,11 @@ contains
         call check(error, parser%is_valid())
         if (allocated(error)) return
 
-        result = parser%parse_tokens([character(len=7) :: "--verbose", "-q"])
+        result = parser%parse_tokens([character(len=9) :: "--verbose", "-q"])
         call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_ARGUMENT_CONFLICT)
         if (allocated(error)) return
         result = parser%parse_tokens([character(len=7) :: "a.dat"])
         call check(error, result%outcome, PARSE_FAILURE)

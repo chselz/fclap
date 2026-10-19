@@ -7,8 +7,8 @@ module test_actions
         StoreTrueAction, StoreFalseAction, AppendAction, CountAction
     use fclap_actions_builtin, only : HelpAction, VersionAction, &
         help_action, version_action
-    use fclap_nargs, only : NargsSpec
     use fclap_argument, only : Argument
+    use fclap_nargs, only : NargsSpec
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private

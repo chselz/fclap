@@ -504,7 +504,7 @@ call parser%add_subparsers( &
     title="commands", description="available operations", &
     dest="command", required=.true.)
 call parser%add_parser("clone", clone_parser, &
-    help_text="clone a repository")
+    help="clone a repository")
 ```
 
 `title`, `description`, and `dest` are optional. The defaults are `commands`,
@@ -512,7 +512,7 @@ no description, and `command`. `required` defaults to false, matching modern
 Python `argparse`. Command names are exact, case-sensitive, nonempty tokens and
 must not begin with `-`.
 
-`add_parser(name, subparser, help_text, aliases)` accepts an optional rank-one
+`add_parser(name, subparser, help, aliases)` accepts an optional rank-one
 array of aliases. Aliases follow the command-name rules, must not repeat any
 registered name or alias, and are validated before anything is registered.
 An alias resolves to its command: the destination and

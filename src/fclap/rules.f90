@@ -73,8 +73,9 @@ contains
         allocate(others_seen(size(self%others)))
         do index = 1, size(self%others)
             others_seen(index) = .false.
-            if (valid_index(self%others(index), seen)) &
+            if (valid_index(self%others(index), seen)) then
                 others_seen(index) = seen(self%others(index))
+            end if
         end do
         dest = arguments(self%subject)%dest
 
@@ -99,6 +100,8 @@ contains
             call errors%add("required unless " // &
                 join_labels(arguments, self%others, " or ") // " is given", &
                 code=ERR_MISSING_REQUIRED, arg_name=dest)
+        case default
+            ! Rules are only created with the kinds above.
         end select
     end subroutine rule_validate_presence
 

@@ -10,6 +10,7 @@ repos:
     rev: v0.9.0
     hooks:
       - id: fortitude
+        args: ["--fix"]
         files: ^(src|test|example)/.*\.[fF]90$
 
   - repo: local

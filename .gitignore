@@ -53,3 +53,7 @@ __pycache__
 
 # Claude folders
 .claude/
+
+# Meson downloads wrap dependencies next to their .wrap files
+/subprojects/*/
+/subprojects/packagecache/

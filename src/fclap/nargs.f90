@@ -1,6 +1,7 @@
 !> Normalized representations of argparse-style nargs specifications.
-!> nargs means number of arguments and with this is meant how many arguments, i.e. values are passed to a single flag provided via the cli
-!> for example nargs = 1 -> --threads 5
+!> nargs means number of arguments, i.e. how many values are passed to a
+!> single flag on the command line:
+!> nargs = 1 -> --threads 5
 !> nargs = 2 -> --solvents water octanol
 module fclap_nargs
     implicit none
@@ -244,7 +245,7 @@ contains
         case (NARGS_REMAINDER)
             string = "remainder"
         case (NARGS_ZERO:)
-            write(buffer, '(i0)') value
+            write(buffer, "(i0)") value
             string = trim(buffer)
         case default
             string = "invalid"

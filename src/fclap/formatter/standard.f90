@@ -40,7 +40,7 @@ contains
 
         ! get the width of the output
         width = effective_width(self)
-        ! when the help page is printed also the information on the usage 
+        ! when the help page is printed also the information on the usage
         ! is printed before the explanation of the flags.
         res = self%format_usage(model)
 
@@ -157,8 +157,9 @@ contains
 
         joined = term
         do position = 1, len(joined)
-            if (joined(position:position) == " ") &
+            if (joined(position:position) == " ") then
                 joined(position:position) = USAGE_JOINER
+            end if
         end do
     end function atomic_term
 
@@ -169,8 +170,9 @@ contains
 
         plain = text
         do position = 1, len(plain)
-            if (plain(position:position) == USAGE_JOINER) &
+            if (plain(position:position) == USAGE_JOINER) then
                 plain(position:position) = " "
+            end if
         end do
     end function replace_joiners
 
@@ -192,7 +194,7 @@ contains
             if (argument_in_help_group(model, index)) cycle
             row = format_argument(self, model%arguments(index), width)
             if (len(section) == 0) section = heading
-            section = section // new_line('a') // row
+            section = section // new_line("a") // row
         end do
     end function format_section
 
@@ -217,7 +219,7 @@ contains
                 else
                     description = wrap_text(trim(group%description), 2, 2, width)
                 end if
-                section = section // new_line('a') // description
+                section = section // new_line("a") // description
             end if
         end if
 
@@ -231,10 +233,10 @@ contains
             row = format_argument(self, model%arguments(argument_index), width)
             if (.not. has_rows .and. allocated(group%description)) then
                 if (len_trim(group%description) > 0) then
-                    section = section // new_line('a')
+                    section = section // new_line("a")
                 end if
             end if
-            section = section // new_line('a') // row
+            section = section // new_line("a") // row
             has_rows = .true.
         end do
     end function format_help_group
@@ -264,7 +266,7 @@ contains
                     description = wrap_text( &
                         trim(model%subcommand_description), 2, 2, width)
                 end if
-                section = section // new_line('a') // description
+                section = section // new_line("a") // description
             end if
         end if
 
@@ -273,23 +275,25 @@ contains
             if (.not. allocated(model%commands(index)%name)) cycle
             row = "  " // trim(model%commands(index)%name)
             if (allocated(model%commands(index)%aliases)) then
-                if (size(model%commands(index)%aliases) > 0) &
+                if (size(model%commands(index)%aliases) > 0) then
                     row = row // " (" // join_trimmed( &
                         model%commands(index)%aliases, ", ") // ")"
+                end if
             end if
             help = ""
-            if (allocated(model%commands(index)%help)) &
+            if (allocated(model%commands(index)%help)) then
                 help = trim(model%commands(index)%help)
+            end if
             if (len(help) > 0) then
                 if (len(row) >= help_column) then
-                    row = row // new_line('a') // &
+                    row = row // new_line("a") // &
                         wrap_text(help, help_column, help_column, width)
                 else
                     row = row // repeat(" ", help_column - len(row)) // &
                         wrap_from_column(help, help_column, width)
                 end if
             end if
-            section = section // new_line('a') // row
+            section = section // new_line("a") // row
         end do
     end function format_subcommands
 
@@ -307,7 +311,7 @@ contains
         help_column = min(24, max(12, width / 3))
         if (len(body) == 0) then
             ! Choice lines go below the label even without help text.
-            if (allocated(argument%choice_help)) row = row // new_line('a') // &
+            if (allocated(argument%choice_help)) row = row // new_line("a") // &
                 choice_lines(argument, help_column + 2, width)
             return
         end if
@@ -318,7 +322,7 @@ contains
             else
                 wrapped = wrap_text(body, help_column, help_column, width)
             end if
-            row = row // new_line('a') // wrapped
+            row = row // new_line("a") // wrapped
         else
             if (self%raw_help_text) then
                 wrapped = indent_continuations(body, help_column)
@@ -327,7 +331,7 @@ contains
             end if
             row = row // repeat(" ", help_column - len(row)) // wrapped
         end if
-        if (allocated(argument%choice_help)) row = row // new_line('a') // &
+        if (allocated(argument%choice_help)) row = row // new_line("a") // &
             choice_lines(argument, help_column + 2, width)
     end function format_argument
 
@@ -341,7 +345,7 @@ contains
         lines = ""
         name_width = maxval(len_trim(argument%choice_names))
         do index = 1, size(argument%choice_names)
-            if (index > 1) lines = lines // new_line('a')
+            if (index > 1) lines = lines // new_line("a")
             lines = lines // repeat(" ", indent) // &
                 argument%choice_names(index)(:name_width) // "  " // &
                 wrap_from_column(trim(argument%choice_help(index)), &
@@ -405,8 +409,9 @@ contains
 
         term = bare_usage_term(argument)
         if (len(term) == 0) return
-        if (argument%is_optional .and. .not. argument%required) &
+        if (argument%is_optional .and. .not. argument%required) then
             term = "[" // term // "]"
+        end if
     end function usage_term
 
     function bare_usage_term(argument) result(term)
@@ -604,7 +609,7 @@ contains
         do while (first <= input_length)
             do while (first <= input_length)
                 if (input(first:first) /= " " .and. &
-                    input(first:first) /= new_line('a') .and. &
+                    input(first:first) /= new_line("a") .and. &
                     input(first:first) /= achar(9)) exit
                 first = first + 1
             end do
@@ -613,7 +618,7 @@ contains
             last = first
             do while (last <= input_length)
                 if (input(last:last) == " " .or. &
-                    input(last:last) == new_line('a') .or. &
+                    input(last:last) == new_line("a") .or. &
                     input(last:last) == achar(9)) exit
                 last = last + 1
             end do
@@ -626,7 +631,7 @@ contains
 
             if (line_length + required > width .and. &
                 line_length > first_indent) then
-                output = output // new_line('a') // &
+                output = output // new_line("a") // &
                     repeat(" ", max(0, continuation_indent)) // word
                 line_length = max(0, continuation_indent) + len(word)
             else
@@ -660,7 +665,7 @@ contains
         output = ""
         do index = 1, len_trim(input)
             output = output // input(index:index)
-            if (input(index:index) == new_line('a') .and. &
+            if (input(index:index) == new_line("a") .and. &
                 index < len_trim(input)) then
                 output = output // repeat(" ", max(0, indentation))
             end if
@@ -695,7 +700,7 @@ contains
         character(len=*), intent(in) :: section
 
         if (len(section) == 0) return
-        if (len(text) > 0) text = text // new_line('a') // new_line('a')
+        if (len(text) > 0) text = text // new_line("a") // new_line("a")
         text = text // section
     end subroutine append_section
 

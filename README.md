@@ -8,7 +8,7 @@
 [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/chselz/fclap/blob/main/.pre-commit-config.yaml)
 
 fclap is a modular Fortran 2018 command-line argument parser inspired by
-Python's `argparse` usage style and partly by Rusts clap regarding features. 
+Python's `argparse` usage style and partly by Rust's clap regarding features.
 It provides typed values, generated help, structured
 non-terminating errors, groups, validators, parent parsers, and nested
 subcommands.
@@ -38,7 +38,7 @@ program demo
 end program demo
 ```
 
-Three complete example programs demonstrating various capabilities of `fclap` are availible:
+Three complete example programs demonstrating various capabilities of `fclap` are available:
 
 - [`example/basic.f90`](example/basic.f90) demonstrates the terminating CLI
   facade, typed retrieval, a flag, a default, and a validator.
@@ -49,18 +49,18 @@ Three complete example programs demonstrating various capabilities of `fclap` ar
 
 ## Installation
 
-If your channel is not found here, please checkout the instructions for [building from source](#building-from-source).
-You can also find these instructions in the user documentation at [Installing fclap](https://fclap.readthedocs.io/en/latest/how-to/installation.html).
+fclap is not packaged for any distribution channel yet; build it from source
+or add it as an fpm, CMake, or Meson dependency as described below.
 
 ### Building from source
-To build this project from the source code in this repository you need to have 
+To build this project from the source code in this repository you need to have
 
-- a Fortran compiler supportin Fortran 2018
+- a Fortran compiler supporting Fortran 2018
 
 - One of the supported build systems
 
   - [meson](https://mesonbuild.com) version 0.55 or newer
-  - [CMake](https://cmake.org/) version 3.9 or newer
+  - [CMake](https://cmake.org/) version 3.15 or newer
   - [Fortran package manager (fpm)](https://github.com/fortran-lang/fpm) version 0.2.0 or newer
 
 Get the source by cloning the repository
@@ -97,8 +97,6 @@ cmake --install _build --prefix /path/to/prefix
 
 #### Building with fpm
 
-To integrate TOML Fortran in your fpm project checkout the [Using the Fortran package manager](https://toml-f.readthedocs.io/en/latest/how-to/integration.html#using-the-fortran-package-manager) recipe.
-
 The Fortran package manager ([fpm](https://github.com/fortran-lang/fpm)) supports the addition of fclap as a dependency.
 In the package manifest, `fpm.toml`, you can add fclap dependency via:
 
@@ -122,8 +120,9 @@ fpm run --example basic -- input.dat --threads 2 --verbose
 
 ## Documentation
 
-The [tutorial](doc/source/tutorial.rst),
-[public API reference](doc/source/api/fclap.rst)
+Start with the [tutorial](doc/source/tutorial.rst); every public procedure is
+described in the [API reference](doc/source/api/fclap.rst). Maintainers should
+read [ARCHITECTURE.md](ARCHITECTURE.md) first.
 
 Build the Sphinx documentation locally with:
 
@@ -135,11 +134,11 @@ sphinx-build -W -b html doc/source doc/build/html
 ## Contributing
 
 This is a volunteer open source project and contributions are always welcome.
-Please, take a moment to read the [contributing guidelines](CONTRIBUTING.md) on how to get involved in fclap
+Please, take a moment to read the [contributing guidelines](CONTRIBUTING.md) on how to get involved in fclap.
 
 
 ## License
 
-TOML-Fortran is free software: you can redistribute it and/or modify it under the terms of the [MIT license](LICENSE-MIT).
+fclap is free software: you can redistribute it and/or modify it under the terms of the [MIT license](LICENSE.md).
 
 Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an _as is_ basis, without warranties or conditions of any kind, either express or implied. See the License for the specific language governing permissions and limitations under the License.

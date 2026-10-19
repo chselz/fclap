@@ -229,12 +229,12 @@ contains
         call parser%add_conflict("--dry-run", "--submit")
 
         result = parser%parse_tokens(no_tokens, &
-            environment=[character(len=16) :: "TOOL_TOKEN=secret"])
+            environment=[character(len=17) :: "TOOL_TOKEN=secret"])
         call check(error, result%outcome, PARSE_SUCCESS)
         if (allocated(error)) return
 
         result = parser%parse_tokens([character(len=8) :: "--submit"], &
-            environment=[character(len=16) :: "TOOL_TOKEN=secret", &
+            environment=[character(len=17) :: "TOOL_TOKEN=secret", &
             "TOOL_DRY_RUN=1"])
         call check(error, result%outcome, PARSE_FAILURE)
         if (allocated(error)) return

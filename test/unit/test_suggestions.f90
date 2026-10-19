@@ -90,7 +90,7 @@ contains
         if (allocated(error)) return
 
         ! An attached value is not part of the compared name.
-        result = parser%parse_tokens([character(len=12) :: "--verbsoe=yes"])
+        result = parser%parse_tokens([character(len=13) :: "--verbsoe=yes"])
         entry = result%errors%get(1)
         call check(error, allocated(entry%suggestion))
         if (allocated(error)) return

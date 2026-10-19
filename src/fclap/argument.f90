@@ -124,8 +124,9 @@ contains
         if (present(removed_msg)) self%removed_msg = trim(removed_msg)
         if (present(print_default)) self%print_default = print_default
         if (present(print_choices)) self%print_choices = print_choices
-        if (present(case_insensitive_choices)) &
+        if (present(case_insensitive_choices)) then
             self%case_insensitive_choices = case_insensitive_choices
+        end if
         if (present(implicit_default)) self%default_is_implicit = implicit_default
     end subroutine argument_init
 
@@ -188,8 +189,8 @@ contains
         metavar = self%dest
         do index = 1, len(metavar)
             code = iachar(metavar(index:index))
-            if (code >= iachar('a') .and. code <= iachar('z')) then
-                metavar(index:index) = achar(code + iachar('A') - iachar('a'))
+            if (code >= iachar("a") .and. code <= iachar("z")) then
+                metavar(index:index) = achar(code + iachar("A") - iachar("a"))
             end if
         end do
     end function argument_effective_metavar
@@ -242,7 +243,7 @@ contains
 
         primary = primary_name_from_names(names)
         first = 1
-        do while (first <= len_trim(primary) .and. primary(first:first) == '-')
+        do while (first <= len_trim(primary) .and. primary(first:first) == "-")
             first = first + 1
         end do
         if (first > len_trim(primary)) then
@@ -252,7 +253,7 @@ contains
 
         dest = primary(first:len_trim(primary))
         do index = 1, len(dest)
-            if (dest(index:index) == '-') dest(index:index) = '_'
+            if (dest(index:index) == "-") dest(index:index) = "_"
         end do
     end function derive_dest_from_names
 
@@ -273,7 +274,7 @@ contains
 
         has_long_option = .false.
         do index = 1, size(names)
-            if (len_trim(names(index)) > 2 .and. names(index)(1:2) == '--') then
+            if (len_trim(names(index)) > 2 .and. names(index)(1:2) == "--") then
                 has_long_option = .true.
                 exit
             end if
@@ -284,7 +285,7 @@ contains
         do index = 1, size(names)
             if (has_long_option) then
                 if (len_trim(names(index)) <= 2) cycle
-                if (names(index)(1:2) /= '--') cycle
+                if (names(index)(1:2) /= "--") cycle
             end if
             if (len_trim(names(index)) > best_length) then
                 best = index
@@ -298,7 +299,7 @@ contains
         character(len=*), intent(in) :: names(:)
 
         optional_names = size(names) > 0 .and. len_trim(names(1)) > 0
-        if (optional_names) optional_names = names(1)(1:1) == '-'
+        if (optional_names) optional_names = names(1)(1:1) == "-"
     end function names_are_optional
 
 end module fclap_argument

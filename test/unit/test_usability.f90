@@ -161,11 +161,11 @@ contains
         if (allocated(error)) return
 
         call check(error, parser%format_help(), &
-            "usage: tool [-c] [--color]" // new_line('a') // new_line('a') // &
-            "options:" // new_line('a') // &
-            "  -c, --cache, --no-cache" // new_line('a') // &
+            "usage: tool [-c] [--color]" // new_line("a") // new_line("a") // &
+            "options:" // new_line("a") // &
+            "  -c, --cache, --no-cache" // new_line("a") // &
             repeat(" ", 24) // "reuse cached results (default: .true.)" // &
-            new_line('a') // "  --color, --no-color")
+            new_line("a") // "  --color, --no-color")
         if (allocated(error)) return
 
         ! The generated spelling takes part in collision checks.
@@ -244,7 +244,7 @@ contains
         type(error_type), allocatable, intent(out) :: error
         type(ArgumentParser) :: parser
         type(StandardFormatter) :: formatter
-        character(len=1), parameter :: nl = new_line('a')
+        character(len=1), parameter :: nl = new_line("a")
 
         formatter = StandardFormatter(help_width=100)
         call parser%init(prog="tool", formatter=formatter, add_help=.false.)

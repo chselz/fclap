@@ -116,7 +116,7 @@ contains
                 return
             end if
         end if
-        write(number, '(i0)') group_index
+        write(number, "(i0)") group_index
         name = "mutually exclusive group " // trim(number)
     end function mutex_group_name
 

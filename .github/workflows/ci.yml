@@ -33,6 +33,11 @@ jobs:
   coverage:
     name: coverage (GNU)
     runs-on: ubuntu-latest
+    # Codecov authenticates the upload through GitHub OIDC, so no
+    # CODECOV_TOKEN secret is needed.
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -61,20 +66,25 @@ jobs:
           cmake --build _coverage --parallel 2
           ctest --test-dir _coverage --output-on-failure
 
+      # gfortran names module procedures `__module_MOD_name`; without
+      # --include-internal-functions gcovr treats them as compiler internals
+      # and drops (8.6) or crashes on (8.7) almost every line of src/.
       - name: Generate coverage report
         run: >-
           gcovr --root . --filter src/
           --gcov-executable gcov-14
+          --include-internal-functions
           --xml-pretty --output _coverage/coverage.xml
           --print-summary _coverage
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
           files: _coverage/coverage.xml
           disable_search: true
-          fail_ci_if_error: true
+          # Pull requests from forks get no OIDC token.
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' }}
 
   fpm:
     name: fpm (${{ matrix.profile }})
@@ -84,7 +94,7 @@ jobs:
       matrix:
         include:
           - profile: debug
-            flags: -std=f2018 -fcheck=all -fbacktrace -Wall -Wextra
+            flags: -std=f2018 -fcheck=all -fbacktrace -Wall -Wextra -Wcharacter-truncation -Werror=character-truncation
           - profile: release
             flags: -std=f2018 -O3
 
@@ -260,9 +270,27 @@ jobs:
           compiler: ${{ matrix.compiler }}
           version: ${{ matrix.version }}
 
+      # The prebuilt macOS fpm links against Homebrew gcc@12's libgfortran,
+      # which the runners do not have. Build fpm from its single-file source
+      # with the compiler installed above instead.
       - uses: fortran-lang/setup-fpm@v7
+        if: runner.os != 'macOS'
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bootstrap fpm from source
+        if: runner.os == 'macOS'
+        env:
+          FPM_VERSION: "0.13.0"
+          FPM_SHA256: 001cff6cf1145f215baa0888ba27acc06cea30a89b79d1a8be97db3fffbc8cd2
+        run: |
+          mkdir -p "$RUNNER_TEMP/fpm"
+          cd "$RUNNER_TEMP/fpm"
+          curl -fsSL -o fpm.F90 \
+            "https://github.com/fortran-lang/fpm/releases/download/v$FPM_VERSION/fpm-$FPM_VERSION.F90"
+          echo "$FPM_SHA256  fpm.F90" | shasum -a 256 -c -
+          "$FC" -J . -o fpm fpm.F90
+          echo "$RUNNER_TEMP/fpm" >> "$GITHUB_PATH"
 
       - name: Build and run Test Drive suite
         env:

@@ -236,8 +236,9 @@ contains
         end if
 
         ignore_case = .false.
-        if (present(case_insensitive_choices)) &
+        if (present(case_insensitive_choices)) then
             ignore_case = case_insensitive_choices
+        end if
         if (ignore_case) then
             if (.not. has_choices .or. canonical_type /= "string") then
                 call fail(ERR_INCOMPATIBLE_ACTION, &
@@ -329,8 +330,9 @@ contains
                     "default value is not one of the allowed choices")
                 return
             end if
-            if (ignore_case) &
+            if (ignore_case) then
                 call canonicalize_choice(default_value, choice_values, ignore_case)
+            end if
         end if
         if (has_const .and. has_choices) then
             if (.not. value_in_choices(const_value, choice_values, &
@@ -339,8 +341,9 @@ contains
                     "const value is not one of the allowed choices")
                 return
             end if
-            if (ignore_case) &
+            if (ignore_case) then
                 call canonicalize_choice(const_value, choice_values, ignore_case)
+            end if
         end if
         if (present(validator)) then
             if (has_default) then
@@ -521,7 +524,7 @@ contains
             message = "argument names must not be empty"
             return
         end if
-        optional_names = names(1)(1:1) == '-'
+        optional_names = names(1)(1:1) == "-"
         if (.not. optional_names .and. size(names) /= 1) then
             message = "a positional argument must have exactly one name"
             return
@@ -536,7 +539,7 @@ contains
                 message = "'-' and '--' are reserved tokens"
                 return
             end if
-            current_optional = names(index)(1:1) == '-'
+            current_optional = names(index)(1:1) == "-"
             if (current_optional .neqv. optional_names) then
                 message = "positional and optional names cannot be mixed"
                 return

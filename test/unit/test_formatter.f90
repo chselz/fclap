@@ -42,7 +42,7 @@ contains
         character(len=:), allocatable :: expected
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         call parser%init(prog="demo", description="Copy one input file.", &
             epilog="See the manual for details.")
         call parser%add_argument("input", help="input file")
@@ -81,8 +81,8 @@ contains
         if (allocated(error)) return
         help_text = parser%format_help()
         call check(error, help_text, &
-            "usage: demo SOURCE [EXTRA]" // new_line('a') // new_line('a') // &
-            "positional arguments:" // new_line('a') // &
+            "usage: demo SOURCE [EXTRA]" // new_line("a") // new_line("a") // &
+            "positional arguments:" // new_line("a") // &
             "  SOURCE                source file")
     end subroutine test_custom_usage_and_visibility
 
@@ -93,7 +93,7 @@ contains
         character(len=:), allocatable :: expected
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         formatter = StandardFormatter(help_width=120)
         call parser%init(prog="demo", formatter=formatter, add_help=.false.)
         call parser%add_argument("--mode", default="fast", &
@@ -148,7 +148,7 @@ contains
         type(ArgumentParser) :: parser
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         call parser%init(prog="tool", add_help=.false.)
         call parser%add_argument("corner", nargs=2, metavar="ROW COL", &
             help="corner")
@@ -175,7 +175,7 @@ contains
         character(len=:), allocatable :: expected
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         formatter = StandardFormatter(help_width=40)
         call parser%init(prog="wrap", formatter=formatter, add_help=.false., &
             description="Write generated files into the selected directory.")
@@ -274,7 +274,7 @@ contains
         character(len=:), allocatable :: text
         character(len=32) :: buffer
 
-        write(buffer, '(i0)') value
+        write(buffer, "(i0)") value
         text = trim(buffer)
     end function integer_text
 

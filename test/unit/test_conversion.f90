@@ -1,6 +1,6 @@
 module test_conversion
-    use, intrinsic :: iso_fortran_env, only : int64, real32, wp => real64
     use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_positive_inf
+    use, intrinsic :: iso_fortran_env, only : int64, real32, wp => real64
     use fclap, only : ArgumentParser, ErrorEntry, Namespace, ParseResult, &
         FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_INVALID_VALUE, &
         ERR_NAMESPACE_OUT_OF_RANGE, ERR_NAMESPACE_TYPE_MISMATCH, &
@@ -320,7 +320,7 @@ contains
         call args%get("numbers", flags, stat(12))
         call check(error, all(stat == ERR_NAMESPACE_TYPE_MISMATCH), .true.)
         if (allocated(error)) then
-            print '(12(i0,1x))', stat
+            print "(12(i0,1x))", stat
             return
         end if
 

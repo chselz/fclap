@@ -112,7 +112,7 @@ contains
         character(len=:), allocatable :: text
         character(len=64) :: buffer
 
-        write(buffer, '(i0)') self%value
+        write(buffer, "(i0)") self%value
         text = trim(buffer)
     end function integer_value_to_string
 
@@ -167,7 +167,7 @@ contains
         integer :: digits, io_status
 
         do digits = 1, precision(value) + 6
-            write(edit, '(a,i0,a)') '(f0.', digits, ')'
+            write(edit, "(a,i0,a)") "(f0.", digits, ")"
             write(buffer, edit) value
             read(buffer, *, iostat=io_status) back
             if (io_status == 0 .and. back == value) exit
@@ -193,7 +193,7 @@ contains
         integer :: digits, io_status, position
 
         do digits = 0, precision(value) + 2
-            write(edit, '(a,i0,a)') '(es40.', digits, 'e3)'
+            write(edit, "(a,i0,a)") "(es40.", digits, "e3)"
             write(buffer, edit) value
             read(buffer, *, iostat=io_status) back
             if (io_status == 0 .and. back == value) exit
@@ -202,8 +202,9 @@ contains
         position = scan(text, "Ee")
         mantissa = text(:position - 1)
         exponent = text(position + 1:)
-        if (mantissa(len(mantissa):) == ".") &
+        if (mantissa(len(mantissa):) == ".") then
             mantissa = mantissa(:len(mantissa) - 1)
+        end if
         sign = ""
         if (exponent(1:1) == "-") sign = "-"
         if (scan(exponent(1:1), "+-") > 0) exponent = exponent(2:)

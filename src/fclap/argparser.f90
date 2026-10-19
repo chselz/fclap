@@ -513,6 +513,8 @@ contains
                     self%arguments(rule%subject)%dest, spelling)
                 return
             end if
+        case default
+            ! A requires rule needs no further check.
         end select
         call self%append_rule(rule)
     end subroutine parser_add_rule
@@ -526,10 +528,11 @@ contains
         index = 0
         if (len_trim(name) == 0) return
         do current = 1, self%argument_count()
-            if (name(1:1) == '-') then
+            if (name(1:1) == "-") then
                 if (.not. self%arguments(current)%is_optional) cycle
-                if (.not. any(self%arguments(current)%names == trim(name))) &
+                if (.not. any(self%arguments(current)%names == trim(name))) then
                     cycle
+                end if
             else
                 if (self%arguments(current)%dest /= trim(name)) cycle
             end if
@@ -580,15 +583,16 @@ contains
         self%subparser_dest = selected_dest
         self%subparser_title = "commands"
         if (present(title)) self%subparser_title = trim(title)
-        if (present(description)) &
+        if (present(description)) then
             self%subparser_description = trim(description)
+        end if
     end subroutine parser_add_subparsers
 
-    subroutine parser_add_parser(self, name, subparser, help_text, aliases)
+    subroutine parser_add_parser(self, name, subparser, help, aliases)
         class(ArgumentParser), intent(inout) :: self
         character(len=*), intent(in) :: name
         type(ArgumentParser), intent(in), optional :: subparser
-        character(len=*), intent(in), optional :: help_text
+        character(len=*), intent(in), optional :: help
         !> Alternative names accepted on the command line, e.g. `["r"]`
         character(len=*), intent(in), optional :: aliases(:)
         type(ArgumentParser) :: definition
@@ -646,8 +650,9 @@ contains
             end if
         end do
         do index = 1, self%argument_count()
-            if (self%arguments(index)%global) &
+            if (self%arguments(index)%global) then
                 call definition%inherit_global(self%arguments(index))
+            end if
         end do
         if (allocated(self%prog)) then
             call definition%rebase_program(trim(self%prog) // " " // trim(name))
@@ -660,7 +665,7 @@ contains
         end if
 
         summary = ""
-        if (present(help_text)) summary = trim(help_text)
+        if (present(help)) summary = trim(help)
         call self%append_subparser(trim(name), summary, definition)
         if (present(aliases)) then
             do index = 1, size(aliases)
@@ -854,10 +859,12 @@ contains
         end do
 
         if (self%subparsers_enabled) then
-            if (allocated(self%subparser_title)) &
+            if (allocated(self%subparser_title)) then
                 model%subcommand_title = self%subparser_title
-            if (allocated(self%subparser_description)) &
+            end if
+            if (allocated(self%subparser_description)) then
                 model%subcommand_description = self%subparser_description
+            end if
             model%subcommand_required = self%subparsers_required
             allocate(model%commands(self%subparser_count()))
             do index = 1, self%subparser_count()
@@ -909,7 +916,7 @@ contains
 
         selected_unit = output_unit
         if (present(unit)) selected_unit = unit
-        write(selected_unit, '(a)') self%format_usage()
+        write(selected_unit, "(a)") self%format_usage()
     end subroutine parser_print_usage
 
     !> actually print the help page
@@ -920,50 +927,69 @@ contains
 
         selected_unit = output_unit
         if (present(unit)) selected_unit = unit
-        write(selected_unit, '(a)') self%format_help()
+        write(selected_unit, "(a)") self%format_help()
     end subroutine parser_print_help
 
     !> Parse an explicit token array without terminating the program.
     !>
     !> `environment` holds `NAME=value` entries that replace the process
     !> environment for options declared with `env=`, e.g. in tests.
-    function parser_parse_tokens(self, tokens, environment) result(parsed)
+    !>
+    !> Trailing blanks of a token are taken as padding of the fixed-length
+    !> array. Pass `lengths` (one per token) when they are part of a value,
+    !> e.g. `--sep ", "`, or to give an empty token.
+    function parser_parse_tokens(self, tokens, environment, lengths) &
+        result(parsed)
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: tokens(:)
         character(len=*), intent(in), optional :: environment(:)
+        integer, intent(in), optional :: lengths(:)
         type(ParseResult) :: parsed
 
-        parsed = self%parse_level(tokens, .false., environment)
+        parsed = self%parse_level(tokens, .false., environment, lengths)
     end function parser_parse_tokens
 
     !> Like `parse_tokens`, but unknown options and surplus positionals are
     !> returned in `extra_tokens` instead of failing, e.g. to leave options
     !> for MPI or PETSc. A separate value of an unknown option (`-k v`) is
     !> not recognized as such; write it attached (`-k=v`).
-    function parser_parse_known_tokens(self, tokens, environment) &
+    function parser_parse_known_tokens(self, tokens, environment, lengths) &
         result(parsed)
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: tokens(:)
         character(len=*), intent(in), optional :: environment(:)
+        integer, intent(in), optional :: lengths(:)
         type(ParseResult) :: parsed
 
-        parsed = self%parse_level(tokens, .true., environment)
+        parsed = self%parse_level(tokens, .true., environment, lengths)
     end function parser_parse_known_tokens
 
     !> Parse this parser's part of the tokens and dispatch to the selected
     !> subcommand, which parses the rest.
     recursive function parser_parse_level(self, tokens, collect_extras, &
-        environment) result(parsed)
+        environment, lengths) result(parsed)
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: tokens(:)
         logical, intent(in) :: collect_extras
         character(len=*), intent(in), optional :: environment(:)
+        integer, intent(in), optional :: lengths(:)
         type(ParseResult) :: parsed
         type(ParseResult) :: child_result
         type(Argument), allocatable :: definitions(:)
         type(GroupBox), allocatable :: group_definitions(:)
         character(len=:), allocatable :: command_names(:), command
-        integer :: child_index, next_token_index
+        integer, allocatable :: token_lengths(:)
+        integer :: child_index, next_token_index, index
+
+        ! Resolve the lengths once, so the child gets a matching slice.
+        allocate(token_lengths(size(tokens)))
+        do index = 1, size(tokens)
+            token_lengths(index) = len_trim(tokens(index))
+            if (present(lengths)) then
+                if (index <= size(lengths)) token_lengths(index) = &
+                    max(0, min(lengths(index), len(tokens)))
+            end if
+        end do
 
         if (self%help_on_empty .and. size(tokens) == 0 .and. &
             .not. self%config_errors%has_fatal_errors()) then
@@ -993,14 +1019,16 @@ contains
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
                 next_token_index=next_token_index, rules=self%rules, &
-                environment=environment, collect_extras=collect_extras)
+                environment=environment, collect_extras=collect_extras, &
+                token_lengths=token_lengths)
         else
             parsed = parse_definitions(definitions, self%config_errors, tokens, &
                 group_definitions, subcommand_names=command_names, &
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
                 next_token_index=next_token_index, rules=self%rules, &
-                environment=environment, collect_extras=collect_extras)
+                environment=environment, collect_extras=collect_extras, &
+                token_lengths=token_lengths)
         end if
 
         if (parsed%outcome == PARSE_HELP) parsed%text = self%format_help()
@@ -1019,10 +1047,12 @@ contains
         call parsed%namespace%set_string(self%subparser_dest, command)
         call parsed%set_source(self%subparser_dest, SOURCE_COMMAND_LINE)
         child_result = self%subparsers(child_index)%parse_level( &
-            tokens(next_token_index:), collect_extras, environment)
+            tokens(next_token_index:), collect_extras, environment, &
+            token_lengths(next_token_index:))
         call parsed%merge_child(child_result)
-        if (allocated(child_result%extra_tokens)) &
+        if (allocated(child_result%extra_tokens)) then
             call append_tokens(parsed%extra_tokens, child_result%extra_tokens)
+        end if
         ! The child saw a slice of the line; report absolute token positions.
         call child_result%errors%offset_token_indices(next_token_index - 1)
         call parsed%errors%merge(child_result%errors)
@@ -1040,18 +1070,20 @@ contains
         class(ArgumentParser), intent(in) :: self
         type(ParseResult) :: parsed
         character(len=:), allocatable :: tokens(:)
+        integer, allocatable :: lengths(:)
 
-        call process_tokens(tokens)
-        parsed = self%parse_tokens(tokens)
+        call process_tokens(tokens, lengths)
+        parsed = self%parse_tokens(tokens, lengths=lengths)
     end function parser_try_parse_args
 
     function parser_try_parse_known_args(self) result(parsed)
         class(ArgumentParser), intent(in) :: self
         type(ParseResult) :: parsed
         character(len=:), allocatable :: tokens(:)
+        integer, allocatable :: lengths(:)
 
-        call process_tokens(tokens)
-        parsed = self%parse_known_tokens(tokens)
+        call process_tokens(tokens, lengths)
+        parsed = self%parse_known_tokens(tokens, lengths=lengths)
     end function parser_try_parse_known_args
 
     function parser_parse_args(self) result(args)
@@ -1094,22 +1126,23 @@ contains
             args = parsed%namespace
             call self%print_diagnostics(parsed%errors)
         case (PARSE_HELP, PARSE_VERSION)
-            if (allocated(parsed%text)) write(output_unit, '(a)') parsed%text
+            if (allocated(parsed%text)) write(output_unit, "(a)") parsed%text
             flush(output_unit)
             stop 0, quiet=.true.
         case (PARSE_FAILURE)
             if (allocated(parsed%text)) then
-                write(error_unit, '(a)') parsed%text
+                write(error_unit, "(a)") parsed%text
             else
-                write(error_unit, '(a)') self%format_usage()
+                write(error_unit, "(a)") self%format_usage()
             end if
             ! Help shown for an empty command line needs no error message.
-            if (.not. is_empty_line_help(parsed)) &
+            if (.not. is_empty_line_help(parsed)) then
                 call self%print_diagnostics(parsed%errors)
+            end if
             flush(error_unit)
             stop 2, quiet=.true.
         case default
-            write(error_unit, '(a)') "fclap: invalid parse outcome"
+            write(error_unit, "(a)") "fclap: invalid parse outcome"
             flush(error_unit)
             stop 2, quiet=.true.
         end select
@@ -1123,8 +1156,8 @@ contains
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: message
 
-        write(error_unit, '(a)') self%format_usage()
-        write(error_unit, '(a)') self%program_name() // ": error: " // &
+        write(error_unit, "(a)") self%format_usage()
+        write(error_unit, "(a)") self%program_name() // ": error: " // &
             trim(message)
         flush(error_unit)
         stop 2, quiet=.true.
@@ -1185,23 +1218,29 @@ contains
 
         select case (entry%code)
         case (ERR_UNKNOWN_ARGUMENT, ERR_EXTRA_POSITIONAL, ERR_UNKNOWN_SUBCOMMAND)
-            if (allocated(entry%token)) &
+            if (allocated(entry%token)) then
                 message = message // " '" // trim(entry%token) // "'"
+            end if
         case (ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, ERR_MISSING_SUBCOMMAND)
             continue
         case default
             label = ""
-            if (allocated(entry%arg_name)) &
+            if (allocated(entry%arg_name)) then
                 label = self%display_label(entry%arg_name)
+            end if
             if (len(label) > 0) message = "argument " // label // ": " // message
             select case (entry%code)
             case (ERR_INVALID_VALUE, ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED)
-                if (allocated(entry%token)) &
+                if (allocated(entry%token)) then
                     message = message // " (got '" // trim(entry%token) // "')"
+                end if
+            case default
+                ! Other diagnostics do not quote the offending token.
             end select
         end select
-        if (allocated(entry%suggestion)) &
+        if (allocated(entry%suggestion)) then
             message = message // " (did you mean '" // entry%suggestion // "'?)"
+        end if
         text = prog // ": " // severity // ": " // message
     end function parser_format_diagnostic
 
@@ -1216,7 +1255,7 @@ contains
 
         text = ""
         do index = 1, errors%count()
-            if (index > 1) text = text // new_line('a')
+            if (index > 1) text = text // new_line("a")
             text = text // self%format_diagnostic(errors%get(index))
         end do
     end function parser_format_diagnostics
@@ -1234,7 +1273,7 @@ contains
         if (present(unit)) output = unit
 
         do index = 1, errors%count()
-            write(output, '(a)') self%format_diagnostic(errors%get(index))
+            write(output, "(a)") self%format_diagnostic(errors%get(index))
         end do
     end subroutine parser_print_diagnostics
 
@@ -1313,10 +1352,12 @@ contains
 
         name_length = max(1, len_trim(name))
         help_length = max(1, len_trim(help_text))
-        if (allocated(self%subparser_names)) &
+        if (allocated(self%subparser_names)) then
             name_length = max(name_length, len(self%subparser_names))
-        if (allocated(self%subparser_helps)) &
+        end if
+        if (allocated(self%subparser_helps)) then
             help_length = max(help_length, len(self%subparser_helps))
+        end if
         allocate(character(len=name_length) :: name_values(old_size + 1))
         allocate(character(len=help_length) :: help_values(old_size + 1))
         if (old_size > 0) then
@@ -1479,8 +1520,9 @@ contains
             if (.not. allocated(parent%groups(group_index)%item)) cycle
             allocate(copied_group%item, &
                 source=parent%groups(group_index)%item)
-            if (allocated(copied_group%item%members)) &
+            if (allocated(copied_group%item%members)) then
                 deallocate(copied_group%item%members)
+            end if
             if (allocated(parent%groups(group_index)%item%members)) then
                 do member_index = 1, &
                     size(parent%groups(group_index)%item%members)
@@ -1513,8 +1555,9 @@ contains
         if (allocated(source%description)) self%description = source%description
         if (allocated(source%epilog)) self%epilog = source%epilog
         if (allocated(source%version)) self%version = source%version
-        if (allocated(source%formatter)) &
+        if (allocated(source%formatter)) then
             allocate(self%formatter, source=source%formatter)
+        end if
         self%add_help = source%add_help
         self%help_on_empty = source%help_on_empty
         self%group_owner = new_group_owner_id()
@@ -1525,20 +1568,27 @@ contains
 
         self%subparsers_enabled = source%subparsers_enabled
         self%subparsers_required = source%subparsers_required
-        if (allocated(source%subparser_dest)) &
+        if (allocated(source%subparser_dest)) then
             self%subparser_dest = source%subparser_dest
-        if (allocated(source%subparser_title)) &
+        end if
+        if (allocated(source%subparser_title)) then
             self%subparser_title = source%subparser_title
-        if (allocated(source%subparser_description)) &
+        end if
+        if (allocated(source%subparser_description)) then
             self%subparser_description = source%subparser_description
-        if (allocated(source%subparser_names)) &
+        end if
+        if (allocated(source%subparser_names)) then
             self%subparser_names = source%subparser_names
-        if (allocated(source%subparser_helps)) &
+        end if
+        if (allocated(source%subparser_helps)) then
             self%subparser_helps = source%subparser_helps
-        if (allocated(source%alias_names)) &
+        end if
+        if (allocated(source%alias_names)) then
             self%alias_names = source%alias_names
-        if (allocated(source%alias_targets)) &
+        end if
+        if (allocated(source%alias_targets)) then
             self%alias_targets = source%alias_targets
+        end if
         if (allocated(source%subparsers)) then
             allocate(self%subparsers(size(source%subparsers)))
             do index = 1, size(source%subparsers)
@@ -1599,8 +1649,9 @@ contains
         if (allocated(self%rules)) deallocate(self%rules)
         if (allocated(self%subparser_dest)) deallocate(self%subparser_dest)
         if (allocated(self%subparser_title)) deallocate(self%subparser_title)
-        if (allocated(self%subparser_description)) &
+        if (allocated(self%subparser_description)) then
             deallocate(self%subparser_description)
+        end if
         if (allocated(self%subparser_names)) deallocate(self%subparser_names)
         if (allocated(self%alias_names)) deallocate(self%alias_names)
         if (allocated(self%alias_targets)) deallocate(self%alias_targets)
@@ -1620,9 +1671,9 @@ contains
         candidate = trim(name)
         valid = len(candidate) > 0
         if (.not. valid) return
-        valid = candidate(1:1) /= '-'
+        valid = candidate(1:1) /= "-"
         if (.not. valid) return
-        valid = scan(candidate, " " // achar(9) // new_line('a')) == 0
+        valid = scan(candidate, " " // achar(9) // new_line("a")) == 0
     end function valid_subcommand_name
 
     !> Whether any of the indexed arguments is present on every valid command
@@ -1668,16 +1719,19 @@ contains
         empty_line = entry%code == ERR_NO_ARGUMENTS
     end function is_empty_line_help
 
-    !> Read the process command line into a token array.
-    subroutine process_tokens(tokens)
+    !> Read the process command line into a token array and the exact
+    !> length of every token.
+    subroutine process_tokens(tokens, lengths)
         character(len=:), allocatable, intent(out) :: tokens(:)
-        integer :: count, index, argument_length, maximum_length
+        integer, allocatable, intent(out) :: lengths(:)
+        integer :: count, index, maximum_length
 
         count = command_argument_count()
+        allocate(lengths(count))
         maximum_length = 1
         do index = 1, count
-            call get_command_argument(index, length=argument_length)
-            maximum_length = max(maximum_length, argument_length)
+            call get_command_argument(index, length=lengths(index))
+            maximum_length = max(maximum_length, lengths(index))
         end do
         allocate(character(len=maximum_length) :: tokens(count))
         do index = 1, count
@@ -1817,7 +1871,7 @@ contains
             prog_name = "program"
             return
         end if
-        separator = max(scan(arg0, '/', back=.true.), &
+        separator = max(scan(arg0, "/", back=.true.), &
             scan(arg0, achar(92), back=.true.))
         if (separator > 0) then
             prog_name = arg0(separator + 1:)

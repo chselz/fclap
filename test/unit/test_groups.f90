@@ -39,7 +39,7 @@ contains
         character(len=:), allocatable :: expected
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         call parser%init(prog="demo", add_help=.false.)
         call parser%add_argument("input", help="input file")
         output_group = parser%add_argument_group("output options", &

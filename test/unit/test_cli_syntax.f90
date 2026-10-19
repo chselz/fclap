@@ -30,7 +30,10 @@ contains
             new_unittest("command-line diagnostic format", test_cli_diagnostics), &
             new_unittest("whole stack uses the diagnostic format", &
                 test_stack_diagnostics), &
-            new_unittest("usage wrapping keeps items intact", test_usage_wrapping) &
+            new_unittest("usage wrapping keeps items intact", &
+                test_usage_wrapping), &
+            new_unittest("token lengths keep trailing blanks", &
+                test_token_lengths) &
         ]
     end subroutine collect_cli_syntax
 
@@ -342,7 +345,7 @@ contains
         result = parser%parse_tokens([character(len=7) :: "in", "--old", "x", &
             "--bogus"])
         call check(error, parser%format_diagnostics(result%errors), &
-            "tool: warning: argument --old: use --new" // new_line('a') // &
+            "tool: warning: argument --old: use --new" // new_line("a") // &
             "tool: error: unknown option '--bogus'")
         if (allocated(error)) return
 
@@ -366,9 +369,61 @@ contains
         call parser%add_argument("--k", dest="k")
 
         expected = "usage: tool [--alpha-option ALPHA_OPTION] " // &
-            "[--beta-option BETA_OPTION]" // new_line('a') // &
+            "[--beta-option BETA_OPTION]" // new_line("a") // &
             "       [--gamma-option GAMMA_OPTION] [--k K]"
         call check(error, parser%format_usage(), expected)
     end subroutine test_usage_wrapping
+
+    subroutine test_token_lengths(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, child
+        type(ParseResult) :: result
+        character(len=:), allocatable :: text
+
+        call parser%init(prog="tool")
+        call parser%add_argument("--sep")
+        call parser%add_argument("name", nargs="?")
+        call parser%add_subparsers()
+        call child%init(prog="run")
+        call child%add_argument("--sep")
+        call parser%add_parser("run", child)
+
+        ! Without lengths, trailing blanks are padding of the array.
+        result = parser%parse_tokens([character(len=5) :: "--sep", ", "])
+        call result%namespace%get("sep", text)
+        call check(error, text, ",")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=5) :: "--sep", ", "], &
+            lengths=[5, 2])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("sep", text)
+        call check(error, text, ", ")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "--sep=, "], &
+            lengths=[8])
+        call result%namespace%get("sep", text)
+        call check(error, text, ", ")
+        if (allocated(error)) return
+
+        ! An empty token is an empty value, not a missing one.
+        result = parser%parse_tokens([character(len=5) :: "--sep", ""], &
+            lengths=[5, 0])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("sep", text)
+        call check(error, len(text), 0)
+        if (allocated(error)) return
+
+        ! The subcommand sees the lengths of its slice of the line.
+        result = parser%parse_tokens( &
+            [character(len=5) :: "run", "--sep", " x "], lengths=[3, 5, 3])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("sep", text)
+        call check(error, text, " x ")
+    end subroutine test_token_lengths
 
 end module test_cli_syntax

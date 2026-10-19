@@ -1,6 +1,7 @@
 !> Stable numeric codes for configuration, parse, and namespace errors.
 module fclap_error_codes
     implicit none
+    private
 
     integer, parameter, public :: FCLAP_OK = 0
 

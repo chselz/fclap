@@ -9,6 +9,8 @@ module fclap_parse_context
 
     type :: ParseContext
         character(len=:), allocatable :: tokens(:)
+        !> Exact length of each token, so trailing blanks survive padding
+        integer, allocatable :: token_lengths(:)
         integer :: cursor = 1
         integer :: positional_cursor = 1
         logical :: options_enabled = .true.
@@ -34,6 +36,7 @@ module fclap_parse_context
         procedure :: init => context_init
         procedure :: at_end => context_at_end
         procedure :: current_token => context_current_token
+        procedure :: token_at => context_token_at
         procedure :: advance => context_advance
         procedure :: mark_seen => context_mark_seen
         procedure :: was_seen => context_was_seen
@@ -47,19 +50,31 @@ module fclap_parse_context
 
 contains
 
-    subroutine context_init(self, tokens, argument_count)
+    !> Copy the tokens of one parse.
+    !>
+    !> Without `lengths`, trailing blanks of a token are padding of the
+    !> fixed-length array and are dropped. With `lengths`, token `i` is
+    !> exactly `tokens(i)(1:lengths(i))`, so `" "` and `""` stay distinct.
+    subroutine context_init(self, tokens, argument_count, lengths)
         class(ParseContext), intent(out) :: self
         character(len=*), intent(in) :: tokens(:)
         integer, intent(in) :: argument_count
+        integer, intent(in), optional :: lengths(:)
         integer :: index, token_length
 
-        token_length = 1
+        allocate(self%token_lengths(size(tokens)))
         do index = 1, size(tokens)
-            token_length = max(token_length, len_trim(tokens(index)))
+            self%token_lengths(index) = len_trim(tokens(index))
+            if (present(lengths)) then
+                if (index <= size(lengths)) self%token_lengths(index) = &
+                    max(0, min(lengths(index), len(tokens)))
+            end if
         end do
+        token_length = 1
+        if (size(tokens) > 0) token_length = max(1, maxval(self%token_lengths))
         allocate(character(len=token_length) :: self%tokens(size(tokens)))
         do index = 1, size(tokens)
-            self%tokens(index) = trim(tokens(index))
+            self%tokens(index) = tokens(index)(1:self%token_lengths(index))
         end do
 
         allocate(self%seen(max(0, argument_count)), source=.false.)
@@ -123,8 +138,9 @@ contains
         class(ParseContext), intent(inout) :: self
         character(len=*), intent(in) :: name
 
-        if (allocated(self%selected_command_path)) &
+        if (allocated(self%selected_command_path)) then
             deallocate(self%selected_command_path)
+        end if
         allocate(character(len=max(1, len_trim(name))) :: &
             self%selected_command_path(1))
         self%selected_command_path(1) = trim(name)
@@ -144,9 +160,21 @@ contains
         if (self%at_end()) then
             token = ""
         else
-            token = trim(self%tokens(self%cursor))
+            token = self%token_at(self%cursor)
         end if
     end function context_current_token
+
+    !> Token at a position with its exact length; empty past the end.
+    function context_token_at(self, position) result(token)
+        class(ParseContext), intent(in) :: self
+        integer, intent(in) :: position
+        character(len=:), allocatable :: token
+
+        token = ""
+        if (.not. allocated(self%tokens)) return
+        if (position < 1 .or. position > size(self%tokens)) return
+        token = self%tokens(position)(1:self%token_lengths(position))
+    end function context_token_at
 
     subroutine context_advance(self)
         class(ParseContext), intent(inout) :: self

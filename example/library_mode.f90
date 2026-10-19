@@ -18,11 +18,11 @@ program library_mode
     if (result%outcome /= PARSE_SUCCESS) error stop "valid tokens rejected"
     call result%namespace%get("threads", threads, stat)
     if (stat /= FCLAP_OK) error stop "missing thread count"
-    write(*, '(a,i0)') "threads=", threads
+    write(*, "(a,i0)") "threads=", threads
 
     result = parser%parse_tokens([character(len=12) :: "-j", "128"])
     if (result%outcome /= PARSE_FAILURE) error stop "invalid tokens accepted"
     entry = result%errors%get(1)
     if (entry%code /= ERR_VALIDATION_FAILED) error stop "unexpected error code"
-    write(*, '(a)') "rejected: " // parser%format_diagnostic(entry)
+    write(*, "(a)") "rejected: " // parser%format_diagnostic(entry)
 end program library_mode

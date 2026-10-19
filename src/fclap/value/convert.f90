@@ -50,22 +50,26 @@ contains
         end select
     end subroutine normalize_type_name
 
-    subroutine convert_value(input, type_name, value, stat)
+    subroutine convert_value(input, type_name, value, stat, verbatim)
         class(*), intent(in) :: input(..)
         character(len=*), intent(in) :: type_name
         type(ValueBox), intent(out) :: value
         integer, intent(out) :: stat
+        !> Keep trailing blanks of string input, which is exact-length text
+        !> such as a command-line token rather than blank-padded storage
+        logical, intent(in), optional :: verbatim
         type(ListValue) :: list
         type(ValueBox) :: item
         integer :: index
 
         select rank (input)
         rank (0)
-            call convert_scalar(input, type_name, value, stat)
+            call convert_scalar(input, type_name, value, stat, verbatim)
         rank (1)
             call list%initialize(type_name)
             do index = 1, size(input)
-                call convert_scalar(input(index), type_name, item, stat)
+                call convert_scalar(input(index), type_name, item, stat, &
+                    verbatim)
                 if (stat /= CONVERT_SUCCESS) return
                 call list%append(item)
             end do
@@ -76,11 +80,12 @@ contains
         end select
     end subroutine convert_value
 
-    subroutine convert_scalar(input, type_name, value, stat)
+    subroutine convert_scalar(input, type_name, value, stat, verbatim)
         class(*), intent(in) :: input
         character(len=*), intent(in) :: type_name
         type(ValueBox), intent(out) :: value
         integer, intent(out) :: stat
+        logical, intent(in), optional :: verbatim
         integer(i8) :: integer_value
         real(wp) :: real_value
         logical :: logical_value
@@ -91,6 +96,9 @@ contains
             select case (type_name)
             case ("string")
                 value = new_value(trim(input))
+                if (present(verbatim)) then
+                    if (verbatim) value = new_value(input)
+                end if
                 stat = CONVERT_SUCCESS
             case ("integer")
                 call parse_integer(input, integer_value, stat)
@@ -101,6 +109,8 @@ contains
             case ("logical")
                 call parse_logical(input, logical_value, stat)
                 if (stat == CONVERT_SUCCESS) value = new_value(logical_value)
+            case default
+                ! Unknown type names keep CONVERT_TYPE_ERROR.
             end select
         type is (integer(kind=i1))
             if (type_name == "integer") then
@@ -214,7 +224,7 @@ contains
         valid = .false.
         if (len(text) == 0) return
         first = 1
-        if (text(1:1) == '+' .or. text(1:1) == '-') first = 2
+        if (text(1:1) == "+" .or. text(1:1) == "-") first = 2
         if (first > len(text)) return
         valid = verify(text(first:), "0123456789") == 0
     end function is_integer_literal
@@ -227,7 +237,7 @@ contains
         valid = .false.
         if (len(text) == 0) return
         first = 1
-        if (text(1:1) == '+' .or. text(1:1) == '-') first = 2
+        if (text(1:1) == "+" .or. text(1:1) == "-") first = 2
         if (first > len(text)) return
         body = lowercase(text(first:))
         if (body == "inf" .or. body == "infinity" .or. body == "nan") then
@@ -238,7 +248,7 @@ contains
         position = 1
         call skip_digits(body, position, digits)
         if (position <= len(body)) then
-            if (body(position:position) == '.') then
+            if (body(position:position) == ".") then
                 position = position + 1
                 call skip_digits(body, position, fraction_digits)
                 digits = digits + fraction_digits
@@ -247,12 +257,12 @@ contains
         if (digits == 0) return
 
         if (position <= len(body)) then
-            if (body(position:position) /= 'e' .and. &
-                body(position:position) /= 'd') return
+            if (body(position:position) /= "e" .and. &
+                body(position:position) /= "d") return
             position = position + 1
             if (position <= len(body)) then
-                if (body(position:position) == '+' .or. &
-                    body(position:position) == '-') position = position + 1
+                if (body(position:position) == "+" .or. &
+                    body(position:position) == "-") position = position + 1
             end if
             call skip_digits(body, position, exponent_digits)
             if (exponent_digits == 0) return
@@ -464,8 +474,8 @@ contains
         output = input
         do index = 1, len(input)
             code = iachar(input(index:index))
-            if (code >= iachar('A') .and. code <= iachar('Z')) then
-                output(index:index) = achar(code + iachar('a') - iachar('A'))
+            if (code >= iachar("A") .and. code <= iachar("Z")) then
+                output(index:index) = achar(code + iachar("a") - iachar("A"))
             end if
         end do
     end function lowercase

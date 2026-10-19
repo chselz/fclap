@@ -203,11 +203,11 @@ Subcommands
 .. code-block:: fortran
 
    call parser%add_subparsers(title, description, dest, required)
-   call parser%add_parser(name, subparser, help_text, aliases)
+   call parser%add_parser(name, subparser, help, aliases)
 
 All ``add_subparsers`` arguments are optional. Defaults are title ``commands``,
 destination ``command``, and ``required=.false.``. ``name`` is required for
-``add_parser``; ``subparser``, ``help_text``, and ``aliases`` are optional. A
+``add_parser``; ``subparser``, ``help``, and ``aliases`` are optional. A
 supplied child is deep-copied and its complete program path is rebased under
 the parent.
 
@@ -230,18 +230,22 @@ Parsing and output
 
 .. code-block:: fortran
 
-   result = parser%parse_tokens(tokens, environment)
+   result = parser%parse_tokens(tokens, environment, lengths)
    result = parser%try_parse_args()
    args = parser%parse_args()
 
-   result = parser%parse_known_tokens(tokens, environment)
+   result = parser%parse_known_tokens(tokens, environment, lengths)
    result = parser%try_parse_known_args()
    args = parser%parse_known_args(extras)
 
 ``tokens`` is a rank-one character array. The optional ``environment`` is a
 rank-one array of ``NAME=value`` entries that replaces the process
 environment for ``env=`` options, which makes them testable; the last entry
-for a name wins. The first two functions return
+for a name wins. Trailing blanks of a token are treated as padding of the
+fixed-length array; pass ``lengths``, one integer per token, when they belong
+to a value (``--sep ", "``) or to give an empty token. ``try_parse_args`` and
+``parse_args`` pass the real lengths of the command-line arguments, so values
+from the shell keep their trailing blanks. The first two functions return
 ``ParseResult`` and never print or terminate. ``parse_args`` returns
 ``Namespace`` only on success and implements the process-level print/exit
 policy for help, version, warnings, and failures.

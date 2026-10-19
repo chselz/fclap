@@ -96,9 +96,12 @@ pre-commit run --all-files
 
 CI runs the same checks on every push and pull request. The hooks validate YAML
 and TOML, detect merge conflicts, run Fortitude on the project's Fortran files,
-and check the CMake and Meson source manifests. Fortitude's initial rule set in
-`fortitude.toml` covers correctness, portability, and obsolete features without
-enforcing a new formatting style. Generated and third-party sources are excluded.
+and check the CMake and Meson source manifests. Fortitude uses the same rule
+set as toml-f (`fortitude.toml`: all default and preview rules except C002,
+C003, and C121, lines up to 132 columns) and fixes what it can automatically;
+review and stage its changes before committing again. Its fix for inline `if`
+continuations indents the new block by two spaces; re-indent it to the
+project's four. Generated and third-party sources are excluded.
 
 ### Code coverage
 
@@ -116,16 +119,22 @@ cmake -S . -B _coverage -GNinja \
 cmake --build _coverage --parallel 2
 ctest --test-dir _coverage --output-on-failure
 gcovr --root . --filter src/ --gcov-executable gcov-14 \
+  --include-internal-functions \
   --xml-pretty --output _coverage/coverage.xml --print-summary _coverage
 ```
+
+Keep `--include-internal-functions`: gfortran names module procedures
+`__module_MOD_name`, which gcovr otherwise mistakes for compiler internals and
+drops from the report.
 
 Use matching compiler and gcov versions. Remove the `_coverage` build directory
 before starting a fresh measurement so old execution counts are not accumulated.
 
-Maintainers must enable `chselz/fclap` in Codecov, grant its GitHub app access to
-the repository for pull request comments and status checks, and store the
-repository's upload token in the GitHub Actions secret `CODECOV_TOKEN`.
-Public fork pull requests use Codecov's tokenless upload support. The badge and
+Maintainers must enable `chselz/fclap` in Codecov and grant its GitHub app
+access to the repository for pull request comments and status checks. The
+upload authenticates through GitHub OIDC, so no `CODECOV_TOKEN` secret is
+needed. Pull requests from forks get no OIDC token; their upload may fail
+without failing the job. The badge and
 coverage comparisons become available after the first successful upload; upload
 the default branch before expecting meaningful pull request comparisons.
 

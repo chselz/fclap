@@ -8,7 +8,7 @@ module test_help_options
 
     public :: collect_help_options
 
-    character(len=1), parameter :: nl = new_line('a')
+    character(len=1), parameter :: nl = new_line("a")
 
 contains
 

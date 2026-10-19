@@ -72,9 +72,10 @@ contains
         integer :: index
 
         do index = 1, self%count()
-            if (self%items(index)%token_index > 0) &
+            if (self%items(index)%token_index > 0) then
                 self%items(index)%token_index = &
                 self%items(index)%token_index + offset
+            end if
         end do
     end subroutine error_stack_offset_token_indices
 

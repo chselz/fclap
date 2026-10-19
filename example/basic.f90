@@ -25,7 +25,7 @@ program basic
     call args%get("verbose", verbose)
     call args%get("threads", threads)
 
-    write(*, '(a)') "input=" // input
-    write(*, '(a,l1)') "verbose=", verbose
-    write(*, '(a,i0)') "threads=", threads
+    write(*, "(a)") "input=" // input
+    write(*, "(a,l1)") "verbose=", verbose
+    write(*, "(a,i0)") "threads=", threads
 end program basic

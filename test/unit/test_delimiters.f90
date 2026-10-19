@@ -231,7 +231,7 @@ contains
 
         call check(error, parser%format_usage(), &
             "usage: tool [--grid GRID,GRID,GRID] " // &
-            "[--species SPECIES[,SPECIES...]]" // new_line('a') // &
+            "[--species SPECIES[,SPECIES...]]" // new_line("a") // &
             "       [--tags [TAGS[:TAGS...]]]")
     end subroutine test_usage
 
@@ -240,7 +240,7 @@ contains
         type(ArgumentParser) :: parser
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         call parser%init(prog="tool", add_help=.false.)
         call parser%add_argument("--efield", data_type="real", nargs=3, &
             delimiter=",", metavar="EX,EY,EZ", help="electric field")

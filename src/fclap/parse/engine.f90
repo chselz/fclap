@@ -4,29 +4,29 @@ module fclap_parse_engine
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
     use fclap_actions_boolean, only : BooleanOptionalAction
     use fclap_argument, only : Argument
-    use fclap_error_entry, only : ErrorEntry
-    use fclap_namespace, only : Namespace
     use fclap_error_codes, only : ERROR_WARNING, ERR_DEPRECATED_ARGUMENT, &
         ERR_EXTRA_POSITIONAL, ERR_INVALID_CHOICE, ERR_INVALID_VALUE, &
         ERR_MISSING_REQUIRED, ERR_MISSING_VALUE, ERR_REMOVED_ARGUMENT, &
         ERR_UNKNOWN_ARGUMENT, ERR_VALIDATION_FAILED, ERR_UNKNOWN_SUBCOMMAND, &
         ERR_MISSING_SUBCOMMAND, ERR_UNEXPECTED_VALUE
+    use fclap_error_entry, only : ErrorEntry
     use fclap_error_stack, only : ErrorStack
     use fclap_groups_abstract, only : GroupBox
+    use fclap_namespace, only : Namespace
     use fclap_nargs, only : NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
         NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO
     use fclap_parse_context, only : ParseContext
-    use fclap_rules, only : ArgumentRule
     use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
         PARSE_HELP, PARSE_VERSION, SOURCE_DEFAULT, SOURCE_ENVIRONMENT, &
         SOURCE_COMMAND_LINE
+    use fclap_rules, only : ArgumentRule
+    use fclap_utils_similarity, only : closest_match
     use fclap_validators_choices, only : ChoicesValidator, choices_validator
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue
     use fclap_value_builtin, only : StringValue, LogicalValue
     use fclap_value_convert, only : CONVERT_SUCCESS, convert_value, &
         canonicalize_choice, lowercase
-    use fclap_utils_similarity, only : closest_match
     implicit none
     private
 
@@ -50,7 +50,7 @@ contains
     function parse_definitions(arguments, config_errors, tokens, groups, &
         version_text, subcommand_names, has_subcommands, &
         subcommand_required, next_token_index, rules, environment, &
-        collect_extras) result(parsed)
+        collect_extras, token_lengths) result(parsed)
         type(Argument), intent(in) :: arguments(:)
         type(ErrorStack), intent(in) :: config_errors
         character(len=*), intent(in) :: tokens(:)
@@ -64,12 +64,14 @@ contains
         character(len=*), intent(in), optional :: environment(:)
         !> Return unknown options and surplus positionals as extra tokens
         logical, intent(in), optional :: collect_extras
+        !> Exact token lengths; trailing blanks are padding without them
+        integer, intent(in), optional :: token_lengths(:)
         type(ParseResult) :: parsed
         type(ParseContext) :: context
         character(len=:), allocatable :: token, attached
         integer :: argument_index, action_outcome, form
 
-        call context%init(tokens, size(arguments))
+        call context%init(tokens, size(arguments), token_lengths)
         call collect_option_names(arguments, context)
         if (present(environment)) context%environment = environment
         if (present(collect_extras)) context%collect_extras = collect_extras
@@ -171,8 +173,9 @@ contains
             .not. context%errors%has_fatal_errors()) then
             call materialize_empty_positionals(arguments, context, action_outcome)
             if (action_outcome == ACTION_CONTINUE .and. &
-                .not. context%errors%has_fatal_errors()) &
+                .not. context%errors%has_fatal_errors()) then
                 call apply_environment(arguments, context)
+            end if
         else if (context%errors%has_fatal_errors()) then
             call find_later_exit_request(arguments, context, action_outcome)
         end if
@@ -407,7 +410,7 @@ contains
             last%code /= ERR_EXTRA_POSITIONAL) return
 
         do position = context%cursor, size(context%tokens)
-            token = trim(context%tokens(position))
+            token = context%token_at(position)
             if (token == "--") return
             argument_index = find_option(arguments, token)
             if (argument_index == 0) cycle
@@ -565,7 +568,7 @@ contains
                     end if
                     text = ""
                 else
-                    text = trim(context%tokens(context%cursor))
+                    text = context%token_at(context%cursor)
                 end if
                 text_index = context%cursor
             end if
@@ -576,8 +579,9 @@ contains
             call execute_action(definition, index, value, context, &
                 action_outcome, mark_explicit=.true., option_name=option_name)
             if (context%errors%has_fatal_errors()) return
-            if (.not. present(attached) .and. len(text) > 0) &
+            if (.not. present(attached) .and. len(text) > 0) then
                 call context%advance()
+            end if
         end associate
     end subroutine consume_delimited
 
@@ -610,12 +614,12 @@ contains
             count > definition%nargs%max_count()) then
             if (definition%nargs%min_count() == definition%nargs%max_count()) &
                 then
-                write(wanted, '(i0)') definition%nargs%min_count()
+                write(wanted, "(i0)") definition%nargs%min_count()
                 wanted = trim(wanted) // " values"
             else
                 wanted = "at least one value"
             end if
-            write(got, '(i0)') count
+            write(got, "(i0)") count
             call context%errors%add(prefix // "expected " // trim(wanted) // &
                 " separated by '" // definition%delimiter // "' (got " // &
                 trim(got) // ")", code=ERR_MISSING_VALUE, &
@@ -849,7 +853,7 @@ contains
             return
         end if
 
-        first_token = trim(context%tokens(context%cursor))
+        first_token = context%token_at(context%cursor)
         call record_lifecycle(arguments(index), first_token, context%cursor, &
             context, continue_parsing)
         if (.not. continue_parsing) return
@@ -883,7 +887,7 @@ contains
             position = context%cursor + count
             if (position > size(context%tokens)) return
 
-            token = trim(context%tokens(position))
+            token = context%token_at(position)
             if (definition%nargs%is_variable() .and. &
                 context%is_subcommand(token)) then
                 boundary = BOUNDARY_SUBCOMMAND
@@ -940,7 +944,7 @@ contains
         type(ValueBox), intent(out) :: value
 
         call convert_and_validate_text(definition, context, &
-            trim(context%tokens(token_index)), token_index, value)
+            context%token_at(token_index), token_index, value)
     end subroutine convert_and_validate_token
 
     subroutine convert_and_validate_text(definition, context, token, &
@@ -960,7 +964,8 @@ contains
         prefix = ""
         if (present(origin)) prefix = origin
 
-        call convert_value(token, definition%data_type, value, stat)
+        call convert_value(token, definition%data_type, value, stat, &
+            verbatim=.true.)
         if (stat /= CONVERT_SUCCESS) then
             call context%errors%add(prefix // "invalid " // &
                 definition%data_type // " value", code=ERR_INVALID_VALUE, &
@@ -980,8 +985,9 @@ contains
                     suggestion=suggest_choice(definition, token))
                 return
             end if
-            if (definition%case_insensitive_choices) &
+            if (definition%case_insensitive_choices) then
                 call canonicalize_choice(value, definition%choices, .true.)
+            end if
         end if
 
         if (allocated(definition%validator)) then
@@ -1232,7 +1238,7 @@ contains
         character(len=*), intent(in) :: token
 
         starts_option = len_trim(token) > 1
-        if (starts_option) starts_option = token(1:1) == '-'
+        if (starts_option) starts_option = token(1:1) == "-"
     end function token_starts_option
 
     subroutine advance_values(context, count)
@@ -1250,7 +1256,7 @@ contains
         integer, intent(in) :: token_index
         character(len=:), allocatable :: token
 
-        token = trim(context%tokens(token_index))
+        token = context%token_at(token_index)
         call add_unknown_option(context, token, token_index)
     end subroutine add_unknown_at
 
@@ -1432,8 +1438,9 @@ contains
         parsed%namespace = context%namespace
         parsed%errors = context%errors
         parsed%outcome = outcome
-        if (allocated(context%extra_tokens)) &
+        if (allocated(context%extra_tokens)) then
             parsed%extra_tokens = context%extra_tokens
+        end if
         if (present(next_token_index)) next_token_index = context%cursor
         if (allocated(context%selected_command_path)) then
             parsed%selected_command_path = context%selected_command_path

@@ -24,14 +24,17 @@ program package_consumer
 
     if (result%outcome /= PARSE_SUCCESS) error stop "parse failed"
     call result%namespace%get("input", input, stat)
-    if (stat /= FCLAP_OK .or. trim(input) /= "input.dat") &
+    if (stat /= FCLAP_OK .or. trim(input) /= "input.dat") then
         error stop "string retrieval failed"
+    end if
     call result%namespace%get("count", count, stat)
-    if (stat /= FCLAP_OK .or. count /= 2) &
+    if (stat /= FCLAP_OK .or. count /= 2) then
         error stop "integer retrieval failed"
+    end if
     call result%namespace%get("verbose", verbose, stat)
-    if (stat /= FCLAP_OK .or. .not. verbose) &
+    if (stat /= FCLAP_OK .or. .not. verbose) then
         error stop "logical retrieval failed"
+    end if
 
     call get_fclap_version(string=version)
     if (version /= fclap_version_string) error stop "version mismatch"

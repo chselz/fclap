@@ -32,6 +32,19 @@ if(NOT warning_stderr MATCHES "fixture: warning: argument --legacy: use --name")
 endif()
 
 execute_process(
+  COMMAND "${FCLAP_CLI}" --echo "a, "
+  RESULT_VARIABLE echo_status
+  OUTPUT_VARIABLE echo_stdout
+  ERROR_VARIABLE echo_stderr
+)
+if(NOT echo_status EQUAL 0)
+  message(FATAL_ERROR "echo path exited with ${echo_status}")
+endif()
+if(NOT echo_stdout STREQUAL "[a, ]\n")
+  message(FATAL_ERROR "echo path lost trailing blanks: '${echo_stdout}'")
+endif()
+
+execute_process(
   COMMAND "${FCLAP_CLI}" --help
   RESULT_VARIABLE help_status
   OUTPUT_VARIABLE help_stdout

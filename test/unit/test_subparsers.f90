@@ -74,7 +74,7 @@ contains
         call parser%add_argument("workspace")
         call parser%add_argument("--verbose", action=store_true())
         call parser%add_subparsers(dest="operation", required=.true.)
-        call parser%add_parser("run", run_parser, help_text="run a job")
+        call parser%add_parser("run", run_parser, help="run a job")
 
         result = parser%parse_tokens([character(len=9) :: &
             "project", "--verbose", "run", "input.dat", "--force"])
@@ -257,15 +257,15 @@ contains
         character(len=:), allocatable :: expected
         character(len=1) :: nl
 
-        nl = new_line('a')
+        nl = new_line("a")
         call child%init(add_help=.false.)
         call parser%init(prog="tool", add_help=.false.)
         call parser%add_subparsers(title="commands", &
             description="available operations", required=.true.)
         call parser%add_parser("clone", child, &
-            help_text="clone a repository")
+            help="clone a repository")
         call parser%add_parser("commit", child, &
-            help_text="record changes")
+            help="record changes")
 
         expected = "usage: tool {clone,commit}" // nl // nl // &
             "commands:" // nl // "  available operations" // nl // &
@@ -411,7 +411,7 @@ contains
         call status_parser%init(add_help=.false.)
         call parser%init(prog="tool", add_help=.false.)
         call parser%add_subparsers(dest="command", required=.true.)
-        call parser%add_parser("run", run_parser, help_text="run a job", &
+        call parser%add_parser("run", run_parser, help="run a job", &
             aliases=[character(len=7) :: "r", "execute"])
         call parser%add_parser("status", status_parser)
         call check(error, parser%is_valid())
