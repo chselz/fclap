@@ -1,0 +1,13 @@
+[check]
+target-std = "f2018"
+extend-exclude = ["subprojects", "_deps"]
+
+# Same rule set as toml-f: every default rule plus preview rules, minus the
+# three below. The pre-commit hook runs with `--fix`.
+preview = true
+ignore = [
+    "C002",  # interface without implicit none
+    "C003",  # implicit none(external)
+    "C121",  # use statement missing only clause
+]
+line-length = 132

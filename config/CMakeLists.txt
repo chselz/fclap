@@ -24,8 +24,9 @@ set(
 )
 set(module-dir "${module-dir}" PARENT_SCOPE)
 
-# Set build type as CMake does not provide defaults
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+# Set build type as CMake does not provide defaults, but never override the
+# choice of a parent project.
+if(NOT is-subproject AND NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(
     CMAKE_BUILD_TYPE "RelWithDebInfo"
     CACHE STRING "Build type to be used."

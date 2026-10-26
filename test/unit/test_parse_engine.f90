@@ -1,0 +1,400 @@
+module test_parse_engine
+    use, intrinsic :: iso_fortran_env, only : wp => real64
+    use fclap, only : ArgumentParser, ErrorEntry, GroupHandle, ParseResult, &
+        FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_DUPLICATE_OPTION, &
+        ERR_UNKNOWN_ARGUMENT, ERR_MISSING_VALUE, ERR_EXTRA_POSITIONAL, &
+        ERR_MISSING_REQUIRED, ERR_INVALID_VALUE, ERR_REMOVED_ARGUMENT, &
+        count, store_true
+    use testdrive, only : new_unittest, unittest_type, error_type, check
+    implicit none
+    private
+
+    public :: collect_parse_engine
+
+contains
+
+    subroutine collect_parse_engine(testsuite)
+        type(unittest_type), allocatable, intent(out) :: testsuite(:)
+
+        testsuite = [ &
+            new_unittest("parse positional option and alias", test_scalar_parse), &
+            new_unittest("defaults and independent results", &
+                test_defaults_and_independent_results), &
+            new_unittest("refuse invalid parser", test_invalid_parser), &
+            new_unittest("missing required arguments", test_missing_required), &
+            new_unittest("unknown option", test_unknown_option), &
+            new_unittest("missing option value", test_missing_option_value), &
+            new_unittest("extra positional", test_extra_positional), &
+            new_unittest("end of options marker", test_end_of_options), &
+            new_unittest("negative numeric values", test_negative_values), &
+            new_unittest("token errors are not repeated by presence checks", &
+                test_no_cascade), &
+            new_unittest("numeric-looking tokens are numeric values", &
+                test_numeric_looking_values) &
+        ]
+    end subroutine collect_parse_engine
+
+    subroutine test_scalar_parse(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: input, output
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("input")
+        call parser%add_argument("-o", "--output")
+
+        result = parser%parse_tokens([character(len=12) :: &
+            "input.dat", "-o", "custom.dat"])
+
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call check(error, result%succeeded(), .true.)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 0)
+        if (allocated(error)) return
+        call result%namespace%get("input", input, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(input), "input.dat")
+        if (allocated(error)) return
+        call result%namespace%get("output", output, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(output), "custom.dat")
+    end subroutine test_scalar_parse
+
+    subroutine test_defaults_and_independent_results(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: first, second
+        character(len=:), allocatable :: value
+        character(len=1), allocatable :: no_tokens(:)
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--output", default="result.dat")
+        allocate(no_tokens(0))
+
+        first = parser%parse_tokens(no_tokens)
+        second = parser%parse_tokens([character(len=11) :: &
+            "--output", "changed.dat"])
+
+        call check(error, first%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call first%namespace%get("output", value, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(value), "result.dat")
+        if (allocated(error)) return
+        call second%namespace%get("output", value, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(value), "changed.dat")
+        if (allocated(error)) return
+
+        ! A later parse must not modify an earlier self-contained result.
+        call first%namespace%get("output", value, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(value), "result.dat")
+    end subroutine test_defaults_and_independent_results
+
+    subroutine test_invalid_parser(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--value", default="before")
+        call parser%add_argument("--value")
+
+        result = parser%parse_tokens([character(len=9) :: "--value", "after"])
+
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_DUPLICATE_OPTION)
+        if (allocated(error)) return
+        call check(error, result%namespace%size(), 0)
+    end subroutine test_invalid_parser
+
+    subroutine test_missing_required(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        character(len=:), allocatable :: value
+        character(len=1), allocatable :: no_tokens(:)
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("input")
+        call parser%add_argument("--mode", required=.true., default="safe")
+        allocate(no_tokens(0))
+
+        result = parser%parse_tokens(no_tokens)
+
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%failed(), .true.)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 2)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_REQUIRED)
+        if (allocated(error)) return
+        call check(error, entry%arg_name, "input")
+        if (allocated(error)) return
+        entry = result%errors%get(2)
+        call check(error, entry%code, ERR_MISSING_REQUIRED)
+        if (allocated(error)) return
+        call check(error, entry%arg_name, "mode")
+        if (allocated(error)) return
+
+        ! A default is inserted but does not satisfy explicit required state.
+        call result%namespace%get("mode", value, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(value), "safe")
+    end subroutine test_missing_required
+
+    subroutine test_unknown_option(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(add_help=.false.)
+        result = parser%parse_tokens([character(len=9) :: "--unknown"])
+
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNKNOWN_ARGUMENT)
+        if (allocated(error)) return
+        call check(error, entry%arg_name, "--unknown")
+        if (allocated(error)) return
+        call check(error, entry%token, "--unknown")
+        if (allocated(error)) return
+        call check(error, entry%token_index, 1)
+    end subroutine test_unknown_option
+
+    subroutine test_missing_option_value(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("-o", "--output")
+        result = parser%parse_tokens([character(len=2) :: "-o"])
+
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_VALUE)
+        if (allocated(error)) return
+        call check(error, entry%arg_name, "output")
+        if (allocated(error)) return
+        call check(error, entry%token, "-o")
+        if (allocated(error)) return
+        call check(error, entry%token_index, 1)
+        if (allocated(error)) return
+        call check(error, result%namespace%contains("output"), .false.)
+    end subroutine test_missing_option_value
+
+    subroutine test_extra_positional(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        character(len=:), allocatable :: input
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("input")
+        result = parser%parse_tokens([character(len=7) :: "one.dat", "two.dat"])
+
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_EXTRA_POSITIONAL)
+        if (allocated(error)) return
+        call check(error, entry%token, "two.dat")
+        if (allocated(error)) return
+        call check(error, entry%token_index, 2)
+        if (allocated(error)) return
+
+        ! Values accepted before a later fatal token remain available.
+        call result%namespace%get("input", input, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(input), "one.dat")
+    end subroutine test_extra_positional
+
+    subroutine test_end_of_options(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: value
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("value")
+        result = parser%parse_tokens([character(len=9) :: "--", "--literal"])
+
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("value", value, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, trim(value), "--literal")
+    end subroutine test_end_of_options
+
+    subroutine test_negative_values(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: option_parser, positional_parser
+        type(ParseResult) :: result
+        integer :: level
+        real(wp) :: offset
+        integer :: stat
+
+        call option_parser%init(add_help=.false.)
+        call option_parser%add_argument("--offset", data_type="real")
+        result = option_parser%parse_tokens([character(len=8) :: &
+            "--offset", "-2.5"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("offset", offset, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, offset, -2.5_wp)
+        if (allocated(error)) return
+
+        call positional_parser%init(add_help=.false.)
+        call positional_parser%add_argument("level", data_type="integer")
+        result = positional_parser%parse_tokens([character(len=2) :: "-7"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("level", level, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, level, -7)
+    end subroutine test_negative_values
+
+    !> A failing token stops parsing; the argument it belongs to, and every
+    !> argument after it, must not also be reported as missing.
+    subroutine test_no_cascade(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, mutex_parser, cluster_parser, &
+            pair_parser
+        type(GroupHandle) :: group
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--n", data_type="integer", required=.true.)
+        call check_single_error(error, parser, &
+            [character(len=3) :: "--n", "abc"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, [character(len=3) :: "--n"], &
+            ERR_MISSING_VALUE)
+        if (allocated(error)) return
+
+        call mutex_parser%init(add_help=.false.)
+        group = mutex_parser%add_mutually_exclusive_group(required=.true.)
+        call mutex_parser%add_argument("--a", data_type="integer", group=group)
+        call mutex_parser%add_argument("--b", group=group)
+        call check_single_error(error, mutex_parser, &
+            [character(len=3) :: "--a", "abc"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+
+        call cluster_parser%init(add_help=.false.)
+        call cluster_parser%add_argument("-v", action=count())
+        call cluster_parser%add_argument("-r", action=store_true(), &
+            removed_msg="removed")
+        call cluster_parser%add_argument("-n", data_type="integer", &
+            required=.true.)
+        call check_single_error(error, cluster_parser, &
+            [character(len=5) :: "-vrn1"], ERR_REMOVED_ARGUMENT)
+        if (allocated(error)) return
+
+        call pair_parser%init(add_help=.false.)
+        call pair_parser%add_argument("--pair", nargs=2, data_type="integer")
+        call pair_parser%add_argument("a")
+        call check_single_error(error, pair_parser, &
+            [character(len=6) :: "--pair", "1", "--", "a"], ERR_MISSING_VALUE)
+    end subroutine test_no_cascade
+
+    !> A token that looks like a number is the value of a numeric argument,
+    !> so a malformed number is an invalid value, not an unknown option.
+    subroutine test_numeric_looking_values(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, positional_parser
+        type(ParseResult) :: result
+        real(wp) :: offset
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("-n", data_type="integer")
+        call parser%add_argument("--pair", nargs=2, data_type="integer")
+        call parser%add_argument("--offset", data_type="real")
+        call check_single_error(error, parser, &
+            [character(len=6) :: "-n", "-1.5e3"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=20) :: "-n", "-9223372036854775809"], &
+            ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=6) :: "-n", "-1_000"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=6) :: "--pair", "-1", "-2.5"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        ! Other option-like tokens are still unknown options.
+        call check_single_error(error, parser, &
+            [character(len=4) :: "-n", "-x"], ERR_UNKNOWN_ARGUMENT)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "--offset", "-inf"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("offset", offset, stat)
+        call check(error, offset < 0.0_wp .and. abs(offset) > huge(offset))
+        if (allocated(error)) return
+
+        call positional_parser%init(add_help=.false.)
+        call positional_parser%add_argument("a", nargs="+", data_type="integer")
+        call check_single_error(error, positional_parser, &
+            [character(len=4) :: "-1", "-1e3"], ERR_INVALID_VALUE)
+    end subroutine test_numeric_looking_values
+
+    !> Check that parsing fails with exactly one error of the given code.
+    subroutine check_single_error(error, parser, tokens, code)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser), intent(in) :: parser
+        character(len=*), intent(in) :: tokens(:)
+        integer, intent(in) :: code
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        result = parser%parse_tokens(tokens)
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, code)
+    end subroutine check_single_error
+
+end module test_parse_engine

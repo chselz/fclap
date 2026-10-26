@@ -7,6 +7,11 @@
 *.o
 *.obj
 
+# Coverage data
+*.gcda
+*.gcno
+*.gcov
+
 # Precompiled Headers
 *.gch
 *.pch
@@ -36,9 +41,19 @@
 /_*/
 
 # Sphinx documentation
-docs/build/
-docs/_build/
-docs/source/_autosummary/
+doc/build/
+doc/_build/
+doc/source/_autosummary/
 
 # Python files
 __pycache__
+
+# VSCode folders
+.vscode/
+
+# Claude folders
+.claude/
+
+# Meson downloads wrap dependencies next to their .wrap files
+/subprojects/*/
+/subprojects/packagecache/

@@ -1,96 +1,144 @@
-# fclap
-fclap, a Fortran command line argument parser.
+# fclap: Command Line Argument Parser Library for Fortran projects
 
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE.md)
+[![Release](https://img.shields.io/github/v/release/chselz/fclap)](https://github.com/chselz/fclap/releases/latest)
+[![Build](https://github.com/chselz/fclap/actions/workflows/ci.yml/badge.svg)](https://github.com/chselz/fclap/actions/workflows/ci.yml)
+[![Documentation Status](https://readthedocs.org/projects/fclap/badge/?version=latest)](https://fclap.readthedocs.io/en/latest/)
+[![codecov](https://codecov.io/gh/chselz/fclap/graph/badge.svg)](https://codecov.io/gh/chselz/fclap)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/chselz/fclap/blob/main/.pre-commit-config.yaml)
 
-This project is an effort to create a simple to use, modern library implementation of a command line argument parser for fortran projects.
-This project aims to replicate the functionalities of the python `Argparse` module.
+fclap is a modular Fortran 2018 command-line argument parser inspired by
+Python's `argparse` usage style and partly by Rust's clap regarding features.
+It provides typed values, generated help, structured
+non-terminating errors, groups, validators, parent parsers, and nested
+subcommands.
 
-**Important Note: This project is still under development so use with caution as it may break**
+Command lines use the familiar spellings: `--threads=4`, `-j4`, combined
+flags such as `-vvn`, `--` to end options, and `-` as an ordinary value.
+Numbers are parsed strictly, integers have 64-bit range, and diagnostics read
+like `prog: error: argument -j/--threads: value must not be less than 1 (got '0')`.
+`--feature/--no-feature` flags come from `boolean_optional()`, and
+`parser%error("...")` reports your own post-parse checks the same way.
 
-## Building from source
+The supported application interface is the `fclap` facade module. 
 
-To build *fclap* from the source code in this repository you need to have
-a Fortran compiler supporting Fortran 2008 and one of the supported build systems:
+```fortran
+program demo
+    use fclap, only : ArgumentParser, Namespace, store_true
+    implicit none
 
-- [meson](https://mesonbuild.com) version 0.57.2 or newer, with
-  a build-system backend, *i.e.* [ninja](https://ninja-build.org) version 1.10 or newer
-- [cmake](https://cmake.org) version 3.14 or newer, with
-  a build-system backend, *i.e.* [ninja](https://ninja-build.org) version 1.10 or newer
-- [fpm](https://github.com/fortran-lang/fpm) version 0.3.0 or newer
+    type(ArgumentParser) :: parser
+    type(Namespace) :: args
 
-fpm was used as the primary build system during development.
-CMake and meson support are availible but the functionality may be limited
-Currently, *fclap* support GCC 8 and newer or Intel 18 and newer.
+    call parser%init(prog="demo", description="Process a file")
+    call parser%add_argument("input", help="input file")
+    call parser%add_argument("-v", "--verbose", action=store_true(), &
+        help="enable verbose output")
+    args = parser%parse_args()
+end program demo
+```
 
-Detailed installation instruction are available in the project documentation under the [installation category](https://fclap.readthedocs.io/en/latest/installation.html).
+Three complete example programs demonstrating various capabilities of `fclap` are available:
+
+- [`example/basic.f90`](example/basic.f90) demonstrates the terminating CLI
+  facade, typed retrieval, a flag, a default, and a validator.
+- [`example/subcommands.f90`](example/subcommands.f90) demonstrates owned
+  child parsers and required subcommands.
+- [`example/library_mode.f90`](example/library_mode.f90) demonstrates
+  non-terminating parsing and structured failure inspection.
+
+## Installation
+
+fclap is not packaged for any distribution channel yet; build it from source
+or add it as an fpm, CMake, or Meson dependency as described below.
+
+### Building from source
+To build this project from the source code in this repository you need to have
+
+- a Fortran compiler supporting Fortran 2018
+
+- One of the supported build systems
+
+  - [meson](https://mesonbuild.com) version 0.55 or newer
+  - [CMake](https://cmake.org/) version 3.15 or newer
+  - [Fortran package manager (fpm)](https://github.com/fortran-lang/fpm) version 0.2.0 or newer
+
+Get the source by cloning the repository
+
+```
+git clone https://github.com/chselz/fclap
+cd fclap
+```
+Tests use [test-drive](https://github.com/fortran-lang/test-drive). CMake and Meson may
+resolve that dependency when no installed package is available.
 
 
 #### Building with meson
 
-Setup a build with
+Meson provides the same library and test coverage:
 
 ```sh
 meson setup _build
-```
-
-You can select the Fortran compiler by the `FC` environment variable.
-To compile and run the projects testsuite use
-
-```sh
+meson compile -C _build
 meson test -C _build --print-errorlogs
-```
-
-To run the more extensive testing for the available parametrizations use
-
-```sh
-meson test -C _build --print-errorlogs --benchmark
-```
-
-If the testsuites pass you can install with
-
-```sh
-meson configure _build --prefix=/path/to/install
 meson install -C _build
 ```
 
-This might require administrator access depending on the chosen install prefix.
-For more details see the [meson installation instructions](https://fclap.readthedocs.io/en/latest/installation.html#meson-based-build).
+#### Building with CMake
+
+CMake builds the library, Test Drive suite, and CLI policy fixtures:
+
+```sh
+cmake -S . -B _build -DCMAKE_BUILD_TYPE=Debug
+cmake --build _build
+ctest --test-dir _build --output-on-failure
+cmake --install _build --prefix /path/to/prefix
+```
+
+#### Building with fpm
+
+The Fortran package manager ([fpm](https://github.com/fortran-lang/fpm)) supports the addition of fclap as a dependency.
+In the package manifest, `fpm.toml`, you can add fclap dependency via:
+
+```toml
+[dependencies]
+fclap.git = "https://github.com/chselz/fclap"
+```
+
+Then build and test normally.
+
+```sh
+fpm build
+fpm test
+```
+
+Examples can be tested with
+
+```sh
+fpm run --example basic -- input.dat --threads 2 --verbose
+```
 
 ## Documentation
 
-The user documentation is available at [readthedocs](https://fclap.readthedocs.io).
-Additionally, the [doxygen](https://doxygen.nl) generated API documentation is available [here](https://fclap.github.io/fclap).
+Start with the [tutorial](doc/source/tutorial.rst); every public procedure is
+described in the [API reference](doc/source/api/fclap.rst). Maintainers should
+read [ARCHITECTURE.md](ARCHITECTURE.md) first.
 
-To build the user documentation locally we use sphinx, install the dependencies you can use the *mamba* package manager
+Build the Sphinx documentation locally with:
 
-```bash
-mamba create -n fclap_docs python -y
-mamba activate flacp_docs
+```sh
+python -m pip install -r doc/requirements.txt
+sphinx-build -W -b html doc/source doc/build/html
 ```
-
-Make sure to be in the docs directory and continue with:
-
-```bash
-pip install -r requirements.txt
-make html
-```
-
-The build files for the documentation can be found in the docs/build folder.
-
 
 ## Contributing
 
-This is a volunteer open source projects and contributions are always welcome.
+This is a volunteer open source project and contributions are always welcome.
 Please, take a moment to read the [contributing guidelines](CONTRIBUTING.md) on how to get involved in fclap.
+
 
 ## License
 
-The MIT License (MIT)
+fclap is free software: you can redistribute it and/or modify it under the terms of the [MIT license](LICENSE.md).
 
-Copyright (c) 2026 Christian Selzer
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on an _as is_ basis, without warranties or conditions of any kind, either express or implied. See the License for the specific language governing permissions and limitations under the License.

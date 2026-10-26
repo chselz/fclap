@@ -13,7 +13,12 @@
 set(_lib "test-drive")
 set(_pkg "TEST_DRIVE")
 set(_url "https://github.com/fortran-lang/test-drive")
-set(_rev "v0.4.0")
+set(_rev "v0.6.1")
+
+# Build only the framework, not test-drive's own test suite.
+if(NOT DEFINED TESTDRIVE_BUILD_TESTING)
+  set(TESTDRIVE_BUILD_TESTING OFF)
+endif()
 
 if(NOT DEFINED "${_pkg}_FIND_METHOD")
   if(DEFINED "${PROJECT_NAME}-dependency-method")

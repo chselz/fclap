@@ -1,123 +1,86 @@
-!> @file fclap.f90
-!> @brief Public API for fclap - Fortran Command Line Argument Parser.
+!> Public interface of fclap, a Fortran command-line argument parser.
 !>
-!> @details This module provides the main entry point to fclap,
-!> a Fortran Command Line Argument Parser inspired by Python's argparse.
-!> It re-exports all public types and procedures needed for command line parsing.
-!>
-!> This is the only module users need to import for most use cases.
-!>
-!> @section usage Basic Usage
-!> @code{.f90}
-!>   use fclap, only: ArgumentParser, Namespace
-!>   type(ArgumentParser) :: parser
-!>   type(Namespace) :: args
-!>
-!>   call parser%init(prog="myapp", description="My application")
-!>   call parser%add_argument("filename", help="Input file")
-!>   call parser%add_argument("-v", "--verbose", action="store_true")
-!>   args = parser%parse_args()
-!> @endcode
-!>
-!> @section features Features
-!> - Positional and optional arguments
-!> - Type conversion (string, integer, real, logical)
-!> - Multiple nargs modes (?, *, +, N)
-!> - Actions: store, store_true, store_false, count, append
-!> - Argument groups and mutually exclusive groups
-!> - Subparsers for git-style subcommands
-!> - Auto-generated help and version output
-!>
-!> @author fclap contributors
-!> @version 0.1.0
-
+!> Import names with an `only` list: short factory names such as `count`
+!> would otherwise shadow intrinsics.
 module fclap
-    ! Re-export from internal fclap modules
-    use fclap_constants, only: &
-        ! Nargs specifiers
-        ARG_OPTIONAL, ARG_ZERO_OR_MORE, ARG_ONE_OR_MORE, &
-        ARG_PARSER, ARG_REMAINDER, ARG_SINGLE, &
-        ! Special values
-        SUPPRESS, &
-        ! Status values for argument visibility
-        STATUS_ACTIVE, STATUS_DEPRECATED, STATUS_REMOVED, &
-        ! Type constants
-        TYPE_STRING, TYPE_INTEGER, TYPE_REAL, TYPE_LOGICAL, &
-        ! Action type constants
-        ACT_STORE, ACT_STORE_TRUE, ACT_STORE_FALSE, &
-        ACT_COUNT, ACT_APPEND, ACT_HELP, ACT_VERSION, &
-        ACT_NOT_LESS_THAN, ACT_NOT_BIGGER_THAN, &
-        ! Group type constants
-        GROUP_STANDARD, GROUP_MUTEX
-    use fclap_errors, only: fclap_error
-    use fclap_namespace, only: Namespace, ValueContainer
-    use fclap_actions, only: Action, not_less_than, not_bigger_than
-    use fclap_parser, only: ArgumentParser, ArgumentGroup, MutuallyExclusiveGroup, &
-        get_prog_name
-    use fclap_utils_accuracy, only: wp
-    use fclap_version, only: get_fclap_version, fclap_version_compact, &
-        fclap_version_string
-
+    use fclap_actions_abstract, only : ActionType, ACTION_CONTINUE, &
+        ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
+    use fclap_actions_builtin, only : StoreAction, StoreConstAction, &
+        StoreTrueAction, StoreFalseAction, BooleanOptionalAction, AppendAction, &
+        CountAction, store, store_const, store_true, store_false, &
+        boolean_optional, append, count
+    use fclap_argparser, only : ArgumentParser
+    use fclap_argument, only : Argument
+    use fclap_error_codes
+    use fclap_error_entry, only : ErrorEntry
+    use fclap_error_stack, only : ErrorStack
+    use fclap_formatter_abstract, only : FormatterType
+    use fclap_formatter_model, only : HelpArgument, HelpGroup, HelpCommand, &
+        HelpModel
+    use fclap_formatter_standard, only : StandardFormatter
+    use fclap_groups_abstract, only : GroupHandle
+    use fclap_namespace, only : Namespace
+    use fclap_nargs, only : NargsSpec, new_nargs, normalize_nargs, &
+        NARGS_INVALID, NARGS_OPTIONAL, NARGS_ZERO_OR_MORE, &
+        NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO, NARGS_ONE, &
+        NARGS_UNBOUNDED, NARGS_SUCCESS, NARGS_INVALID_VALUE
+    use fclap_parse_result, only : ParseResult, PARSE_SUCCESS, PARSE_FAILURE, &
+        PARSE_HELP, PARSE_VERSION, SOURCE_NONE, SOURCE_DEFAULT, &
+        SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE
+    use fclap_validators_abstract, only : ValidatorType
+    use fclap_validators_bounds, only : LowerBoundValidator, &
+        UpperBoundValidator, RangeValidator, not_less_than, not_bigger_than, &
+        in_range
+    use fclap_value_abstract, only : ValueType, ValueBox
+    use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
+        LogicalValue, ListValue, new_value
+    use fclap_version, only : get_fclap_version, fclap_version_string, &
+        fclap_version_compact
     implicit none
     private
 
-    ! Public types - main user-facing API
-    public :: ArgumentParser      ! Main parser type
-    public :: Namespace           ! Parsed arguments container
-    public :: ArgumentGroup       ! Argument grouping for help
-    public :: MutuallyExclusiveGroup ! Mutually exclusive options
+    ! Application interface: everything a command-line program needs.
+    public :: ArgumentParser, Namespace, ParseResult, GroupHandle
+    public :: PARSE_SUCCESS, PARSE_FAILURE, PARSE_HELP, PARSE_VERSION
+    public :: SOURCE_NONE, SOURCE_DEFAULT, SOURCE_ENVIRONMENT
+    public :: SOURCE_COMMAND_LINE
+    public :: store, store_const, store_true, store_false, boolean_optional
+    public :: append, count
+    public :: not_less_than, not_bigger_than, in_range
+    public :: StandardFormatter
+    public :: ErrorEntry, ErrorStack, ERROR_FATAL, ERROR_WARNING
+    public :: FCLAP_OK
+    public :: ERR_INVALID_ARGUMENT_NAME, ERR_DUPLICATE_OPTION
+    public :: ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION
+    public :: ERR_INVALID_DEFAULT, ERR_INVALID_GROUP, ERR_INVALID_TYPE_NAME
+    public :: ERR_INVALID_LIFECYCLE, ERR_INCOMPATIBLE_VALIDATOR
+    public :: ERR_INVALID_RULE, ERR_INVALID_ENV
+    public :: ERR_UNKNOWN_ARGUMENT, ERR_MISSING_VALUE, ERR_EXTRA_POSITIONAL
+    public :: ERR_MISSING_REQUIRED, ERR_INVALID_VALUE, ERR_INVALID_CHOICE
+    public :: ERR_VALIDATION_FAILED, ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED
+    public :: ERR_REMOVED_ARGUMENT, ERR_DEPRECATED_ARGUMENT
+    public :: ERR_UNEXPECTED_VALUE, ERR_MISSING_DEPENDENCY
+    public :: ERR_ARGUMENT_CONFLICT, ERR_NO_ARGUMENTS
+    public :: ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND
+    public :: ERR_NAMESPACE_MISSING_KEY, ERR_NAMESPACE_TYPE_MISMATCH
+    public :: ERR_NAMESPACE_OUT_OF_RANGE
+    public :: get_fclap_version, fclap_version_string, fclap_version_compact
 
-    ! Public types - advanced usage
-    public :: Action              ! Action definition type
-    public :: ValueContainer      ! Value storage type
-    public :: fclap_error         ! Error handling type
-
-    ! Public constants - nargs specifiers
-    public :: ARG_OPTIONAL        ! '?' - zero or one argument
-    public :: ARG_ZERO_OR_MORE    ! '*' - zero or more arguments
-    public :: ARG_ONE_OR_MORE     ! '+' - one or more arguments
-    public :: ARG_PARSER          ! 'A...' - parser mode
-    public :: ARG_REMAINDER       ! '...' - all remaining arguments
-    public :: ARG_SINGLE          ! Single argument (default)
-
-    ! Public constants - special values
-    public :: SUPPRESS            ! Suppress help/default display
-
-    ! Public constants - argument status
-    public :: STATUS_ACTIVE       ! Normal active argument
-    public :: STATUS_DEPRECATED   ! Deprecated with warning
-    public :: STATUS_REMOVED      ! Removed, will error
-
-    ! Public constants - type specifiers
-    public :: TYPE_STRING
-    public :: TYPE_INTEGER
-    public :: TYPE_REAL
-    public :: TYPE_LOGICAL
-
-    ! Public constants - action types
-    public :: ACT_STORE
-    public :: ACT_STORE_TRUE
-    public :: ACT_STORE_FALSE
-    public :: ACT_COUNT
-    public :: ACT_APPEND
-    public :: ACT_HELP
-    public :: ACT_VERSION
-    public :: ACT_NOT_LESS_THAN
-    public :: ACT_NOT_BIGGER_THAN
-
-    ! Public procedures - bound-checking action factories
-    public :: not_less_than       ! Factory: action=not_less_than(bound)
-    public :: not_bigger_than     ! Factory: action=not_bigger_than(bound)
-
-    ! Public constants - group types
-    public :: GROUP_STANDARD
-    public :: GROUP_MUTEX
-
-    ! Public procedures
-    public :: get_prog_name       ! Get program name from command line
-    public :: get_fclap_version   ! Get version components
-    public :: fclap_version_compact ! Compact version string
-    public :: fclap_version_string  ! Full version string
-    public :: wp                    ! Working precision kind for reals
+    ! Extension interface: abstract types and the data they exchange, for
+    ! custom actions, validators, and formatters.
+    public :: ActionType, ACTION_CONTINUE, ACTION_HELP_REQUESTED
+    public :: ACTION_VERSION_REQUESTED
+    public :: StoreAction, StoreConstAction, StoreTrueAction, StoreFalseAction
+    public :: BooleanOptionalAction, AppendAction, CountAction
+    public :: ValidatorType, LowerBoundValidator, UpperBoundValidator
+    public :: RangeValidator
+    public :: FormatterType, HelpArgument, HelpGroup, HelpCommand, HelpModel
+    public :: Argument
+    public :: ValueType, ValueBox, StringValue, IntegerValue, RealValue
+    public :: LogicalValue, ListValue, new_value
+    public :: NargsSpec, new_nargs, normalize_nargs
+    public :: NARGS_INVALID, NARGS_OPTIONAL, NARGS_ZERO_OR_MORE
+    public :: NARGS_ONE_OR_MORE, NARGS_REMAINDER, NARGS_ZERO, NARGS_ONE
+    public :: NARGS_UNBOUNDED, NARGS_SUCCESS, NARGS_INVALID_VALUE
 
 end module fclap

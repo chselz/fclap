@@ -15,7 +15,8 @@ set(dir "${CMAKE_CURRENT_SOURCE_DIR}")
 list(
   APPEND srcs
   "${dir}/accuracy.f90"
-  "${dir}/fclap_version.f90"
+  "${dir}/similarity.f90"
+  "${dir}/version.f90"
 )
 
 set(srcs "${srcs}" PARENT_SCOPE)

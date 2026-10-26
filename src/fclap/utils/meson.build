@@ -12,5 +12,6 @@
 
 srcs += files(
   'accuracy.f90',
-  'fclap_version.f90',
+  'similarity.f90',
+  'version.f90',
 )

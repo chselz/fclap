@@ -19,6 +19,7 @@ project(
   default_options: [
     'buildtype=debugoptimized',
     'default_library=both',
+    'fortran_std=f2018',
   ],
 )
 install = not (meson.is_subproject() and get_option('default_library') == 'static')
@@ -44,6 +45,8 @@ fclap_dep = declare_dependency(
   link_with: fclap_lib,
   include_directories: fclap_inc,
 )
+# Let parent projects resolve dependency('fclap') to this subproject.
+meson.override_dependency(meson.project_name(), fclap_dep)
 
 # Package the license files
 fclap_lic = files(
@@ -61,6 +64,7 @@ if install
   meson.add_install_script(
     find_program(files('config'/'install-mod.py')),
     get_option('includedir') / module_id,
+    meson.project_name(),
   )
 
   pkg = import('pkgconfig')
@@ -71,8 +75,9 @@ if install
   )
 endif
 
-# add the testsuite
-if get_option('tests')
+# Add the testsuite. Parent projects using fclap as a subproject do not need
+# test-drive.
+if get_option('tests') and not meson.is_subproject()
   fpm_toml = meson.current_source_dir()/'fpm.toml'
   subdir('test')
 endif
