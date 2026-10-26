@@ -19,7 +19,9 @@ contains
             new_unittest("repeated built-in actions", test_repeated_actions), &
             new_unittest("conversion failures are atomic", &
                 test_conversion_failures), &
-            new_unittest("append missing value", test_append_missing_value) &
+            new_unittest("append missing value", test_append_missing_value), &
+            new_unittest("single-precision constants keep their decimal", &
+                test_store_const_single) &
         ]
     end subroutine collect_parse_actions
 
@@ -222,5 +224,25 @@ contains
         if (allocated(error)) return
         call check(error, result%namespace%contains(dest), .false.)
     end subroutine check_invalid_conversion
+
+    subroutine test_store_const_single(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        real(wp) :: scale
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--fine", dest="scale", &
+            action=store_const(0.1), data_type="real")
+        result = parser%parse_tokens([character(len=6) :: "--fine"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("scale", scale, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, scale == 0.1_wp, .true., &
+            "a real32 constant 0.1 must be stored as 0.1_real64")
+    end subroutine test_store_const_single
 
 end module test_parse_actions

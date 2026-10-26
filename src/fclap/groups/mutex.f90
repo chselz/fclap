@@ -21,6 +21,7 @@ module fclap_groups_mutex
         procedure :: help_snapshot => mutex_help_snapshot
         procedure :: validate_presence => mutex_validate_presence
         procedure :: accepts_member => mutex_accepts_member
+        procedure :: unsatisfiable_reason => mutex_unsatisfiable_reason
     end type MutexGroup
 
 contains
@@ -52,13 +53,31 @@ contains
         end if
     end function mutex_accepts_member
 
+    !> A required group without members can never be satisfied.
+    pure function mutex_unsatisfiable_reason(self) result(reason)
+        class(MutexGroup), intent(in) :: self
+        character(len=:), allocatable :: reason
+
+        if (self%required .and. self%member_count() == 0) then
+            reason = "a required mutually exclusive group needs at least " // &
+                "one member"
+        else
+            reason = ""
+        end if
+    end function mutex_unsatisfiable_reason
+
     !> Add mutex diagnostics for one parse operation's presence state.
-    subroutine mutex_validate_presence(self, seen, labels, group_index, errors)
+    !>
+    !> Hidden members are not listed when a required group is missing, so
+    !> help and diagnostics never disagree about which options exist.
+    subroutine mutex_validate_presence(self, seen, labels, group_index, errors, &
+        visible)
         class(MutexGroup), intent(in) :: self
         logical, intent(in) :: seen(:)
         character(len=*), intent(in) :: labels(:)
         integer, intent(in) :: group_index
         type(ErrorStack), intent(inout) :: errors
+        logical, intent(in), optional :: visible(:)
         character(len=:), allocatable :: group_name, first_seen, members
         integer :: error_count, index, member, seen_count
 
@@ -73,8 +92,10 @@ contains
         do index = 1, self%member_count()
             member = self%members(index)
             if (member < 1 .or. member > size(seen)) cycle
-            if (len(members) > 0) members = members // " "
-            members = members // member_label(labels, member)
+            if (member_is_visible(visible, member)) then
+                if (len(members) > 0) members = members // " "
+                members = members // member_label(labels, member)
+            end if
             if (.not. seen(member)) cycle
             seen_count = seen_count + 1
             if (seen_count == 1) then
@@ -87,10 +108,24 @@ contains
         end do
 
         if (self%required .and. seen_count == 0) then
-            call errors%add("one of the arguments " // members // &
-                " is required", code=ERR_MUTEX_REQUIRED, arg_name=group_name)
+            if (len(members) > 0) then
+                call errors%add("one of the arguments " // members // &
+                    " is required", code=ERR_MUTEX_REQUIRED, arg_name=group_name)
+            else
+                call errors%add("one argument of " // group_name // &
+                    " is required", code=ERR_MUTEX_REQUIRED, arg_name=group_name)
+            end if
         end if
     end subroutine mutex_validate_presence
+
+    logical function member_is_visible(visible, member) result(shown)
+        logical, intent(in), optional :: visible(:)
+        integer, intent(in) :: member
+
+        shown = .true.
+        if (.not. present(visible)) return
+        if (member <= size(visible)) shown = visible(member)
+    end function member_is_visible
 
     function member_label(labels, member) result(label)
         character(len=*), intent(in) :: labels(:)

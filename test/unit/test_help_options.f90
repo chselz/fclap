@@ -1,7 +1,7 @@
 module test_help_options
-    use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ParseResult, &
-        StandardFormatter, PARSE_SUCCESS, PARSE_FAILURE, ERR_NO_ARGUMENTS, &
-        ERR_INVALID_DEFAULT, store_true
+    use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, GroupHandle, &
+        ParseResult, StandardFormatter, PARSE_SUCCESS, PARSE_FAILURE, &
+        ERR_NO_ARGUMENTS, ERR_INVALID_DEFAULT, store_true
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -26,7 +26,15 @@ contains
             new_unittest("help on the label line respects the width", &
                 test_first_line_width), &
             new_unittest("choice help needs matching choices", &
-                test_invalid_choice_help) &
+                test_invalid_choice_help), &
+            new_unittest("empty command title uses the default", &
+                test_empty_command_title), &
+            new_unittest("empty lifecycle messages drop the colon", &
+                test_empty_lifecycle_messages), &
+            new_unittest("help lines carry no trailing blanks", &
+                test_no_trailing_blanks), &
+            new_unittest("groups without visible members are omitted", &
+                test_empty_group_omitted) &
         ]
     end subroutine collect_help_options
 
@@ -168,5 +176,96 @@ contains
         entry = errors%get(2)
         call check(error, entry%code, ERR_INVALID_DEFAULT)
     end subroutine test_invalid_choice_help
+
+    subroutine test_empty_command_title(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, go_parser
+
+        call go_parser%init()
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers(title="")
+        call parser%add_parser("go", go_parser, help="start")
+
+        call check(error, parser%format_help(), &
+            "usage: tool [{go}]" // nl // nl // &
+            "commands:" // nl // &
+            "  go                    start")
+    end subroutine test_empty_command_title
+
+    subroutine test_empty_lifecycle_messages(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--old", deprecated_msg="", help="old")
+        call parser%add_argument("--gone", removed_msg="", help="gone")
+
+        call check(error, parser%format_help(), &
+            "usage: tool [--old OLD] [--gone GONE]" // nl // nl // &
+            "options:" // nl // &
+            "  --old OLD             old (deprecated)" // nl // &
+            "  --gone GONE           gone (removed)")
+    end subroutine test_empty_lifecycle_messages
+
+    subroutine test_no_trailing_blanks(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, go_parser
+
+        ! Whitespace-only help is no help.
+        call go_parser%init()
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--empty", help=nl)
+        call parser%add_argument("--tab", help=achar(9))
+        call parser%add_subparsers()
+        call parser%add_parser("go", go_parser, help=" " // nl)
+
+        call check(error, parser%format_help(), &
+            "usage: tool [--empty EMPTY] [--tab TAB] [{go}]" // nl // nl // &
+            "options:" // nl // &
+            "  --empty EMPTY" // nl // &
+            "  --tab TAB" // nl // nl // &
+            "commands:" // nl // &
+            "  go")
+        if (allocated(error)) return
+
+        ! Raw help keeps its lines but drops blank padding and line ends.
+        call parser%init(prog="tool", add_help=.false., &
+            formatter=StandardFormatter(raw_help_text=.true.))
+        call parser%add_argument("--raw", help=nl // "  first  " // nl // &
+            nl // "last" // nl)
+        call parser%add_argument("--next", help="next")
+
+        call check(error, parser%format_help(), &
+            "usage: tool [--raw RAW] [--next NEXT]" // nl // nl // &
+            "options:" // nl // &
+            "  --raw RAW" // nl // &
+            repeat(" ", 24) // "  first" // nl // &
+            nl // &
+            repeat(" ", 24) // "last" // nl // &
+            "  --next NEXT           next")
+    end subroutine test_no_trailing_blanks
+
+    subroutine test_empty_group_omitted(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(GroupHandle) :: empty_group, hidden_group, described_group
+
+        call parser%init(prog="tool", add_help=.false.)
+        empty_group = parser%add_argument_group("Empty")
+        hidden_group = parser%add_argument_group("Hidden")
+        call parser%add_argument("--secret", visible=.false., &
+            group=hidden_group)
+        described_group = parser%add_argument_group("Notes", &
+            description="Read the manual.")
+        call parser%add_argument("--x", help="x")
+
+        ! A description alone still makes a section, as in argparse.
+        call check(error, parser%format_help(), &
+            "usage: tool [--x X]" // nl // nl // &
+            "options:" // nl // &
+            "  --x X                 x" // nl // nl // &
+            "Notes:" // nl // &
+            "  Read the manual.")
+    end subroutine test_empty_group_omitted
 
 end module test_help_options

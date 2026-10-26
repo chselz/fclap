@@ -4,7 +4,7 @@ module fclap_actions_store
     use fclap_error_stack, only : ErrorStack
     use fclap_namespace, only : Namespace
     use fclap_nargs, only : NargsSpec, NARGS_ZERO
-    use fclap_utils_accuracy, only : i8, ip, wp
+    use fclap_utils_accuracy, only : i8, ip, sp, wp
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : new_value
     implicit none
@@ -33,6 +33,7 @@ module fclap_actions_store
         module procedure :: store_const_integer
         module procedure :: store_const_integer_i8
         module procedure :: store_const_real
+        module procedure :: store_const_real_sp
         module procedure :: store_const_logical
     end interface store_const
 
@@ -71,6 +72,14 @@ contains
 
         action%constant = new_value(value)
     end function store_const_real
+
+    !> A single-precision constant is stored as its shortest decimal value.
+    function store_const_real_sp(value) result(action)
+        real(sp), intent(in) :: value
+        type(StoreConstAction) :: action
+
+        action%constant = new_value(value)
+    end function store_const_real_sp
 
     function store_const_logical(value) result(action)
         logical, intent(in) :: value

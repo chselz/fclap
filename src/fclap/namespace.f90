@@ -203,7 +203,7 @@ contains
         character(len=*), intent(in) :: key
         real(sp), intent(in) :: value
 
-        call self%set_value(key, new_value(real(value, kind=wp)))
+        call self%set_value(key, new_value(value))
     end subroutine namespace_set_real_sp
 
     subroutine namespace_set_real(self, key, value)
@@ -251,7 +251,7 @@ contains
         character(len=*), intent(in) :: key
         real(sp), intent(in) :: values(:)
 
-        call self%set_value(key, new_value(real(values, kind=wp)))
+        call self%set_value(key, new_value(values))
     end subroutine namespace_set_real_list_sp
 
     subroutine namespace_set_real_list(self, key, values)
@@ -302,8 +302,7 @@ contains
         real(sp), intent(in) :: value
         integer, intent(out), optional :: stat
 
-        call namespace_append_box(self, key, new_value(real(value, kind=wp)), &
-            stat)
+        call namespace_append_box(self, key, new_value(value), stat)
     end subroutine namespace_append_real_sp
 
     subroutine namespace_append_real(self, key, value, stat)
@@ -706,7 +705,8 @@ contains
             value <= int(huge(0_ip), kind=i8)
     end function fits_default_integer
 
-    !> Finite values beyond single precision cannot be narrowed safely.
+    !> Finite values beyond single precision cannot be narrowed safely, nor
+    !> can nonzero values so small that they would become zero.
     pure logical function fits_single_real(value) result(fits)
         real(wp), intent(in) :: value
 
@@ -714,8 +714,11 @@ contains
             fits = .true.
         else if (abs(value) > huge(value)) then
             fits = .true.
+        else if (abs(value) > real(huge(0.0_sp), kind=wp)) then
+            fits = .false.
         else
-            fits = abs(value) <= real(huge(0.0_sp), kind=wp)
+            ! Subnormal single-precision results are kept.
+            fits = value == 0.0_wp .or. real(value, kind=sp) /= 0.0_sp
         end if
     end function fits_single_real
 

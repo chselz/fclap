@@ -1,10 +1,12 @@
 module test_validators
+    use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_quiet_nan
     use, intrinsic :: iso_fortran_env, only : wp => real64
     use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ParseResult, &
-        store_true, not_less_than, not_bigger_than, PARSE_SUCCESS, &
+        store_true, not_less_than, not_bigger_than, in_range, PARSE_SUCCESS, &
         PARSE_FAILURE, ERR_INVALID_DEFAULT, ERR_INVALID_CHOICE, &
         ERR_VALIDATION_FAILED, ERR_DEPRECATED_ARGUMENT, ERR_REMOVED_ARGUMENT, &
-        ERROR_WARNING, ERR_INCOMPATIBLE_ACTION, FCLAP_OK
+        ERROR_WARNING, ERR_INCOMPATIBLE_ACTION, ERR_INCOMPATIBLE_VALIDATOR, &
+        FCLAP_OK
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -23,9 +25,120 @@ contains
                 test_case_insensitive_choices), &
             new_unittest("case-insensitive choices configuration", &
                 test_case_insensitive_config), &
-            new_unittest("deprecated and removed arguments", test_lifecycle) &
+            new_unittest("deprecated and removed arguments", test_lifecycle), &
+            new_unittest("bounds that accept nothing are rejected", &
+                test_inconsistent_bounds), &
+            new_unittest("single-precision bounds keep their decimal", &
+                test_single_precision_bounds), &
+            new_unittest("choice errors list the choices", &
+                test_choice_messages) &
         ]
     end subroutine collect_validators
+
+    subroutine test_inconsistent_bounds(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+        real(wp) :: nan
+        integer :: index
+
+        nan = ieee_value(1.0_wp, ieee_quiet_nan)
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--inverted", data_type="integer", &
+            validator=in_range(10, 1))
+        call parser%add_argument("--nan-range", data_type="real", &
+            validator=in_range(nan, nan))
+        call parser%add_argument("--nan-lower", data_type="real", &
+            validator=not_less_than(nan))
+        call parser%add_argument("--nan-upper", data_type="real", &
+            validator=not_bigger_than(nan))
+
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 4)
+        if (allocated(error)) return
+        do index = 1, errors%count()
+            entry = errors%get(index)
+            call check(error, entry%code, ERR_INCOMPATIBLE_VALIDATOR)
+            if (allocated(error)) return
+        end do
+        entry = errors%get(1)
+        call check(error, entry%message, "the validator can never succeed: " // &
+            "the lower bound 10 exceeds the upper bound 1")
+        if (allocated(error)) return
+        entry = errors%get(2)
+        call check(error, entry%message, "the validator can never succeed: " // &
+            "a validator bound is NaN")
+        if (allocated(error)) return
+
+        ! An empty-looking but closed range of one value is consistent.
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--one", data_type="integer", &
+            validator=in_range(5, 5))
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_inconsistent_bounds
+
+    !> A default-real literal bound means the decimal that was written.
+    subroutine test_single_precision_bounds(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--low", data_type="real", &
+            validator=not_less_than(0.1))
+        call parser%add_argument("--high", data_type="real", &
+            validator=not_bigger_than(0.7))
+        call parser%add_argument("--both", data_type="real", &
+            validator=in_range(0.1, 0.7))
+        result = parser%parse_tokens([character(len=6) :: "--low", "0.1", &
+            "--high", "0.7", "--both", "0.1", "--both", "0.7"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=6) :: "--both", "0.05"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%message, "value must be between 0.1 and 0.7")
+    end subroutine test_single_precision_bounds
+
+    subroutine test_choice_messages(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        integer :: index
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--mode", choices=[character(len=4) :: &
+            "fast", "slow"])
+        call parser%add_argument("--level", data_type="integer", &
+            choices=[1, 2, 3])
+        call parser%add_argument("--many", data_type="integer", &
+            choices=[(1000 + index, index = 1, 30)])
+
+        result = parser%parse_tokens([character(len=6) :: "--mode", "other"])
+        entry = result%errors%get(1)
+        call check(error, entry%message, "invalid choice: choose from " // &
+            "'fast', 'slow'")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=7) :: "--level", "4"])
+        entry = result%errors%get(1)
+        call check(error, entry%message, "invalid choice: choose from 1, 2, 3")
+        if (allocated(error)) return
+
+        ! A long list is cut so that one diagnostic stays one line.
+        result = parser%parse_tokens([character(len=6) :: "--many", "7"])
+        entry = result%errors%get(1)
+        call check(error, entry%message, "invalid choice: choose from " // &
+            "1001, 1002, 1003, 1004, 1005, 1006, 1007, 1008, 1009, 1010, " // &
+            "...")
+    end subroutine test_choice_messages
 
     subroutine test_bound_validators(error)
         type(error_type), allocatable, intent(out) :: error

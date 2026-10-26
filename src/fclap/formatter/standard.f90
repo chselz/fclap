@@ -12,12 +12,18 @@ module fclap_formatter_standard
     ! Joins the words of one usage item so wrapping never splits the item.
     character(len=*), parameter :: USAGE_JOINER = achar(31)
 
+    !> Largest fixed count whose values are all spelled out, e.g. `N N N`
+    integer, parameter :: MAX_LISTED_VALUES = 10
+
+    !> Narrowest and default output width
+    integer, parameter :: MIN_WIDTH = 20, DEFAULT_WIDTH = 80
+
     type, extends(FormatterType) :: StandardFormatter
         logical :: show_defaults = .true.
         logical :: show_choices = .true.
         logical :: raw_description = .false.
         logical :: raw_help_text = .false.
-        integer :: help_width = 80
+        integer :: help_width = DEFAULT_WIDTH
         !> Take the width from the `COLUMNS` environment variable when it
         !> holds a usable width, falling back to `help_width`
         logical :: width_from_env = .false.
@@ -99,50 +105,52 @@ contains
         logical, allocatable :: emitted(:)
         integer :: group_index, index, member_index, width, pass
 
+        ! A custom usage is shown verbatim, keeping its line breaks and spacing.
+        if (allocated(model%usage)) then
+            res = "usage: " // trim(model%usage)
+            return
+        end if
+
         width = effective_width(self)
         body = ""
-        if (allocated(model%usage)) then
-            body = trim(model%usage)
-        else
-            if (allocated(model%prog)) body = atomic_term(trim(model%prog))
-            allocate(emitted(model_argument_count(model)), source=.false.)
-            ! Options first, then positionals, as argparse lists them.
-            do pass = 1, 2
-            do index = 1, model_argument_count(model)
-                if (emitted(index)) cycle
-                if (.not. model%arguments(index)%visible) then
-                    emitted(index) = .true.
-                    cycle
-                end if
-                if (model%arguments(index)%is_optional .neqv. (pass == 1)) cycle
-                group_index = mutex_group_for_argument(model, index)
-                if (group_index > 0) then
-                    term = mutex_usage_term(model, model%groups(group_index))
-                    if (allocated(model%groups(group_index)%argument_indices)) then
-                        do member_index = 1, &
-                            size(model%groups(group_index)%argument_indices)
-                            if (model%groups(group_index)%argument_indices( &
-                                member_index) < 1) cycle
-                            if (model%groups(group_index)%argument_indices( &
-                                member_index) > size(emitted)) cycle
-                            emitted(model%groups(group_index)%argument_indices( &
-                                member_index)) = .true.
-                        end do
-                    end if
-                else
-                    term = usage_term(model%arguments(index))
-                    emitted(index) = .true.
-                end if
-                if (len(term) == 0) cycle
-                if (len(body) > 0) body = body // " "
-                body = body // atomic_term(term)
-            end do
-            end do
-            term = subcommand_usage_term(model)
-            if (len(term) > 0) then
-                if (len(body) > 0) body = body // " "
-                body = body // atomic_term(term)
+        if (allocated(model%prog)) body = atomic_term(trim(model%prog))
+        allocate(emitted(model_argument_count(model)), source=.false.)
+        ! Options first, then positionals, as argparse lists them.
+        do pass = 1, 2
+        do index = 1, model_argument_count(model)
+            if (emitted(index)) cycle
+            if (.not. model%arguments(index)%visible) then
+                emitted(index) = .true.
+                cycle
             end if
+            if (model%arguments(index)%is_optional .neqv. (pass == 1)) cycle
+            group_index = mutex_group_for_argument(model, index)
+            if (group_index > 0) then
+                term = mutex_usage_term(model, model%groups(group_index))
+                if (allocated(model%groups(group_index)%argument_indices)) then
+                    do member_index = 1, &
+                        size(model%groups(group_index)%argument_indices)
+                        if (model%groups(group_index)%argument_indices( &
+                            member_index) < 1) cycle
+                        if (model%groups(group_index)%argument_indices( &
+                            member_index) > size(emitted)) cycle
+                        emitted(model%groups(group_index)%argument_indices( &
+                            member_index)) = .true.
+                    end do
+                end if
+            else
+                term = usage_term(model%arguments(index))
+                emitted(index) = .true.
+            end if
+            if (len(term) == 0) cycle
+            if (len(body) > 0) body = body // " "
+            body = body // atomic_term(term)
+        end do
+        end do
+        term = subcommand_usage_term(model)
+        if (len(term) > 0) then
+            if (len(body) > 0) body = body // " "
+            body = body // atomic_term(term)
         end if
 
         res = wrap_text("usage: " // body, 0, len("usage: "), width)
@@ -204,14 +212,10 @@ contains
         type(HelpGroup), intent(in) :: group
         integer, intent(in) :: width
         character(len=:), allocatable :: section
-        character(len=:), allocatable :: description, row
+        character(len=:), allocatable :: description, rows
         integer :: argument_index, member_index
-        logical :: has_rows
 
-        section = ""
-        if (allocated(group%title)) section = trim(group%title) // ":"
-        if (len(section) == 0) section = "arguments:"
-
+        description = ""
         if (allocated(group%description)) then
             if (len_trim(group%description) > 0) then
                 if (self%raw_description) then
@@ -219,26 +223,32 @@ contains
                 else
                     description = wrap_text(trim(group%description), 2, 2, width)
                 end if
-                section = section // new_line("a") // description
             end if
         end if
 
-        has_rows = .false.
-        if (.not. allocated(group%argument_indices)) return
-        do member_index = 1, size(group%argument_indices)
-            argument_index = group%argument_indices(member_index)
-            if (argument_index < 1 .or. &
-                argument_index > model_argument_count(model)) cycle
-            if (.not. model%arguments(argument_index)%visible) cycle
-            row = format_argument(self, model%arguments(argument_index), width)
-            if (.not. has_rows .and. allocated(group%description)) then
-                if (len_trim(group%description) > 0) then
-                    section = section // new_line("a")
-                end if
-            end if
-            section = section // new_line("a") // row
-            has_rows = .true.
-        end do
+        rows = ""
+        if (allocated(group%argument_indices)) then
+            do member_index = 1, size(group%argument_indices)
+                argument_index = group%argument_indices(member_index)
+                if (argument_index < 1 .or. &
+                    argument_index > model_argument_count(model)) cycle
+                if (.not. model%arguments(argument_index)%visible) cycle
+                rows = rows // new_line("a") // format_argument(self, &
+                    model%arguments(argument_index), width)
+            end do
+        end if
+
+        ! A group with nothing to show is left out, as argparse does.
+        section = ""
+        if (len(description) == 0 .and. len(rows) == 0) return
+        if (allocated(group%title)) section = trim(group%title)
+        if (len(section) == 0) section = "arguments"
+        section = section // ":"
+        if (len(description) > 0) then
+            section = section // new_line("a") // description
+            if (len(rows) > 0) section = section // new_line("a")
+        end if
+        section = section // rows
     end function format_help_group
 
     function format_subcommands(self, model, width) result(section)
@@ -252,10 +262,10 @@ contains
         section = ""
         if (.not. allocated(model%commands)) return
         if (allocated(model%subcommand_title)) then
-            section = trim(model%subcommand_title) // ":"
-        else
-            section = "commands:"
+            section = trim(model%subcommand_title)
         end if
+        if (len(section) == 0) section = "commands"
+        section = section // ":"
 
         if (allocated(model%subcommand_description)) then
             if (len_trim(model%subcommand_description) > 0) then
@@ -282,18 +292,18 @@ contains
             end if
             help = ""
             if (allocated(model%commands(index)%help)) then
-                help = trim(model%commands(index)%help)
+                help = trim_whitespace(model%commands(index)%help)
             end if
             if (len(help) > 0) then
-                if (len(row) >= help_column) then
+                if (display_width(row) >= help_column) then
                     row = row // new_line("a") // &
                         wrap_text(help, help_column, help_column, width)
                 else
-                    row = row // repeat(" ", help_column - len(row)) // &
-                        wrap_from_column(help, help_column, width)
+                    row = row // repeat(" ", help_column - display_width(row)) &
+                        // wrap_from_column(help, help_column, width)
                 end if
             end if
-            section = section // new_line("a") // row
+            section = section // new_line("a") // strip_line_ends(row)
         end do
     end function format_subcommands
 
@@ -309,30 +319,29 @@ contains
         body = argument_help(self, argument)
         row = "  " // label
         help_column = min(24, max(12, width / 3))
-        if (len(body) == 0) then
-            ! Choice lines go below the label even without help text.
-            if (allocated(argument%choice_help)) row = row // new_line("a") // &
-                choice_lines(argument, help_column + 2, width)
-            return
-        end if
 
-        if (len(row) >= help_column) then
-            if (self%raw_help_text) then
-                wrapped = indent_lines(body, help_column)
+        if (len(body) > 0) then
+            if (display_width(row) >= help_column) then
+                if (self%raw_help_text) then
+                    wrapped = indent_lines(body, help_column)
+                else
+                    wrapped = wrap_text(body, help_column, help_column, width)
+                end if
+                row = row // new_line("a") // wrapped
             else
-                wrapped = wrap_text(body, help_column, help_column, width)
+                if (self%raw_help_text) then
+                    wrapped = indent_continuations(body, help_column)
+                else
+                    wrapped = wrap_from_column(body, help_column, width)
+                end if
+                row = row // repeat(" ", help_column - display_width(row)) // &
+                    wrapped
             end if
-            row = row // new_line("a") // wrapped
-        else
-            if (self%raw_help_text) then
-                wrapped = indent_continuations(body, help_column)
-            else
-                wrapped = wrap_from_column(body, help_column, width)
-            end if
-            row = row // repeat(" ", help_column - len(row)) // wrapped
         end if
+        ! Choice lines go below the label even without help text.
         if (allocated(argument%choice_help)) row = row // new_line("a") // &
             choice_lines(argument, help_column + 2, width)
+        row = strip_line_ends(row)
     end function format_argument
 
     !> One line per described choice: the choice, then its aligned help.
@@ -343,11 +352,16 @@ contains
         integer :: index, name_width
 
         lines = ""
-        name_width = maxval(len_trim(argument%choice_names))
+        name_width = 0
+        do index = 1, size(argument%choice_names)
+            name_width = max(name_width, &
+                display_width(trim(argument%choice_names(index))))
+        end do
         do index = 1, size(argument%choice_names)
             if (index > 1) lines = lines // new_line("a")
             lines = lines // repeat(" ", indent) // &
-                argument%choice_names(index)(:name_width) // "  " // &
+                trim(argument%choice_names(index)) // repeat(" ", name_width &
+                - display_width(trim(argument%choice_names(index))) + 2) // &
                 wrap_from_column(trim(argument%choice_help(index)), &
                 indent + name_width + 2, width)
         end do
@@ -359,7 +373,8 @@ contains
         character(len=:), allocatable :: text
 
         text = ""
-        if (allocated(argument%help)) text = trim(argument%help)
+        ! Help of nothing but whitespace counts as no help, as in argparse.
+        if (allocated(argument%help)) text = trim_whitespace(argument%help)
         if (allocated(argument%env)) call append_note(text, "env: " // argument%env)
         ! Implicit defaults such as `.false.` for a flag carry no information.
         if (self%show_defaults .and. argument%has_default .and. &
@@ -374,12 +389,24 @@ contains
         end if
         if (allocated(argument%deprecated_msg)) then
             call append_note(text, &
-                "deprecated: " // trim(argument%deprecated_msg))
+                labelled("deprecated", argument%deprecated_msg))
         end if
         if (allocated(argument%removed_msg)) then
-            call append_note(text, "removed: " // trim(argument%removed_msg))
+            call append_note(text, labelled("removed", argument%removed_msg))
         end if
     end function argument_help
+
+    !> `label: message`, or the bare label when the message is empty.
+    function labelled(label, message) result(text)
+        character(len=*), intent(in) :: label, message
+        character(len=:), allocatable :: text
+
+        if (len_trim(message) > 0) then
+            text = label // ": " // trim(message)
+        else
+            text = label
+        end if
+    end function labelled
 
     function argument_label(argument) result(label)
         type(HelpArgument), intent(in) :: argument
@@ -518,7 +545,7 @@ contains
         type(HelpArgument), intent(in) :: argument
         character(len=:), allocatable :: pattern
         character(len=:), allocatable :: metavar, delimiter, separator
-        integer :: nargs, position
+        integer :: nargs
 
         metavar = trim(argument%metavar)
         nargs = argument%nargs
@@ -545,10 +572,8 @@ contains
                 pattern = trim(metavar) // "[" // delimiter // &
                     trim(metavar) // "...]"
             case default
-                pattern = trim(metavar)
-                do position = 2, nargs
-                    pattern = pattern // delimiter // trim(metavar)
-                end do
+                pattern = repeated_metavar(trim(metavar), max(1, nargs), &
+                    delimiter)
             end select
             return
         end if
@@ -563,22 +588,37 @@ contains
         case (NARGS_ONE_OR_MORE)
             pattern = trim(metavar) // " [" // trim(metavar) // " ...]"
         case (1:)
-            pattern = repeated_metavar(trim(metavar), nargs)
+            pattern = repeated_metavar(trim(metavar), nargs, " ")
         case default
             pattern = trim(metavar)
         end select
     end function value_pattern
 
-    function repeated_metavar(metavar, count) result(text)
+    !> Values of a fixed count, e.g. `N N N`.
+    !>
+    !> Counts above `MAX_LISTED_VALUES` are numbered instead of spelled out,
+    !> e.g. `N1 N2 ... N100`, so huge counts stay short.
+    function repeated_metavar(metavar, count, separator) result(text)
         character(len=*), intent(in) :: metavar
         integer, intent(in) :: count
+        character(len=*), intent(in) :: separator
         character(len=:), allocatable :: text
-        integer :: index
+        character(len=16) :: last
+        integer :: index, offset, step
 
-        text = ""
+        if (count > MAX_LISTED_VALUES) then
+            write(last, "(i0)") count
+            text = metavar // "1" // separator // metavar // "2" // &
+                separator // "..." // separator // metavar // trim(last)
+            return
+        end if
+
+        step = len(metavar) + len(separator)
+        allocate(character(len=count * step - len(separator)) :: text)
         do index = 1, count
-            if (index > 1) text = text // " "
-            text = text // metavar
+            offset = (index - 1) * step
+            if (index > 1) text(offset - len(separator) + 1:offset) = separator
+            text(offset + 1:offset + len(metavar)) = metavar
         end do
     end function repeated_metavar
 
@@ -594,15 +634,23 @@ contains
         output = output(column + 1:)
     end function wrap_from_column
 
+    !> Fill words into lines of at most `width` characters.
+    !>
+    !> Lengths count characters, not bytes, so UTF-8 text wraps like ASCII
+    !> text; words are never split.
     function wrap_text(input, first_indent, continuation_indent, width) &
         result(output)
         character(len=*), intent(in) :: input
         integer, intent(in) :: first_indent, continuation_indent, width
         character(len=:), allocatable :: output
-        character(len=:), allocatable :: word
-        integer :: first, last, input_length, line_length, required
+        character(len=:), allocatable :: buffer
+        integer :: first, last, input_length, line_length, required, used
+        integer :: word_width
 
-        output = repeat(" ", max(0, first_indent))
+        allocate(character(len=len(input) + max(0, first_indent) + 64) :: &
+            buffer)
+        used = 0
+        call append_text(buffer, used, repeat(" ", max(0, first_indent)))
         line_length = max(0, first_indent)
         input_length = len_trim(input)
         first = 1
@@ -622,8 +670,8 @@ contains
                     input(last:last) == achar(9)) exit
                 last = last + 1
             end do
-            word = input(first:last - 1)
-            required = len(word)
+            word_width = display_width(input(first:last - 1))
+            required = word_width
             if (line_length > first_indent .or. &
                 (line_length > 0 .and. first_indent == 0)) then
                 required = required + 1
@@ -631,20 +679,21 @@ contains
 
             if (line_length + required > width .and. &
                 line_length > first_indent) then
-                output = output // new_line("a") // &
-                    repeat(" ", max(0, continuation_indent)) // word
-                line_length = max(0, continuation_indent) + len(word)
+                call append_text(buffer, used, new_line("a") // &
+                    repeat(" ", max(0, continuation_indent)))
+                line_length = max(0, continuation_indent) + word_width
             else
                 if (line_length > first_indent .or. &
                     (line_length > 0 .and. first_indent == 0)) then
-                    output = output // " "
+                    call append_text(buffer, used, " ")
                     line_length = line_length + 1
                 end if
-                output = output // word
-                line_length = line_length + len(word)
+                line_length = line_length + word_width
             end if
+            call append_text(buffer, used, input(first:last - 1))
             first = last + 1
         end do
+        output = buffer(:used)
     end function wrap_text
 
     function indent_lines(input, indentation) result(output)
@@ -656,21 +705,106 @@ contains
             indent_continuations(input, indentation)
     end function indent_lines
 
+    !> Indent every line but the first; empty lines stay empty.
     function indent_continuations(input, indentation) result(output)
         character(len=*), intent(in) :: input
         integer, intent(in) :: indentation
         character(len=:), allocatable :: output
-        integer :: index
+        character(len=:), allocatable :: buffer
+        integer :: first, last, input_length, used
 
-        output = ""
-        do index = 1, len_trim(input)
-            output = output // input(index:index)
-            if (input(index:index) == new_line("a") .and. &
-                index < len_trim(input)) then
-                output = output // repeat(" ", max(0, indentation))
+        input_length = len_trim(input)
+        allocate(character(len=input_length + 64) :: buffer)
+        used = 0
+        first = 1
+        do while (first <= input_length)
+            last = index(input(first:input_length), new_line("a"))
+            if (last == 0) then
+                last = input_length
+            else
+                last = first + last - 1
+            end if
+            if (first > 1 .and. input(first:first) /= new_line("a")) then
+                call append_text(buffer, used, repeat(" ", max(0, indentation)))
+            end if
+            call append_text(buffer, used, input(first:last))
+            first = last + 1
+        end do
+        output = buffer(:used)
+    end function indent_continuations
+
+    !> Append `piece` behind the first `used` characters of `buffer`.
+    !>
+    !> The buffer grows geometrically, so building text piece by piece costs
+    !> time linear in its final length.
+    pure subroutine append_text(buffer, used, piece)
+        character(len=:), allocatable, intent(inout) :: buffer
+        integer, intent(inout) :: used
+        character(len=*), intent(in) :: piece
+        character(len=:), allocatable :: grown
+
+        if (used + len(piece) > len(buffer)) then
+            allocate(character(len=max(2 * len(buffer), used + len(piece))) :: &
+                grown)
+            grown(:used) = buffer(:used)
+            call move_alloc(grown, buffer)
+        end if
+        buffer(used + 1:used + len(piece)) = piece
+        used = used + len(piece)
+    end subroutine append_text
+
+    !> Number of characters in UTF-8 text: continuation bytes do not count.
+    pure integer function display_width(text) result(width)
+        character(len=*), intent(in) :: text
+        integer :: position
+
+        width = 0
+        do position = 1, len(text)
+            if (iand(iachar(text(position:position)), 192) /= 128) then
+                width = width + 1
             end if
         end do
-    end function indent_continuations
+    end function display_width
+
+    !> Remove blanks and tabs at the end of every line.
+    function strip_line_ends(input) result(output)
+        character(len=*), intent(in) :: input
+        character(len=:), allocatable :: output
+        character(len=:), allocatable :: buffer
+        integer :: first, last, line_end, used
+
+        allocate(character(len=len(input)) :: buffer)
+        used = 0
+        first = 1
+        do while (first <= len(input))
+            line_end = index(input(first:), new_line("a"))
+            if (line_end == 0) then
+                line_end = len(input) + 1
+            else
+                line_end = first + line_end - 1
+            end if
+            last = line_end - 1
+            do while (last >= first)
+                if (input(last:last) /= " " .and. &
+                    input(last:last) /= achar(9)) exit
+                last = last - 1
+            end do
+            call append_text(buffer, used, input(first:last))
+            if (line_end <= len(input)) call append_text(buffer, used, &
+                new_line("a"))
+            first = line_end + 1
+        end do
+        output = buffer(:used)
+    end function strip_line_ends
+
+    !> Text without trailing blanks, tabs and line breaks.
+    pure function trim_whitespace(text) result(trimmed)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable :: trimmed
+
+        trimmed = text(:verify(text, " " // achar(9) // new_line("a"), &
+            back=.true.))
+    end function trim_whitespace
 
     subroutine append_note(text, note)
         character(len=:), allocatable, intent(inout) :: text
@@ -729,8 +863,13 @@ contains
         character(len=16) :: text
         integer :: columns, length, stat
 
+        ! No width selects the default; a too narrow one the minimum.
         width = self%help_width
-        if (width < 20) width = 80
+        if (width <= 0) then
+            width = DEFAULT_WIDTH
+        else if (width < MIN_WIDTH) then
+            width = MIN_WIDTH
+        end if
         if (.not. self%width_from_env) return
 
         ! Shells set COLUMNS but often do not export it; absence is normal.
@@ -738,7 +877,7 @@ contains
         if (stat /= 0 .or. length == 0 .or. length > len(text)) return
         if (verify(trim(text), "0123456789") /= 0) return
         read(text, *, iostat=stat) columns
-        if (stat == 0 .and. columns >= 20) width = columns
+        if (stat == 0 .and. columns >= MIN_WIDTH) width = columns
     end function effective_width
 
     function allocated_text(text) result(value)

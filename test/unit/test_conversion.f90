@@ -1,5 +1,6 @@
 module test_conversion
-    use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_positive_inf
+    use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_positive_inf, &
+        ieee_is_finite, ieee_is_nan
     use, intrinsic :: iso_fortran_env, only : int64, real32, wp => real64
     use fclap, only : ArgumentParser, ErrorEntry, Namespace, ParseResult, &
         FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_INVALID_VALUE, &
@@ -31,7 +32,13 @@ contains
             new_unittest("kind-generic constants and validators", &
                 test_kind_generic_factories), &
             new_unittest("every getter reports a type mismatch", &
-                test_getter_type_mismatch) &
+                test_getter_type_mismatch), &
+            new_unittest("real tokens beyond the range are rejected", &
+                test_real_overflow_tokens), &
+            new_unittest("narrowing to real32 rejects underflow", &
+                test_narrowing_underflow), &
+            new_unittest("real32 defaults keep their decimal value", &
+                test_single_precision_defaults) &
         ]
     end subroutine collect_conversion
 
@@ -348,16 +355,148 @@ contains
         call check(error, result%outcome, PARSE_FAILURE)
     end subroutine test_getter_type_mismatch
 
+    subroutine test_real_overflow_tokens(error)
+        type(error_type), allocatable, intent(out) :: error
+        character(len=8), parameter :: rejected(*) = [character(len=8) :: &
+            "1e400", "1d+400", "+1E400", "1e999999"]
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        real(wp) :: values(4)
+        integer :: index, stat
+
+        do index = 1, size(rejected)
+            call check_rejected(error, "real", rejected(index))
+            if (allocated(error)) return
+        end do
+        call check_rejected(error, "real", "1" // repeat("9", 400))
+        if (allocated(error)) return
+        call check_rejected(error, "real", "1.79769313486232e308")
+        if (allocated(error)) return
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--a", data_type="real")
+        ! The attached form keeps `-1e400` a value rather than an option.
+        result = parser%parse_tokens([character(len=10) :: "--a=-1e400"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_INVALID_VALUE)
+        if (allocated(error)) return
+
+        ! Spelled special values and underflow to zero stay accepted.
+        call parser%add_argument("--b", data_type="real")
+        call parser%add_argument("--c", data_type="real")
+        call parser%add_argument("--d", data_type="real")
+        result = parser%parse_tokens([character(len=9) :: "--a", "-INF", &
+            "--b", "+Infinity", "--c", "NaN", "--d", "1e-400"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("a", values(1), stat)
+        call result%namespace%get("b", values(2), stat)
+        call result%namespace%get("c", values(3), stat)
+        call result%namespace%get("d", values(4), stat)
+        call check(error, .not. ieee_is_finite(values(1)) .and. &
+            values(1) < 0.0_wp, .true.)
+        if (allocated(error)) return
+        call check(error, .not. ieee_is_finite(values(2)) .and. &
+            values(2) > 0.0_wp, .true.)
+        if (allocated(error)) return
+        call check(error, ieee_is_nan(values(3)), .true.)
+        if (allocated(error)) return
+        call check(error, values(4) == 0.0_wp, .true.)
+    end subroutine test_real_overflow_tokens
+
+    subroutine test_narrowing_underflow(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(Namespace) :: args
+        real(real32) :: single
+        real(real32), allocatable :: singles(:)
+        integer :: stat
+
+        call args%set("tiny", 1.0e-50_wp)
+        call args%set("negative", -1.0e-50_wp)
+        call args%set("tinies", [1.0_wp, 1.0e-50_wp])
+        call args%set("subnormal", 1.0e-40_wp)
+        call args%set("zero", -0.0_wp)
+
+        single = -1.0_real32
+        call args%get("tiny", single, stat)
+        call check(error, stat, ERR_NAMESPACE_OUT_OF_RANGE)
+        if (allocated(error)) return
+        call check(error, single, -1.0_real32)
+        if (allocated(error)) return
+        call args%get("negative", single, stat)
+        call check(error, stat, ERR_NAMESPACE_OUT_OF_RANGE)
+        if (allocated(error)) return
+        call args%get("tinies", singles, stat)
+        call check(error, stat, ERR_NAMESPACE_OUT_OF_RANGE)
+        if (allocated(error)) return
+        call check(error, allocated(singles), .false.)
+        if (allocated(error)) return
+
+        ! A value that stays nonzero as a subnormal real32 still fits.
+        call args%get("subnormal", single, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, single > 0.0_real32, .true.)
+        if (allocated(error)) return
+        call args%get("zero", single, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call check(error, single == 0.0_real32, .true.)
+    end subroutine test_narrowing_underflow
+
+    subroutine test_single_precision_defaults(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: help
+        real(wp) :: ratio, scale
+        integer :: stat
+
+        call parser%init(prog="t", add_help=.false.)
+        call parser%add_argument("--ratio", data_type="real", default=0.1_real32)
+        call parser%add_argument("--scale", data_type="real", nargs="?", &
+            const=0.3_real32, choices=[0.2_real32, 0.3_real32])
+        call check(error, parser%is_valid(), .true.)
+        if (allocated(error)) return
+        help = parser%format_help()
+        call check(error, index(help, "(default: 0.1)") > 0, .true.)
+        if (allocated(error)) then
+            print "(a)", help
+            return
+        end if
+
+        ! The decimal token must match the real32 choices.
+        result = parser%parse_tokens([character(len=7) :: "--scale", "0.2"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("ratio", ratio, stat)
+        call check(error, ratio == 0.1_wp, .true.)
+        if (allocated(error)) return
+        call result%namespace%get("scale", scale, stat)
+        call check(error, scale == 0.2_wp, .true.)
+        if (allocated(error)) return
+        result = parser%parse_tokens([character(len=7) :: "--scale"])
+        call result%namespace%get("scale", scale, stat)
+        call check(error, scale == 0.3_wp, .true.)
+    end subroutine test_single_precision_defaults
+
     subroutine check_rejected(error, type_name, token)
         type(error_type), allocatable, intent(out) :: error
         character(len=*), intent(in) :: type_name, token
         type(ArgumentParser) :: parser
         type(ParseResult) :: result
         type(ErrorEntry) :: entry
+        character(len=:), allocatable :: tokens(:)
 
+        allocate(character(len=max(8, len(token))) :: tokens(2))
+        tokens(1) = "--value"
+        tokens(2) = token
         call parser%init(add_help=.false.)
         call parser%add_argument("--value", data_type=type_name)
-        result = parser%parse_tokens([character(len=8) :: "--value", token])
+        result = parser%parse_tokens(tokens)
         if (result%outcome /= PARSE_FAILURE) then
             call test_failed(error, type_name // " token '" // trim(token) // &
                 "' was accepted")

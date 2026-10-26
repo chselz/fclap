@@ -27,7 +27,19 @@ contains
             new_unittest("nargs usage forms", test_nargs_usage), &
             new_unittest("explicit metavar of a fixed count", &
                 test_explicit_metavar), &
+            new_unittest("long fixed counts are numbered", &
+                test_long_fixed_count), &
+            new_unittest("huge fixed count formats quickly", &
+                test_huge_fixed_count), &
             new_unittest("deterministic line wrapping", test_wrapping), &
+            new_unittest("long help text wraps in linear time", &
+                test_long_text_wrapping), &
+            new_unittest("utf-8 text wraps and aligns by character", &
+                test_utf8_width), &
+            new_unittest("custom usage is kept verbatim", &
+                test_custom_usage_verbatim), &
+            new_unittest("narrow width is clamped to the minimum", &
+                test_narrow_width), &
             new_unittest("help model is a snapshot", test_help_model_snapshot), &
             new_unittest("external formatter extension", &
                 test_external_formatter), &
@@ -191,6 +203,143 @@ contains
 
         call check(error, parser%format_help(), expected)
     end subroutine test_wrapping
+
+    subroutine test_long_fixed_count(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=1) :: nl
+
+        nl = new_line("a")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--ten", nargs=10, metavar="T", help="ten")
+        call parser%add_argument("--many", nargs=11, metavar="M", help="many")
+        call parser%add_argument("--list", nargs=100, delimiter=",", &
+            metavar="L", help="list")
+
+        call check(error, parser%format_help(), &
+            "usage: tool [--ten T T T T T T T T T T] [--many M1 M2 ... M11]" &
+            // nl // "       [--list L1,L2,...,L100]" // nl // nl // &
+            "options:" // nl // &
+            "  --ten T T T T T T T T T T" // nl // &
+            repeat(" ", 24) // "ten" // nl // &
+            "  --many M1 M2 ... M11  many" // nl // &
+            "  --list L1,L2,...,L100 list")
+    end subroutine test_long_fixed_count
+
+    subroutine test_huge_fixed_count(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--v", nargs=huge(0))
+
+        call check(error, parser%format_usage(), &
+            "usage: tool [--v V1 V2 ... V2147483647]")
+    end subroutine test_huge_fixed_count
+
+    subroutine test_long_text_wrapping(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: text, help_text
+        integer :: start, finish, rate
+
+        ! A megabyte of help: quadratic appending takes tens of seconds.
+        text = repeat("word ", 100000)
+        call parser%init(prog="t", description=text, add_help=.false.)
+        call parser%add_argument("--a", help=text)
+        call system_clock(start, rate)
+        help_text = parser%format_help()
+        call system_clock(finish)
+
+        call check(error, len(help_text), 1218211)
+        if (allocated(error)) return
+        call check(error, real(finish - start) / real(rate) < 2.0, &
+            "formatting a megabyte of help took too long")
+    end subroutine test_long_text_wrapping
+
+    subroutine test_utf8_width(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=*), parameter :: e = char(195) // char(169)
+        character(len=:), allocatable :: word
+        character(len=1) :: nl
+
+        nl = new_line("a")
+        word = repeat(e, 11)
+        call parser%init(prog="t", add_help=.false., &
+            formatter=StandardFormatter(help_width=40))
+        call parser%add_argument("name", metavar="CAF" // e, help="positional")
+        call parser%add_argument("--a", help=word // " " // word // " " // &
+            repeat(e, 9))
+        call parser%add_argument("--b", help="aaaaaaaaaaa aaaaaaaaaaa " // &
+            "aaaaaaaaa")
+        call parser%add_argument("--c", choices=[character(len=4) :: &
+            "x", "x" // e], choice_help=[character(len=1) :: "1", "2"])
+
+        ! Two-byte characters fill one column each, like ASCII ones.
+        call check(error, parser%format_help(), &
+            "usage: t [--a A] [--b B] [--c {x,x" // e // "}]" // nl // &
+            "       CAF" // e // nl // nl // "positional arguments:" // nl // &
+            "  CAF" // e // "       positional" // nl // nl // &
+            "options:" // nl // &
+            "  --a A      " // word // " " // word // nl // &
+            repeat(" ", 13) // repeat(e, 9) // nl // &
+            "  --b B      aaaaaaaaaaa aaaaaaaaaaa" // nl // &
+            repeat(" ", 13) // "aaaaaaaaa" // nl // &
+            "  --c {x,x" // e // "}" // nl // &
+            repeat(" ", 15) // "x   1" // nl // &
+            repeat(" ", 15) // "x" // e // "  2")
+    end subroutine test_utf8_width
+
+    subroutine test_custom_usage_verbatim(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: usage
+        character(len=1) :: nl
+
+        nl = new_line("a")
+        usage = "t [-v] SOURCE" // nl // "       t   --list"
+        call parser%init(prog="t", usage=usage, add_help=.false., &
+            formatter=StandardFormatter(help_width=20))
+        call parser%add_argument("source", help="source file")
+
+        call check(error, parser%format_usage(), "usage: " // usage)
+        if (allocated(error)) return
+        call check(error, parser%format_help(), "usage: " // usage // nl // &
+            nl // "positional arguments:" // nl // &
+            "  SOURCE    source" // nl // "            file")
+    end subroutine test_custom_usage_verbatim
+
+    subroutine test_narrow_width(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        character(len=:), allocatable :: narrow, minimum, default
+        integer :: width
+        integer, parameter :: widths(3) = [0, 19, 20]
+
+        do width = 1, size(widths)
+            call parser%init(prog="tool", add_help=.false., &
+                formatter=StandardFormatter(help_width=widths(width)))
+            call parser%add_argument("--a", help="some help text for a " // &
+                "that is longish and so on")
+            select case (width)
+            case (1)
+                default = parser%format_help()
+            case (2)
+                narrow = parser%format_help()
+            case default
+                minimum = parser%format_help()
+            end select
+        end do
+
+        ! No width selects 80 columns, a too narrow one the minimum of 20.
+        call check(error, default, "usage: tool [--a A]" // new_line("a") // &
+            new_line("a") // "options:" // new_line("a") // &
+            "  --a A                 some help text for a that is " // &
+            "longish and so on")
+        if (allocated(error)) return
+        call check(error, narrow, minimum)
+    end subroutine test_narrow_width
 
     subroutine test_help_model_snapshot(error)
         type(error_type), allocatable, intent(out) :: error

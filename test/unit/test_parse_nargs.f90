@@ -20,7 +20,9 @@ contains
             new_unittest("variable positional allocation", &
                 test_variable_positionals), &
             new_unittest("remainder positional", test_remainder), &
-            new_unittest("nargs consumption failures", test_nargs_failures) &
+            new_unittest("nargs consumption failures", test_nargs_failures), &
+            new_unittest("missing values name the counts", &
+                test_missing_value_counts) &
         ]
     end subroutine collect_parse_nargs
 
@@ -234,12 +236,49 @@ contains
         result = positional_parser%parse_tokens([character(len=3) :: "1.0"])
         call check(error, result%outcome, PARSE_FAILURE)
         if (allocated(error)) return
-        call check(error, result%errors%count(), 2)
+        ! The missing value is not repeated as a missing required positional.
+        call check(error, result%errors%count(), 1)
         if (allocated(error)) return
         entry = result%errors%get(1)
         call check(error, entry%code, ERR_MISSING_VALUE)
         if (allocated(error)) return
         call check(error, result%namespace%contains("coords"), .false.)
     end subroutine test_nargs_failures
+
+    subroutine test_missing_value_counts(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--pair", nargs=2, data_type="integer")
+        call parser%add_argument("--items", nargs="+")
+        call parser%add_argument("--name")
+
+        result = parser%parse_tokens([character(len=6) :: "--pair", "1"])
+        entry = result%errors%get(1)
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --pair: expected 2 values (got 1)")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "--pair=1"])
+        entry = result%errors%get(1)
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --pair: expected 2 values (got 1)")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=7) :: "--items"])
+        entry = result%errors%get(1)
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --items: expected at least one value " // &
+            "(got 0)")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=6) :: "--name"])
+        entry = result%errors%get(1)
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --name: expected 1 value (got 0)")
+    end subroutine test_missing_value_counts
 
 end module test_parse_nargs

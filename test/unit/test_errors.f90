@@ -1,4 +1,5 @@
 module test_errors
+    use fclap, only : ArgumentParser, ParseResult
     use fclap_error_codes, only : ERR_MISSING_VALUE, &
         ERR_DEPRECATED_ARGUMENT, ERROR_FATAL, ERROR_WARNING
     use fclap_error_entry, only : ErrorEntry
@@ -17,7 +18,8 @@ contains
         testsuite = [ &
             new_unittest("empty stack", test_empty_stack), &
             new_unittest("structured entries", test_structured_entries), &
-            new_unittest("merge and clear", test_merge_and_clear) &
+            new_unittest("merge and clear", test_merge_and_clear), &
+            new_unittest("tokens are kept verbatim", test_verbatim_token) &
         ]
     end subroutine collect_errors
 
@@ -87,5 +89,27 @@ contains
         if (allocated(error)) return
         call check(error, second%count(), 1)
     end subroutine test_merge_and_clear
+
+
+    subroutine test_verbatim_token(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ErrorStack) :: stack
+        type(ErrorEntry) :: entry
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+
+        call stack%add("invalid value", token="zz  ")
+        entry = stack%get(1)
+        call check(error, len(entry%token), 4)
+        if (allocated(error)) return
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--n", data_type="integer")
+        result = parser%parse_tokens([character(len=3) :: "--n", "   "], &
+            lengths=[3, 3])
+        entry = result%errors%get(1)
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --n: invalid integer value (got '   ')")
+    end subroutine test_verbatim_token
 
 end module test_errors

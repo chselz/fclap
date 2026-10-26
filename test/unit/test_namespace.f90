@@ -1,7 +1,7 @@
 module test_namespace
     ! Import the public facade here so every build system also verifies that
     ! the Phase 1 foundation is usable without internal module names.
-    use, intrinsic :: iso_fortran_env, only : wp => real64
+    use, intrinsic :: iso_fortran_env, only : real32, wp => real64
     use fclap, only : Namespace, FCLAP_OK, &
         ERR_NAMESPACE_MISSING_KEY, ERR_NAMESPACE_TYPE_MISMATCH
     use testdrive, only : new_unittest, unittest_type, error_type, check
@@ -24,7 +24,9 @@ contains
             new_unittest("rank mismatch result", test_rank_mismatch), &
             new_unittest("empty list keeps type", test_empty_list_type), &
             new_unittest("deep merge precedence", test_merge), &
-            new_unittest("clear", test_clear) &
+            new_unittest("clear", test_clear), &
+            new_unittest("real32 input keeps its decimal value", &
+                test_single_precision_input) &
         ]
     end subroutine collect_namespace
 
@@ -243,5 +245,26 @@ contains
         if (allocated(error)) return
         call check(error, args%contains("value"), .false.)
     end subroutine test_clear
+
+    subroutine test_single_precision_input(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(Namespace) :: args
+        real(wp) :: value
+        real(wp), allocatable :: values(:)
+        integer :: stat
+
+        ! Exact widening would store 0.10000000149011612.
+        call args%set("ratio", 0.1_real32)
+        call args%get("ratio", value, stat)
+        call check(error, value == 0.1_wp, .true.)
+        if (allocated(error)) return
+
+        call args%set("ratios", [0.1_real32, 0.7_real32])
+        call args%append("ratios", 0.3_real32, stat)
+        call check(error, stat, FCLAP_OK)
+        if (allocated(error)) return
+        call args%get("ratios", values, stat)
+        call check(error, all(values == [0.1_wp, 0.7_wp, 0.3_wp]), .true.)
+    end subroutine test_single_precision_input
 
 end module test_namespace

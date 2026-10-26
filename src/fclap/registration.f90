@@ -6,7 +6,8 @@
 !> with several faults always reports the same first one.
 module fclap_registration
     use fclap_actions_abstract, only : ActionType
-    use fclap_actions_builtin, only : StoreAction, StoreConstAction
+    use fclap_actions_builtin, only : StoreAction, StoreConstAction, &
+        HelpAction, VersionAction
     use fclap_argument, only : Argument, derive_dest_from_names
     use fclap_error_codes, only : FCLAP_OK, ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, &
@@ -31,6 +32,10 @@ module fclap_registration
     public :: check_global
     public :: check_delimiter
 
+    !> Characters that cannot occur in a name or destination
+    character(len=*), parameter :: blanks = " " // achar(9) // achar(10) // &
+        achar(13)
+
 contains
 
     !> Collect, expand, and validate the names of a new definition.
@@ -50,6 +55,7 @@ contains
         logical, intent(out) :: optional_names
         integer, intent(out) :: code
         character(len=:), allocatable, intent(out) :: message
+        integer :: owner
 
         code = FCLAP_OK
         message = ""
@@ -67,7 +73,13 @@ contains
             message = "an alias is repeated in the same definition"
         else if (any_registered_name(existing, names)) then
             code = ERR_DUPLICATE_OPTION
-            message = "an option or positional name is already registered"
+            owner = registered_owner(existing, names)
+            if (len(builtin_kind(existing, owner)) > 0) then
+                message = "an option name collides with the built-in " // &
+                    builtin_kind(existing, owner) // " argument"
+            else
+                message = "an option or positional name is already registered"
+            end if
         end if
     end subroutine check_names
 
@@ -103,13 +115,13 @@ contains
         character(len=:), allocatable, intent(out) :: message, subject
 
         character(len=:), allocatable :: canonical_type, action_type
-        character(len=:), allocatable :: candidate_dest, detail
+        character(len=:), allocatable :: candidate_dest, detail, rejected
         class(ActionType), allocatable :: selected_action
         type(NargsSpec) :: nargs_spec
         type(ValueBox) :: default_value, const_value, choice_values
         logical :: required_value, has_default, has_const, implicit_default
         logical :: has_choices, valid, ignore_case
-        integer :: stat
+        integer :: stat, taken_by
 
         code = FCLAP_OK
         message = ""
@@ -125,9 +137,22 @@ contains
                 "the destination must not be empty")
             return
         end if
+        if (scan(candidate_dest, blanks // "=") > 0) then
+            call fail(ERR_INVALID_ARGUMENT_NAME, &
+                "the destination must not contain blanks or '='")
+            return
+        end if
         subject = candidate_dest
-        if (dest_is_taken(existing, reserved_dest, candidate_dest)) then
-            call fail(ERR_DUPLICATE_DEST, "the destination is already registered")
+        if (dest_is_taken(existing, reserved_dest, candidate_dest, &
+            taken_by)) then
+            if (len(builtin_kind(existing, taken_by)) > 0) then
+                call fail(ERR_DUPLICATE_DEST, "the destination collides " // &
+                    "with the built-in " // builtin_kind(existing, taken_by) // &
+                    " argument")
+            else
+                call fail(ERR_DUPLICATE_DEST, &
+                    "the destination is already registered")
+            end if
             return
         end if
 
@@ -156,6 +181,13 @@ contains
         if (.not. selected_action%accepts_nargs(nargs_spec)) then
             call fail(ERR_INCOMPATIBLE_ACTION, &
                 "the action does not accept this nargs value")
+            return
+        end if
+        ! A positional is only ever set by consuming a value, so a zero-value
+        ! one could never be given and would still occupy its position.
+        if (.not. optional_names .and. nargs_spec%max_count() == 0) then
+            call fail(ERR_INCOMPATIBLE_ACTION, &
+                "a positional argument must take at least one value")
             return
         end if
         if (optional_names .and. nargs_spec%value() == NARGS_REMAINDER) then
@@ -217,6 +249,12 @@ contains
                         "a zero-minimum positional cannot be required")
                     return
                 end if
+                if (.not. required .and. nargs_spec%min_count() > 0) then
+                    call fail(ERR_INCOMPATIBLE_ACTION, &
+                        "a positional needing a value is always required; " // &
+                        "use nargs='?' or '*' to make it optional")
+                    return
+                end if
             end if
         end if
 
@@ -227,10 +265,18 @@ contains
                     "a zero-value action cannot define choices")
                 return
             end if
+            if (size(choices) == 0) then
+                call fail(ERR_INVALID_DEFAULT, "choices must not be empty")
+                return
+            end if
             call convert_value(choices, canonical_type, choice_values, stat)
             if (stat /= CONVERT_SUCCESS) then
                 call fail(ERR_INVALID_DEFAULT, &
                     "choices are incompatible with the declared type")
+                return
+            end if
+            if (has_ambiguous_choices(choice_values)) then
+                call fail(ERR_INVALID_DEFAULT, "choices contain a repeated value")
                 return
             end if
         end if
@@ -261,6 +307,11 @@ contains
                 call fail(ERR_INCOMPATIBLE_VALIDATOR, &
                     "the validator cannot check values of type " // &
                     canonical_type)
+                return
+            end if
+            if (.not. validator%is_consistent(detail)) then
+                call fail(ERR_INCOMPATIBLE_VALIDATOR, detailed( &
+                    "the validator can never succeed", detail))
                 return
             end if
         end if
@@ -362,6 +413,16 @@ contains
                     return
                 end if
             end if
+            ! A choice the validator rejects could never be accepted.
+            if (has_choices) then
+                call first_invalid_choice(validator, choice_values, rejected, &
+                    detail)
+                if (len(rejected) > 0) then
+                    call fail(ERR_INVALID_DEFAULT, detailed("choice " // &
+                        rejected // " failed validation", detail))
+                    return
+                end if
+            end if
         end if
 
         call candidate%init(names, nargs_spec, canonical_type, selected_action, &
@@ -391,32 +452,64 @@ contains
     logical function any_registered_name(existing, names) result(found)
         type(Argument), intent(in) :: existing(:)
         character(len=*), intent(in) :: names(:)
+
+        found = registered_owner(existing, names) > 0
+    end function any_registered_name
+
+    !> Index of the first existing definition using one of `names`, or zero.
+    integer function registered_owner(existing, names) result(owner)
+        type(Argument), intent(in) :: existing(:)
+        character(len=*), intent(in) :: names(:)
         integer :: argument_index, name_index
 
-        found = .false.
+        owner = 0
         do argument_index = 1, size(existing)
             do name_index = 1, size(names)
                 if (existing(argument_index)%matches_name(names(name_index))) then
-                    found = .true.
+                    owner = argument_index
                     return
                 end if
             end do
         end do
-    end function any_registered_name
+    end function registered_owner
 
-    logical function dest_is_taken(existing, reserved_dest, dest) result(taken)
+    !> Report whether `dest` is reserved or used by an existing definition.
+    logical function dest_is_taken(existing, reserved_dest, dest, owner) &
+        result(taken)
         type(Argument), intent(in) :: existing(:)
         character(len=*), intent(in), optional :: reserved_dest
         character(len=*), intent(in) :: dest
+        !> Index of the definition using `dest`, zero if none or reserved
+        integer, intent(out) :: owner
         integer :: index
 
+        owner = 0
         taken = .false.
         if (present(reserved_dest)) taken = reserved_dest == dest
         do index = 1, size(existing)
             if (taken) return
             taken = existing(index)%dest == dest
+            if (taken) owner = index
         end do
     end function dest_is_taken
+
+    !> Name the automatic argument at `index`, `help` or `version`, or
+    !> return an empty string for a user-defined argument.
+    function builtin_kind(existing, index) result(kind)
+        type(Argument), intent(in) :: existing(:)
+        integer, intent(in) :: index
+        character(len=:), allocatable :: kind
+
+        kind = ""
+        if (index < 1 .or. index > size(existing)) return
+        if (.not. allocated(existing(index)%action)) return
+        select type (action => existing(index)%action)
+        type is (HelpAction)
+            kind = "help"
+        type is (VersionAction)
+            kind = "version"
+        end select
+    end function builtin_kind
 
     logical function positional_layout_is_valid(existing, optional_names, &
         nargs) result(valid)
@@ -440,6 +533,10 @@ contains
         end do
     end function positional_layout_is_valid
 
+    !> Validate a scalar, or every item of a list until one fails.
+    !>
+    !> `message` is always allocated on return, also when a custom validator
+    !> leaves its own message unallocated.
     subroutine validate_value(validator, value, valid, message)
         class(ValidatorType), intent(in) :: validator
         type(ValueBox), intent(in) :: value
@@ -450,21 +547,49 @@ contains
         select type (list => value%item)
         type is (ListValue)
             valid = .true.
-            message = ""
             do index = 1, list%size()
                 call validator%validate(list%items(index), valid, message)
-                if (.not. valid) return
+                if (.not. valid) exit
             end do
         class default
             call validator%validate(value, valid, message)
         end select
+        if (.not. allocated(message)) message = ""
     end subroutine validate_value
 
+    !> Find the first choice the validator rejects.
+    !>
+    !> `rejected` is the choice as help shows it, or empty when every choice
+    !> passes; `message` is the validator's reason.
+    subroutine first_invalid_choice(validator, choices, rejected, message)
+        class(ValidatorType), intent(in) :: validator
+        type(ValueBox), intent(in) :: choices
+        character(len=:), allocatable, intent(out) :: rejected, message
+        logical :: valid
+        integer :: index
+
+        rejected = ""
+        message = ""
+        select type (list => choices%item)
+        type is (ListValue)
+            do index = 1, list%size()
+                call validate_value(validator, list%items(index), valid, &
+                    message)
+                if (valid) cycle
+                rejected = list%items(index)%to_string()
+                return
+            end do
+        end select
+    end subroutine first_invalid_choice
+
     function detailed(summary, detail) result(message)
-        character(len=*), intent(in) :: summary, detail
+        character(len=*), intent(in) :: summary
+        !> Reason from a validator, which may have left it unallocated
+        character(len=:), allocatable, intent(in) :: detail
         character(len=:), allocatable :: message
 
         message = summary
+        if (.not. allocated(detail)) return
         if (len_trim(detail) > 0) message = message // ": " // trim(detail)
     end function detailed
 
@@ -544,9 +669,42 @@ contains
                 message = "positional and optional names cannot be mixed"
                 return
             end if
+            ! A blank splits the name into two tokens, and `--name=value`
+            ! splits at the first '=', so such a name could never match.
+            if (scan(trim(names(index)), blanks // "=") > 0) then
+                message = "argument names must not contain blanks or '='"
+                return
+            end if
+            if (.not. current_optional) cycle
+            if (len_trim(names(index)) >= 3) then
+                if (names(index)(1:3) == "---") then
+                    message = "an option name must not start with '---'"
+                    return
+                end if
+            end if
+            if (is_negative_number(names(index))) then
+                message = "an option name must not look like a negative number"
+                return
+            end if
         end do
         valid = .true.
     end function validate_names
+
+    !> Report whether a single-dash name such as `-1` or `-.5` is a number.
+    !>
+    !> A negative number is read as a value where one is expected, so such an
+    !> option would shadow negative values or be shadowed by them.
+    logical function is_negative_number(name) result(numeric)
+        character(len=*), intent(in) :: name
+        type(ValueBox) :: value
+        integer :: stat
+
+        numeric = .false.
+        if (len_trim(name) < 2) return
+        if (verify(name(2:2), "0123456789.") /= 0) return
+        call convert_value(trim(name), "real", value, stat)
+        numeric = stat == CONVERT_SUCCESS
+    end function is_negative_number
 
     pure logical function has_duplicate_name(names) result(duplicate)
         character(len=*), intent(in) :: names(:)

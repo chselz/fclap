@@ -3,6 +3,8 @@ module test_groups
         HelpModel, ParseResult, FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, &
         PARSE_HELP, ERR_INVALID_GROUP, ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, &
         store_true
+    use fclap_groups_helppage, only : ArgumentGroup
+    use fclap_groups_mutex, only : MutexGroup
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -27,7 +29,13 @@ contains
             new_unittest("help bypasses required mutex", &
                 test_help_bypasses_mutex), &
             new_unittest("invalid group handles are rejected", &
-                test_invalid_handles) &
+                test_invalid_handles), &
+            new_unittest("empty required mutex is unsatisfiable", &
+                test_empty_required_mutex), &
+            new_unittest("mutex diagnostics omit hidden members", &
+                test_mutex_hides_hidden_members), &
+            new_unittest("empty required mutex invalidates the parser", &
+                test_empty_required_mutex_parser) &
         ]
     end subroutine collect_groups
 
@@ -264,6 +272,88 @@ contains
         errors = empty_title_parser%get_config_errors()
         call check(error, error_code_at(errors, 1), ERR_INVALID_GROUP)
     end subroutine test_invalid_handles
+
+    !> A required mutex group without members can never be satisfied.
+    subroutine test_empty_required_mutex(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(MutexGroup) :: mutex
+        type(ArgumentGroup) :: ordinary
+
+        mutex%required = .true.
+        call check(error, mutex%unsatisfiable_reason(), &
+            "a required mutually exclusive group needs at least one member")
+        if (allocated(error)) return
+
+        call mutex%append_member(1)
+        call check(error, mutex%unsatisfiable_reason(), "")
+        if (allocated(error)) return
+
+        mutex = MutexGroup()
+        call check(error, mutex%unsatisfiable_reason(), "")
+        if (allocated(error)) return
+        call check(error, ordinary%unsatisfiable_reason(), "")
+    end subroutine test_empty_required_mutex
+
+    subroutine test_empty_required_mutex_parser(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(GroupHandle) :: group
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+        type(ParseResult) :: result
+
+        call parser%init(prog="tool", add_help=.false.)
+        group = parser%add_mutually_exclusive_group(required=.true.)
+        call check(error, parser%is_valid(), .false.)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 1)
+        if (allocated(error)) return
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_INVALID_GROUP)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=1) ::])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_INVALID_GROUP)
+        if (allocated(error)) return
+
+        call parser%add_argument("--a", action=store_true(), group=group)
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_empty_required_mutex_parser
+
+    !> A required-group diagnostic names only members shown in help.
+    subroutine test_mutex_hides_hidden_members(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(MutexGroup) :: mutex
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+        character(len=3), parameter :: labels(3) = ["--a", "--b", "--c"]
+        logical, parameter :: none_seen(3) = .false.
+
+        mutex%required = .true.
+        call mutex%append_member(1)
+        call mutex%append_member(2)
+        call mutex%append_member(3)
+        call mutex%validate_presence(none_seen, labels, 1, errors, &
+            visible=[.true., .false., .true.])
+        call check(error, errors%count(), 1)
+        if (allocated(error)) return
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_MUTEX_REQUIRED)
+        if (allocated(error)) return
+        call check(error, entry%message, "one of the arguments --a --c is required")
+        if (allocated(error)) return
+
+        call errors%clear()
+        call mutex%validate_presence(none_seen, labels, 1, errors, &
+            visible=[.false., .false., .false.])
+        entry = errors%get(1)
+        call check(error, entry%message, &
+            "one argument of mutually exclusive group 1 is required")
+    end subroutine test_mutex_hides_hidden_members
 
     integer function error_code_at(errors, index) result(code)
         type(ErrorStack), intent(in) :: errors

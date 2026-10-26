@@ -1,5 +1,6 @@
 !> Conversion and comparison helpers shared by registration and parsing.
 module fclap_value_convert
+    use, intrinsic :: ieee_arithmetic, only : ieee_is_finite
     use fclap_utils_accuracy, only : i1, i2, i4, i8, sp, wp
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
@@ -134,7 +135,7 @@ contains
             end if
         type is (real(kind=sp))
             if (type_name == "real") then
-                value = new_value(real(input, kind=wp))
+                value = new_value(input)
                 stat = CONVERT_SUCCESS
             end if
         type is (real(kind=wp))
@@ -197,7 +198,9 @@ contains
     !>
     !> Accepted forms are decimal literals using an optional `e`, `E`, `d`, or
     !> `D` exponent, and the case-insensitive special values `inf`,
-    !> `infinity`, and `nan`.
+    !> `infinity`, and `nan`. A decimal literal beyond the real range, such
+    !> as `1e400`, is rejected rather than read as an infinity; one that
+    !> underflows reads as zero.
     subroutine parse_real(input, value, stat)
         character(len=*), intent(in) :: input
         real(wp), intent(out) :: value
@@ -210,6 +213,9 @@ contains
         text = trim(adjustl(input))
         if (.not. is_real_literal(text)) return
         read(text, *, iostat=io_status) value
+        if (io_status == 0 .and. .not. ieee_is_finite(value)) then
+            if (.not. is_special_real(text)) io_status = 1
+        end if
         if (io_status /= 0) then
             value = 0.0_wp
             return
@@ -229,6 +235,22 @@ contains
         valid = verify(text(first:), "0123456789") == 0
     end function is_integer_literal
 
+    !> Report whether the text spells `inf`, `infinity`, or `nan`, in any
+    !> letter case and with an optional sign.
+    pure logical function is_special_real(text) result(special)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable :: body
+        integer :: first
+
+        special = .false.
+        if (len(text) == 0) return
+        first = 1
+        if (text(1:1) == "+" .or. text(1:1) == "-") first = 2
+        if (first > len(text)) return
+        body = lowercase(text(first:))
+        special = body == "inf" .or. body == "infinity" .or. body == "nan"
+    end function is_special_real
+
     pure logical function is_real_literal(text) result(valid)
         character(len=*), intent(in) :: text
         character(len=:), allocatable :: body
@@ -236,14 +258,14 @@ contains
 
         valid = .false.
         if (len(text) == 0) return
+        if (is_special_real(text)) then
+            valid = .true.
+            return
+        end if
         first = 1
         if (text(1:1) == "+" .or. text(1:1) == "-") first = 2
         if (first > len(text)) return
         body = lowercase(text(first:))
-        if (body == "inf" .or. body == "infinity" .or. body == "nan") then
-            valid = .true.
-            return
-        end if
 
         position = 1
         call skip_digits(body, position, digits)

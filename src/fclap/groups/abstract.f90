@@ -37,6 +37,8 @@ module fclap_groups_abstract
         procedure :: validate_presence => group_validate_presence
         !> Decide at registration whether an argument may join the group
         procedure :: accepts_member => group_accepts_member
+        !> Decide once the definition is complete whether it can be satisfied
+        procedure :: unsatisfiable_reason => group_unsatisfiable_reason
     end type GroupType
 
     !> Box permitting one owned array of heterogeneous concrete groups.
@@ -178,16 +180,31 @@ contains
         reason = ""
     end function group_accepts_member
 
+    !> Why no command line can satisfy the group, or an empty string.
+    !>
+    !> Members join after the group is created, so this is checked when the
+    !> parser definition is complete rather than in `add_*_group`. Ordinary
+    !> groups impose no constraint.
+    pure function group_unsatisfiable_reason(self) result(reason)
+        class(GroupType), intent(in) :: self
+        character(len=:), allocatable :: reason
+
+        reason = ""
+    end function group_unsatisfiable_reason
+
     !> Default validation for ordinary groups with no additional constraint.
     !>
     !> `labels(i)` is the user-facing spelling of argument `i`, used to name
-    !> members in diagnostics.
-    subroutine group_validate_presence(self, seen, labels, group_index, errors)
+    !> members in diagnostics; arguments with a false `visible(i)` are not
+    !> named. Absent `visible` names every member.
+    subroutine group_validate_presence(self, seen, labels, group_index, errors, &
+        visible)
         class(GroupType), intent(in) :: self
         logical, intent(in) :: seen(:)
         character(len=*), intent(in) :: labels(:)
         integer, intent(in) :: group_index
         type(ErrorStack), intent(inout) :: errors
+        logical, intent(in), optional :: visible(:)
 
         call self%validate_members(seen, group_index, errors)
     end subroutine group_validate_presence

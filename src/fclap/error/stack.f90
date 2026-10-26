@@ -16,6 +16,7 @@ module fclap_error_stack
         procedure :: append    => error_stack_append_entry
         procedure :: merge     => error_stack_merge
         procedure :: offset_token_indices => error_stack_offset_token_indices
+        procedure :: set_prog  => error_stack_set_prog
         procedure :: count     => error_stack_count
         procedure :: get       => error_stack_get
         procedure :: has_errors
@@ -78,6 +79,20 @@ contains
             end if
         end do
     end subroutine error_stack_offset_token_indices
+
+    !> Record the program name of the reporting parser level on every entry
+    !> that has none yet, so diagnostics of a subcommand keep its name.
+    subroutine error_stack_set_prog(self, prog)
+        class(ErrorStack), intent(inout) :: self
+        character(len=*), intent(in) :: prog
+        integer :: index
+
+        do index = 1, self%count()
+            if (.not. allocated(self%items(index)%prog)) then
+                self%items(index)%prog = prog
+            end if
+        end do
+    end subroutine error_stack_set_prog
 
     pure integer function error_stack_count(self) result(number)
         class(ErrorStack), intent(in) :: self

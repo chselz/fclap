@@ -11,6 +11,8 @@ module fclap_validators_abstract
         procedure(validator_validate_interface), deferred :: validate
         !> Report whether values of a canonical argument type can be validated
         procedure :: accepts_type => validator_accepts_type
+        !> Report whether the validator's own settings can accept any value
+        procedure :: is_consistent => validator_is_consistent
     end type ValidatorType
 
     abstract interface
@@ -37,5 +39,19 @@ contains
 
         accepted = .true.
     end function validator_accepts_type
+
+    !> Accept every configuration unless a concrete validator narrows it.
+    !>
+    !> Registration calls this after `accepts_type` and rejects the definition
+    !> with `reason` when the result is false, e.g. for a range whose lower
+    !> bound exceeds its upper bound, which would reject every parsed value.
+    logical function validator_is_consistent(self, reason) result(consistent)
+        class(ValidatorType), intent(in) :: self
+        !> Why the validator can never succeed, empty when it is consistent
+        character(len=:), allocatable, intent(out) :: reason
+
+        consistent = .true.
+        reason = ""
+    end function validator_is_consistent
 
 end module fclap_validators_abstract

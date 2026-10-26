@@ -24,7 +24,9 @@ contains
             new_unittest("invalid rules are configuration errors", &
                 test_invalid_rules), &
             new_unittest("rules are inherited and kept by subcommands", &
-                test_rules_copied) &
+                test_rules_copied), &
+            new_unittest("repeated rule entries are reported once", &
+                test_duplicate_entries) &
         ]
     end subroutine collect_rules
 
@@ -287,5 +289,38 @@ contains
             "run", "--nodes", "4", "--submit"])
         call check(error, result%outcome, PARSE_SUCCESS)
     end subroutine test_rules_copied
+
+    !> Repeated entries and mirrored conflicts produce one diagnostic each.
+    subroutine test_duplicate_entries(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--a", action=store_true())
+        call parser%add_argument("--b", action=store_true())
+        call parser%add_argument("--c", action=store_true())
+        call parser%add_argument("--d", action=store_true())
+        call parser%add_conflict("--a", [character(len=3) :: "--b", "--b"])
+        call parser%add_conflict("--b", "--a")
+        call parser%add_requires("--c", [character(len=3) :: "--d", "--d"])
+
+        result = parser%parse_tokens([character(len=3) :: "--a", "--b"])
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_ARGUMENT_CONFLICT)
+        if (allocated(error)) return
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --a: not allowed with argument --b")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=3) :: "--c"])
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%message, "requires --d")
+    end subroutine test_duplicate_entries
 
 end module test_rules

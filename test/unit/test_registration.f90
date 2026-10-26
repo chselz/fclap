@@ -1,7 +1,8 @@
 module test_registration
     use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ValidatorType, ValueBox, &
         IntegerValue, LogicalValue, ListValue, new_value, store, store_true, &
-        store_false, store_const, append, count, ERR_INVALID_ARGUMENT_NAME, &
+        store_false, store_const, append, count, boolean_optional, in_range, &
+        ERR_INVALID_ARGUMENT_NAME, &
         ERR_DUPLICATE_OPTION, &
         ERR_DUPLICATE_DEST, ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION, &
         ERR_INVALID_DEFAULT, ERR_INVALID_TYPE_NAME, ERR_INVALID_LIFECYCLE
@@ -20,6 +21,12 @@ module test_registration
         procedure :: validate => validate_nonnegative
     end type NonnegativeValidator
 
+    !> Rejects every value without allocating a message
+    type, extends(ValidatorType) :: SilentValidator
+    contains
+        procedure :: validate => validate_silently
+    end type SilentValidator
+
 contains
 
     subroutine collect_registration(testsuite)
@@ -35,7 +42,18 @@ contains
             new_unittest("reject incompatible definitions", &
                 test_reject_incompatible_definitions), &
             new_unittest("defaults choices and validators", &
-                test_defaults_choices_validators) &
+                test_defaults_choices_validators), &
+            new_unittest("silent validator rejects default", &
+                test_silent_validator), &
+            new_unittest("reject unmatchable names", test_reject_name_syntax), &
+            new_unittest("reject zero-value positionals", &
+                test_reject_zero_value_positionals), &
+            new_unittest("reject optional positional needing a value", &
+                test_reject_unrequired_positional), &
+            new_unittest("reject empty, repeated, and invalid choices", &
+                test_reject_bad_choices), &
+            new_unittest("collisions with built-in arguments", &
+                test_builtin_collisions) &
         ]
     end subroutine collect_registration
 
@@ -428,6 +446,218 @@ contains
             message = "value must be nonnegative"
         end if
     end subroutine validate_nonnegative
+
+    subroutine validate_silently(self, value, valid, message)
+        class(SilentValidator), intent(in) :: self
+        type(ValueBox), intent(in) :: value
+        logical, intent(out) :: valid
+        character(len=:), allocatable, intent(out) :: message
+
+        valid = .false.
+    end subroutine validate_silently
+
+    !> A validator may reject without a message; registration must not
+    !> dereference it.
+    subroutine test_silent_validator(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        type(SilentValidator) :: silent
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--n", data_type="integer", default=3, &
+            validator=silent)
+        call parser%add_argument("--c", data_type="integer", nargs="?", &
+            const=3, validator=silent)
+        call parser%add_argument("--l", data_type="integer", nargs=2, &
+            default=[1, 2], validator=silent)
+
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 3)
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 1), ERR_INVALID_DEFAULT)
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 1), &
+            "default value failed validation")
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 2), &
+            "const value failed validation")
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 3), &
+            "default value failed validation")
+    end subroutine test_silent_validator
+
+    !> Names that can never match a token, or that shadow negative numbers.
+    subroutine test_reject_name_syntax(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        integer :: index
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("---x")
+        call parser%add_argument("--a b")
+        call parser%add_argument("--a=b")
+        call parser%add_argument("-x", "--y=z")
+        call parser%add_argument("-1")
+        call parser%add_argument("-.5")
+        call parser%add_argument("in put")
+        call parser%add_argument(" x")
+        call parser%add_argument("--x", dest="a b")
+        call parser%add_argument("--x", dest="a=b")
+
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 10)
+        if (allocated(error)) return
+        do index = 1, errors%count()
+            call check(error, error_code_at(errors, index), &
+                ERR_INVALID_ARGUMENT_NAME)
+            if (allocated(error)) return
+        end do
+
+        ! Multi-letter single-dash options are supported (exact spelling
+        ! wins over a cluster), and digits after a letter are not a number.
+        call parser%init(add_help=.false.)
+        call parser%add_argument("-ab", action=store_true())
+        call parser%add_argument("-np")
+        call parser%add_argument("-x1")
+        call parser%add_argument("--2d", action=store_true())
+        call check(error, parser%is_valid(), .true.)
+        if (allocated(error)) return
+        call check(error, parser%argument_count(), 4)
+    end subroutine test_reject_name_syntax
+
+    !> A positional is set by consuming a value, so a zero-value action
+    !> could never set it.
+    subroutine test_reject_zero_value_positionals(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        integer :: index
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("a", action=store_true())
+        call parser%add_argument("b", action=store_false())
+        call parser%add_argument("c", action=count())
+        call parser%add_argument("d", action=boolean_optional())
+        call parser%add_argument("e", action=store_const(3))
+        call parser%add_argument("f", action=store_true(), nargs=0)
+        call parser%add_argument("g", nargs=0)
+
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 7)
+        if (allocated(error)) return
+        do index = 1, errors%count()
+            call check(error, error_code_at(errors, index), &
+                ERR_INCOMPATIBLE_ACTION)
+            if (allocated(error)) return
+        end do
+    end subroutine test_reject_zero_value_positionals
+
+    subroutine test_reject_unrequired_positional(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("input", required=.false.)
+        call parser%add_argument("files", nargs="+", required=.false.)
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 2)
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 1), ERR_INCOMPATIBLE_ACTION)
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 2), ERR_INCOMPATIBLE_ACTION)
+        if (allocated(error)) return
+
+        ! Statements that agree with the nargs are accepted.
+        call parser%init(add_help=.false.)
+        call parser%add_argument("input", required=.true.)
+        call parser%add_argument("extra", nargs="?", required=.false.)
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_reject_unrequired_positional
+
+    subroutine test_reject_bad_choices(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+        integer :: index
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--empty", data_type="integer", &
+            choices=[integer ::])
+        call parser%add_argument("--ints", data_type="integer", choices=[1, 1])
+        call parser%add_argument("--words", choices=[character(len=1) :: &
+            "a", "b", "a"])
+        call parser%add_argument("--range", data_type="integer", &
+            choices=[1, 5, 10], validator=in_range(2, 8))
+
+        call check(error, parser%argument_count(), 0)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 4)
+        if (allocated(error)) return
+        do index = 1, errors%count()
+            call check(error, error_code_at(errors, index), ERR_INVALID_DEFAULT)
+            if (allocated(error)) return
+        end do
+        call check(error, error_message_at(errors, 4), "choice 1 failed " // &
+            "validation: value must be between 2 and 8")
+        if (allocated(error)) return
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--range", data_type="integer", &
+            choices=[2, 5, 8], validator=in_range(2, 8))
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_reject_bad_choices
+
+    !> The automatic help and version arguments are named in collisions.
+    subroutine test_builtin_collisions(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+
+        call parser%init(prog="demo", version="demo 1.0")
+        call parser%add_argument("help")
+        call parser%add_argument("--version", dest="shown")
+        call parser%add_argument("--other", dest="version")
+
+        errors = parser%get_config_errors()
+        call check(error, errors%count(), 3)
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 1), ERR_DUPLICATE_DEST)
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 1), &
+            "the destination collides with the built-in help argument")
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 2), ERR_DUPLICATE_OPTION)
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 2), &
+            "an option name collides with the built-in version argument")
+        if (allocated(error)) return
+        call check(error, error_code_at(errors, 3), ERR_DUPLICATE_DEST)
+        if (allocated(error)) return
+        call check(error, error_message_at(errors, 3), &
+            "the destination collides with the built-in version argument")
+    end subroutine test_builtin_collisions
+
+    function error_message_at(errors, index) result(message)
+        type(ErrorStack), intent(in) :: errors
+        integer, intent(in) :: index
+        character(len=:), allocatable :: message
+        type(ErrorEntry) :: entry
+
+        entry = errors%get(index)
+        message = entry%message
+    end function error_message_at
 
     integer function error_code_at(errors, index) result(code)
         type(ErrorStack), intent(in) :: errors

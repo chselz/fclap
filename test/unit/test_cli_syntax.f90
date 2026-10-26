@@ -4,7 +4,8 @@ module test_cli_syntax
         ParseResult, FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, PARSE_HELP, &
         ERR_UNKNOWN_ARGUMENT, ERR_UNEXPECTED_VALUE, ERR_MISSING_VALUE, &
         ERR_INCOMPATIBLE_VALIDATOR, ERR_VALIDATION_FAILED, ERR_MUTEX_CONFLICT, &
-        ERR_MUTEX_REQUIRED, append, count, store_true, not_less_than, in_range
+        ERR_MUTEX_REQUIRED, append, count, store_true, &
+        boolean_optional, not_less_than, in_range
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -33,7 +34,11 @@ contains
             new_unittest("usage wrapping keeps items intact", &
                 test_usage_wrapping), &
             new_unittest("token lengths keep trailing blanks", &
-                test_token_lengths) &
+                test_token_lengths), &
+            new_unittest("trailing blanks do not change a name", &
+                test_trailing_blank_names), &
+            new_unittest("equals after a cluster's value option", &
+                test_cluster_equals) &
         ]
     end subroutine collect_cli_syntax
 
@@ -425,5 +430,82 @@ contains
         call result%namespace%get("sep", text)
         call check(error, text, " x ")
     end subroutine test_token_lengths
+
+    !> Trailing blanks are ignored when a token names an option, the
+    !> end-of-options marker, or a command, even with exact lengths, so a
+    !> stray blank in a script still selects what the user meant.
+    subroutine test_trailing_blank_names(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, commands
+        type(ParseResult) :: result
+        character(len=:), allocatable :: rest(:)
+        logical :: verbose, quiet, cache
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("-v", action=store_true())
+        call parser%add_argument("--quiet", action=store_true())
+        call parser%add_argument("--cache", action=boolean_optional())
+        call parser%add_argument("rest", nargs="*")
+
+        result = parser%parse_tokens([character(len=11) :: &
+            "-v ", "--quiet ", "--no-cache "], lengths=[3, 8, 11])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("v", verbose)
+        call check(error, verbose, .true.)
+        if (allocated(error)) return
+        call result%namespace%get("quiet", quiet)
+        call check(error, quiet, .true.)
+        if (allocated(error)) return
+        call result%namespace%get("cache", cache)
+        call check(error, cache, .false.)
+        if (allocated(error)) return
+
+        ! `"-- "` still ends option processing.
+        result = parser%parse_tokens([character(len=3) :: "-- ", "-v"], &
+            lengths=[3, 2])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("rest", rest)
+        call check(error, size(rest), 1)
+        if (allocated(error)) return
+        call check(error, rest(1), "-v")
+        if (allocated(error)) return
+
+        call commands%init(prog="tool", add_help=.false.)
+        call commands%add_subparsers()
+        call commands%add_parser("run")
+        result = commands%parse_tokens([character(len=4) :: "run "], &
+            lengths=[4])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call check(error, result%selected_command_path(1), "run")
+    end subroutine test_trailing_blank_names
+
+    !> `-vn=3` passes `3` to `-n`, as `-n=3` does.
+    subroutine test_cluster_equals(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        integer :: number, verbosity
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("-v", action=count())
+        call parser%add_argument("-n", data_type="integer")
+
+        result = parser%parse_tokens([character(len=5) :: "-vn=3"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("n", number)
+        call check(error, number, 3)
+        if (allocated(error)) return
+        call result%namespace%get("v", verbosity)
+        call check(error, verbosity, 1)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=5) :: "-vn3"])
+        call result%namespace%get("n", number)
+        call check(error, number, 3)
+    end subroutine test_cluster_equals
 
 end module test_cli_syntax

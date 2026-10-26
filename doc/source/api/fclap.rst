@@ -116,9 +116,11 @@ environment, which wins over ``default``. An empty variable counts as unset.
 The value is converted and checked like a command-line value, and an invalid
 one is reported as ``argument --opt: environment variable NAME: ...``. A flag
 reads the variable as a logical: true acts like the flag, false leaves it
-unset, except that a ``boolean_optional`` flag stores false. An option taking
+unset, except that a ``boolean_optional`` flag stores false; a ``count()``
+option reads the number of occurrences (``VERBOSE=3``). An option taking
 several values splits the variable at blanks. A value from the environment
-counts as given for ``required``, groups, and rules. Help shows
+counts as given for ``required``, groups, and rules, even when it is
+rejected, and conflict errors it causes name the variable. Help shows
 ``(env: NAME)``. Only options accept ``env``; positionals, removed options,
 empty names, and names containing ``=`` or blanks are rejected with
 ``ERR_INVALID_ENV``.
@@ -135,11 +137,13 @@ line; a subcommand that already defines the name or destination is a
 ``delimiter=","`` splits one value token into several values:
 ``--grid 64,64,128`` or ``--grid=64,64,128``. Each occurrence reads exactly
 one token, so a following positional is never consumed, and ``nargs`` (two or
-more, ``*``, or ``+``) bounds the number of items after splitting. Empty
-items are kept and converted, so ``1,,3`` is an invalid integer. An
-environment value is split at the delimiter instead of at blanks. Usage
-shows ``GRID,GRID,GRID`` or ``SPECIES[,SPECIES...]``. Values beginning with
-``-`` must be attached: ``--offsets=-1,2``.
+more, ``*``, or ``+``) bounds the number of items after splitting. Items
+are kept verbatim: empty items are kept and converted, so ``1,,3`` is an
+invalid integer, and blanks around an item are part of it. An empty token is
+an empty list. An environment value is split at the delimiter instead of at
+blanks. Usage shows ``GRID,GRID,GRID`` or ``SPECIES[,SPECIES...]``. Numeric
+items may start with a sign (``--offsets -1,2``); other values beginning with
+``-`` must be attached: ``--patterns=-x,-y``.
 
 ``choice_help`` gives one help line per entry of ``choices``; help lists them
 below the argument::
@@ -245,7 +249,9 @@ for a name wins. Trailing blanks of a token are treated as padding of the
 fixed-length array; pass ``lengths``, one integer per token, when they belong
 to a value (``--sep ", "``) or to give an empty token. ``try_parse_args`` and
 ``parse_args`` pass the real lengths of the command-line arguments, so values
-from the shell keep their trailing blanks. The first two functions return
+from the shell keep their trailing blanks. Trailing blanks never change a
+name: ``"-v "``, ``"-- "``, and ``"run "`` still select ``-v``, the end of
+options, and the command ``run``. The first two functions return
 ``ParseResult`` and never print or terminate. ``parse_args`` returns
 ``Namespace`` only on success and implements the process-level print/exit
 policy for help, version, warnings, and failures.
@@ -556,13 +562,18 @@ double-precision, and ``real(real32)`` limits, e.g. ``in_range(1, 64)``.
 
 The limit kind must match the argument type: ``not_less_than(0)`` on a
 ``real`` argument is rejected at registration with
-``ERR_INCOMPATIBLE_VALIDATOR``; write ``not_less_than(0.0_wp)``. An
-``in_range`` whose lower limit exceeds its upper limit is rejected the same
-way.
+``ERR_INCOMPATIBLE_VALIDATOR``; write ``not_less_than(0.0_wp)``. A validator
+that accepts nothing, an ``in_range`` whose lower limit exceeds its upper
+limit or any NaN limit, is rejected the same way with a message naming the
+problem. A ``real(real32)`` limit is widened through its shortest decimal
+text, so ``not_less_than(0.1)`` accepts the token ``0.1``.
 
 Extend ``ValidatorType`` by implementing ``validate``. Override
 ``accepts_type(type_name)`` to reject argument types the validator cannot
-check; the default accepts every type.
+check, and ``is_consistent(reason)`` to reject a configuration that can
+never succeed; by default every type is accepted and every configuration is
+consistent. ``validate`` should set ``message`` when it rejects a value; a
+generic message is used otherwise.
 
 Formatting
 ----------
@@ -572,7 +583,8 @@ Formatting
 ``help_width``, and ``width_from_env`` components. With
 ``width_from_env=.true.`` the width comes from the ``COLUMNS`` environment
 variable when it holds a whole number of at least 20, otherwise from
-``help_width``. Shells often do not export ``COLUMNS``, so the fallback is
+``help_width``. A ``help_width`` from 1 to 19 is raised to 20, and zero or a
+negative width selects the default of 80. Shells often do not export ``COLUMNS``, so the fallback is
 common; the default stays off so that help text is deterministic:
 
 .. code-block:: fortran

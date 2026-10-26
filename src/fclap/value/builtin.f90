@@ -1,7 +1,7 @@
 !> Built-in scalar and list value implementations.
 module fclap_value_builtin
     use, intrinsic :: ieee_arithmetic, only : ieee_is_finite, ieee_is_nan
-    use fclap_utils_accuracy, only : i8, ip, wp
+    use fclap_utils_accuracy, only : i8, ip, sp, wp, widen_real
     use fclap_value_abstract, only : ValueType, ValueBox
     implicit none
     private
@@ -47,8 +47,12 @@ module fclap_value_builtin
     end type LogicalValue
 
     type, extends(ValueType) :: ListValue
+        !> Item storage; only `items(1:size())` hold values, the remaining
+        !> slots are spare capacity that keeps repeated appends linear
         type(ValueBox), allocatable :: items(:)
         character(len=:), allocatable, private :: element_type
+        !> Number of stored items
+        integer, private :: length = 0
     contains
         procedure :: clone     => list_value_clone
         procedure :: to_string => list_value_to_string
@@ -58,6 +62,7 @@ module fclap_value_builtin
         procedure :: get       => list_value_get
         procedure :: item_type => list_value_item_type
         procedure :: initialize => list_value_initialize
+        procedure :: adopt     => list_value_adopt
     end type ListValue
 
     interface new_value
@@ -65,11 +70,13 @@ module fclap_value_builtin
         module procedure :: new_integer_value
         module procedure :: new_integer_i8_value
         module procedure :: new_real_value
+        module procedure :: new_real_sp_value
         module procedure :: new_logical_value
         module procedure :: new_string_list_value
         module procedure :: new_integer_list_value
         module procedure :: new_integer_i8_list_value
         module procedure :: new_real_list_value
+        module procedure :: new_real_sp_list_value
         module procedure :: new_logical_list_value
     end interface new_value
 
@@ -294,30 +301,48 @@ contains
         if (self%size() == 0) self%element_type = trim(element_type)
     end subroutine list_value_initialize
 
+    !> Take ownership of `items` as the complete list content without
+    !> copying them; `items` is deallocated on return.
+    subroutine list_value_adopt(self, items)
+        class(ListValue), intent(inout) :: self
+        type(ValueBox), allocatable, intent(inout) :: items(:)
+
+        if (.not. allocated(items)) allocate(items(0))
+        call move_alloc(items, self%items)
+        self%length = size(self%items)
+    end subroutine list_value_adopt
+
+    !> Append a deep copy of `value`; a value of another type is ignored.
+    !>
+    !> Storage grows geometrically and existing items are moved rather than
+    !> copied, so building a list of n items costs O(n).
     subroutine list_value_append(self, value)
         class(ListValue), intent(inout) :: self
         type(ValueBox), intent(in) :: value
         type(ValueBox), allocatable :: temporary(:)
-        integer :: old_size
+        integer :: index
 
         if (.not. allocated(self%element_type)) self%element_type = value%type_name()
         if (self%element_type /= value%type_name()) return
 
-        old_size = self%size()
-        allocate(temporary(old_size + 1))
-        if (old_size > 0) temporary(:old_size) = self%items
-        temporary(old_size + 1) = value%clone()
-        call move_alloc(temporary, self%items)
+        if (.not. allocated(self%items)) allocate(self%items(4))
+        if (self%length >= size(self%items)) then
+            allocate(temporary(max(4, 2 * size(self%items))))
+            do index = 1, self%length
+                call move_alloc(self%items(index)%item, temporary(index)%item)
+            end do
+            call move_alloc(temporary, self%items)
+        end if
+        self%length = self%length + 1
+        if (allocated(value%item)) then
+            allocate(self%items(self%length)%item, source=value%item)
+        end if
     end subroutine list_value_append
 
     pure integer function list_value_size(self) result(number)
         class(ListValue), intent(in) :: self
 
-        if (allocated(self%items)) then
-            number = size(self%items)
-        else
-            number = 0
-        end if
+        number = self%length
     end function list_value_size
 
     function list_value_get(self, index) result(value)
@@ -361,6 +386,15 @@ contains
         concrete%value = value
         call box%set(concrete)
     end function new_real_value
+
+    !> Store a single-precision real as the working-precision value of its
+    !> shortest decimal text, so `0.1` is kept and shown as 0.1.
+    function new_real_sp_value(value) result(box)
+        real(sp), intent(in) :: value
+        type(ValueBox) :: box
+
+        box = new_real_value(widen_real(value))
+    end function new_real_sp_value
 
     function new_logical_value(value) result(box)
         logical, intent(in) :: value
@@ -419,6 +453,13 @@ contains
         end do
         call box%set(list)
     end function new_real_list_value
+
+    function new_real_sp_list_value(values) result(box)
+        real(sp), intent(in) :: values(:)
+        type(ValueBox) :: box
+
+        box = new_real_list_value(widen_real(values))
+    end function new_real_sp_list_value
 
     function new_logical_list_value(values) result(box)
         logical, intent(in) :: values(:)

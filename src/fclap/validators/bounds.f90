@@ -1,5 +1,6 @@
 !> Inclusive lower-bound, upper-bound, and range validators for numbers.
 module fclap_validators_bounds
+    use, intrinsic :: ieee_arithmetic, only : ieee_is_nan
     use fclap_utils_accuracy, only : i8, ip, sp, wp
     use fclap_validators_abstract, only : ValidatorType
     use fclap_value_abstract, only : ValueBox
@@ -15,6 +16,7 @@ module fclap_validators_bounds
     contains
         procedure :: validate => lower_bound_validate
         procedure :: accepts_type => lower_bound_accepts_type
+        procedure :: is_consistent => lower_bound_is_consistent
     end type LowerBoundValidator
 
     type, extends(ValidatorType) :: UpperBoundValidator
@@ -22,6 +24,7 @@ module fclap_validators_bounds
     contains
         procedure :: validate => upper_bound_validate
         procedure :: accepts_type => upper_bound_accepts_type
+        procedure :: is_consistent => upper_bound_is_consistent
     end type UpperBoundValidator
 
     !> Inclusive closed interval `[lower, upper]` of one numeric type
@@ -31,6 +34,7 @@ module fclap_validators_bounds
     contains
         procedure :: validate => range_validate
         procedure :: accepts_type => range_accepts_type
+        procedure :: is_consistent => range_is_consistent
     end type RangeValidator
 
     interface not_less_than
@@ -81,7 +85,7 @@ contains
         real(sp), intent(in) :: bound
         type(LowerBoundValidator) :: validator
 
-        validator%bound = new_value(real(bound, kind=wp))
+        validator%bound = new_value(bound)
     end function not_less_than_real_sp
 
     function not_bigger_than_integer(bound) result(validator)
@@ -109,7 +113,7 @@ contains
         real(sp), intent(in) :: bound
         type(UpperBoundValidator) :: validator
 
-        validator%bound = new_value(real(bound, kind=wp))
+        validator%bound = new_value(bound)
     end function not_bigger_than_real_sp
 
     function in_range_integer(lower, upper) result(validator)
@@ -140,8 +144,8 @@ contains
         real(sp), intent(in) :: lower, upper
         type(RangeValidator) :: validator
 
-        validator%lower = new_value(real(lower, kind=wp))
-        validator%upper = new_value(real(upper, kind=wp))
+        validator%lower = new_value(lower)
+        validator%upper = new_value(upper)
     end function in_range_real_sp
 
     subroutine lower_bound_validate(self, value, valid, message)
@@ -202,15 +206,66 @@ contains
         accepted = self%bound%type_name() == type_name
     end function upper_bound_accepts_type
 
-    !> Both limits must match the argument type and describe a nonempty range.
+    !> Both limits must match the argument type.
     logical function range_accepts_type(self, type_name) result(accepted)
         class(RangeValidator), intent(in) :: self
         character(len=*), intent(in) :: type_name
 
         accepted = self%lower%type_name() == type_name .and. &
             self%upper%type_name() == type_name
-        if (accepted) accepted = numeric_at_most(self%lower, self%upper)
     end function range_accepts_type
+
+    !> A NaN bound compares false with every value, so it accepts nothing.
+    logical function lower_bound_is_consistent(self, reason) result(consistent)
+        class(LowerBoundValidator), intent(in) :: self
+        character(len=:), allocatable, intent(out) :: reason
+
+        call check_bounds(self%bound, self%bound, consistent, reason)
+    end function lower_bound_is_consistent
+
+    logical function upper_bound_is_consistent(self, reason) result(consistent)
+        class(UpperBoundValidator), intent(in) :: self
+        character(len=:), allocatable, intent(out) :: reason
+
+        call check_bounds(self%bound, self%bound, consistent, reason)
+    end function upper_bound_is_consistent
+
+    !> The limits must not be NaN and must describe a nonempty range.
+    logical function range_is_consistent(self, reason) result(consistent)
+        class(RangeValidator), intent(in) :: self
+        character(len=:), allocatable, intent(out) :: reason
+
+        call check_bounds(self%lower, self%upper, consistent, reason)
+    end function range_is_consistent
+
+    !> Check that neither bound is NaN and that `lower` does not exceed `upper`.
+    subroutine check_bounds(lower, upper, consistent, reason)
+        type(ValueBox), intent(in) :: lower, upper
+        logical, intent(out) :: consistent
+        character(len=:), allocatable, intent(out) :: reason
+
+        consistent = .false.
+        if (is_nan_value(lower) .or. is_nan_value(upper)) then
+            reason = "a validator bound is NaN"
+        else if (lower%type_name() == upper%type_name() .and. &
+            .not. numeric_at_most(lower, upper)) then
+            reason = "the lower bound " // lower%to_string() // &
+                " exceeds the upper bound " // upper%to_string()
+        else
+            consistent = .true.
+            reason = ""
+        end if
+    end subroutine check_bounds
+
+    logical function is_nan_value(value) result(is_nan)
+        type(ValueBox), intent(in) :: value
+
+        is_nan = .false.
+        select type (number => value%item)
+        type is (RealValue)
+            is_nan = ieee_is_nan(number%value)
+        end select
+    end function is_nan_value
 
     logical function numeric_at_least(value, bound) result(valid)
         type(ValueBox), intent(in) :: value, bound

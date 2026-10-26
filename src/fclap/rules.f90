@@ -8,6 +8,7 @@ module fclap_rules
     use fclap_argument, only : Argument
     use fclap_error_codes, only : ERR_ARGUMENT_CONFLICT, &
         ERR_MISSING_DEPENDENCY, ERR_MISSING_REQUIRED
+    use fclap_error_entry, only : ErrorEntry
     use fclap_error_stack, only : ErrorStack
     implicit none
     private
@@ -59,22 +60,26 @@ contains
     !>
     !> Diagnostics name the subject destination, so command-line formatting
     !> prefixes them with `argument -x/--name:` like other argument errors.
+    !> An argument listed twice is reported once, and a conflicting pair that
+    !> is already in `errors`, e.g. from the mirrored rule, is not repeated.
     subroutine rule_validate_presence(self, arguments, seen, errors)
         class(ArgumentRule), intent(in) :: self
         type(Argument), intent(in) :: arguments(:)
         logical, intent(in) :: seen(:)
         type(ErrorStack), intent(inout) :: errors
         logical, allocatable :: others_seen(:)
+        integer, allocatable :: others(:)
         character(len=:), allocatable :: dest
         integer :: index
 
         if (.not. valid_index(self%subject, seen)) return
         if (.not. allocated(self%others)) return
-        allocate(others_seen(size(self%others)))
-        do index = 1, size(self%others)
+        others = unique_indices(self%others)
+        allocate(others_seen(size(others)))
+        do index = 1, size(others)
             others_seen(index) = .false.
-            if (valid_index(self%others(index), seen)) then
-                others_seen(index) = seen(self%others(index))
+            if (valid_index(others(index), seen)) then
+                others_seen(index) = seen(others(index))
             end if
         end do
         dest = arguments(self%subject)%dest
@@ -84,21 +89,22 @@ contains
             if (.not. seen(self%subject)) return
             if (all(others_seen)) return
             call errors%add("requires " // &
-                join_labels(arguments, pack(self%others, .not. others_seen), &
+                join_labels(arguments, pack(others, .not. others_seen), &
                 ", "), code=ERR_MISSING_DEPENDENCY, arg_name=dest)
         case (RULE_CONFLICTS)
             if (.not. seen(self%subject)) return
-            do index = 1, size(self%others)
+            do index = 1, size(others)
                 if (.not. others_seen(index)) cycle
-                call errors%add("not allowed with argument " // &
-                    arguments(self%others(index))%display_label(), &
+                if (conflict_reported(errors, arguments, self%subject, &
+                    others(index))) cycle
+                call errors%add(conflict_message(arguments, others(index)), &
                     code=ERR_ARGUMENT_CONFLICT, arg_name=dest)
             end do
         case (RULE_REQUIRED_UNLESS)
             if (seen(self%subject)) return
             if (any(others_seen)) return
             call errors%add("required unless " // &
-                join_labels(arguments, self%others, " or ") // " is given", &
+                join_labels(arguments, others, " or ") // " is given", &
                 code=ERR_MISSING_REQUIRED, arg_name=dest)
         case default
             ! Rules are only created with the kinds above.
@@ -129,6 +135,51 @@ contains
         end do
         kept = .true.
     end subroutine rule_remap
+
+    function conflict_message(arguments, other) result(message)
+        type(Argument), intent(in) :: arguments(:)
+        integer, intent(in) :: other
+        character(len=:), allocatable :: message
+
+        message = "not allowed with argument " // arguments(other)%display_label()
+    end function conflict_message
+
+    !> Report whether the conflict between `first` and `second` is already in
+    !> `errors`, reported for either of the two arguments.
+    logical function conflict_reported(errors, arguments, first, second) &
+        result(reported)
+        type(ErrorStack), intent(in) :: errors
+        type(Argument), intent(in) :: arguments(:)
+        integer, intent(in) :: first, second
+        type(ErrorEntry) :: entry
+        integer :: index
+
+        reported = .false.
+        do index = 1, errors%count()
+            entry = errors%get(index)
+            if (entry%code /= ERR_ARGUMENT_CONFLICT) cycle
+            if (.not. allocated(entry%arg_name) .or. &
+                .not. allocated(entry%message)) cycle
+            reported = (entry%arg_name == arguments(first)%dest .and. &
+                entry%message == conflict_message(arguments, second)) .or. &
+                (entry%arg_name == arguments(second)%dest .and. &
+                entry%message == conflict_message(arguments, first))
+            if (reported) return
+        end do
+    end function conflict_reported
+
+    !> Drop repeated entries, keeping the first occurrence of each index.
+    pure function unique_indices(indices) result(unique)
+        integer, intent(in) :: indices(:)
+        integer, allocatable :: unique(:)
+        logical :: keep(size(indices))
+        integer :: index
+
+        do index = 1, size(indices)
+            keep(index) = .not. any(indices(:index - 1) == indices(index))
+        end do
+        unique = pack(indices, keep)
+    end function unique_indices
 
     pure logical function valid_index(index, seen) result(valid)
         integer, intent(in) :: index

@@ -202,8 +202,8 @@ contains
         call check(error, entry%suggestion, "fast")
         if (allocated(error)) return
         call check(error, parser%format_diagnostic(entry), &
-            "tool: error: argument --mode: value is not one of the allowed " // &
-            "choices (got 'fsat') (did you mean 'fast'?)")
+            "tool: error: argument --mode: invalid choice: choose from " // &
+            "'fast', 'safe' (got 'fsat') (did you mean 'fast'?)")
         if (allocated(error)) return
 
         ! Case-insensitive choices compare without case and suggest the

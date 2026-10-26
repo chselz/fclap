@@ -131,6 +131,7 @@ module fclap_argparser
         procedure, private :: selectable_names => parser_selectable_names
         procedure, private :: find_subparser => parser_find_subparser
         procedure, private :: has_global_conflict => parser_has_global_conflict
+        procedure, private :: dest_clash => parser_dest_clash
         procedure, private :: inherit_global => parser_inherit_global
         procedure, private :: is_mutex_group => parser_is_mutex_group
         procedure, private :: copy_parent => parser_copy_parent
@@ -326,6 +327,18 @@ contains
                 call self%reject(code, message, candidate%dest, join_names(names))
                 return
             end if
+        end if
+
+        if (.not. candidate%global) then
+            do index = 1, self%subparser_count()
+                call self%subparsers(index)%dest_clash(candidate%dest, &
+                    message, candidate)
+                if (len(message) == 0) cycle
+                call self%reject(ERR_DUPLICATE_DEST, "subcommand '" // &
+                    trim(self%subparser_names(index)) // "' " // message, &
+                    candidate%dest, join_names(names))
+                return
+            end do
         end if
 
         if (group_index > 0) then
@@ -561,12 +574,14 @@ contains
                 "the subparser destination must not be empty", "subparsers")
             return
         end if
-        if (self%has_dest(selected_dest)) then
-            call self%reject(ERR_DUPLICATE_DEST, &
-                "the subparser destination is already registered", &
-                selected_dest)
+        do index = 1, self%argument_count()
+            if (self%arguments(index)%dest /= selected_dest) cycle
+            call self%reject(ERR_DUPLICATE_DEST, "the subparser " // &
+                "destination '" // selected_dest // "' is already " // &
+                "used by this argument", selected_dest, &
+                self%arguments(index)%display_label())
             return
-        end if
+        end do
         do index = 1, self%argument_count()
             if (.not. self%arguments(index)%is_positional()) cycle
             if (self%arguments(index)%nargs_value() == NARGS_REMAINDER) then
@@ -596,7 +611,7 @@ contains
         !> Alternative names accepted on the command line, e.g. `["r"]`
         character(len=*), intent(in), optional :: aliases(:)
         type(ArgumentParser) :: definition
-        character(len=:), allocatable :: summary
+        character(len=:), allocatable :: summary, message
         integer :: index
 
         if (.not. self%subparsers_enabled) then
@@ -610,7 +625,7 @@ contains
                 trim(name))
             return
         end if
-        if (self%find_subparser(name) > 0) then
+        if (self%find_subparser(trim(name)) > 0) then
             call self%reject(ERR_DUPLICATE_OPTION, &
                 "the subcommand name is already registered", trim(name))
             return
@@ -624,7 +639,7 @@ contains
                         "without a leading '-'", trim(name))
                     return
                 end if
-                if (self%find_subparser(aliases(index)) > 0 .or. &
+                if (self%find_subparser(trim(aliases(index))) > 0 .or. &
                     trim(aliases(index)) == trim(name) .or. &
                     any(aliases(:index - 1) == aliases(index))) then
                     call self%reject(ERR_DUPLICATE_OPTION, &
@@ -653,6 +668,22 @@ contains
             if (self%arguments(index)%global) then
                 call definition%inherit_global(self%arguments(index))
             end if
+        end do
+        ! Child values merge into this level's flat namespace.
+        call definition%dest_clash(self%subparser_dest, message)
+        if (len(message) > 0) then
+            call self%reject(ERR_DUPLICATE_DEST, "subcommand '" // trim(name) // &
+                "' " // message, self%subparser_dest)
+            return
+        end if
+        do index = 1, self%argument_count()
+            call definition%dest_clash(self%arguments(index)%dest, message, &
+                self%arguments(index))
+            if (len(message) == 0) cycle
+            call self%reject(ERR_DUPLICATE_DEST, "subcommand '" // trim(name) // &
+                "' " // message, self%arguments(index)%dest, &
+                self%arguments(index)%display_label())
+            return
         end do
         if (allocated(self%prog)) then
             call definition%rebase_program(trim(self%prog) // " " // trim(name))
@@ -758,15 +789,35 @@ contains
 
     pure logical function parser_is_valid(self) result(valid)
         class(ArgumentParser), intent(in) :: self
+        integer :: index
 
         valid = .not. self%config_errors%has_fatal_errors()
+        if (.not. valid .or. .not. allocated(self%groups)) return
+        ! Group membership is complete only once the definition is, so
+        ! group constraints are checked here rather than at registration.
+        do index = 1, size(self%groups)
+            if (.not. allocated(self%groups(index)%item)) cycle
+            if (len(self%groups(index)%item%unsatisfiable_reason()) > 0) then
+                valid = .false.
+                return
+            end if
+        end do
     end function parser_is_valid
 
+    !> Registration errors plus the groups that no parse can satisfy.
     function parser_get_config_errors(self) result(errors)
         class(ArgumentParser), intent(in) :: self
         type(ErrorStack) :: errors
+        character(len=:), allocatable :: reason
+        integer :: index
 
         errors = self%config_errors
+        if (.not. allocated(self%groups)) return
+        do index = 1, size(self%groups)
+            if (.not. allocated(self%groups(index)%item)) cycle
+            reason = self%groups(index)%item%unsatisfiable_reason()
+            if (len(reason) > 0) call errors%add(reason, code=ERR_INVALID_GROUP)
+        end do
     end function parser_get_config_errors
 
     function parser_get_help_model(self) result(model)
@@ -966,6 +1017,13 @@ contains
 
     !> Parse this parser's part of the tokens and dispatch to the selected
     !> subcommand, which parses the rest.
+    !>
+    !> Once the tokens before the command are consumed, the command runs even
+    !> when this level failed a presence check (a required option, group, or
+    !> rule) or an environment value: a help or version request of the
+    !> command wins, as argparse shows the command's help; otherwise the
+    !> errors of both levels are reported. Every diagnostic records the
+    !> program name of the level that reported it.
     recursive function parser_parse_level(self, tokens, collect_extras, &
         environment, lengths) result(parsed)
         class(ArgumentParser), intent(in) :: self
@@ -977,9 +1035,11 @@ contains
         type(ParseResult) :: child_result
         type(Argument), allocatable :: definitions(:)
         type(GroupBox), allocatable :: group_definitions(:)
+        type(ErrorStack) :: config_errors
         character(len=:), allocatable :: command_names(:), command
         integer, allocatable :: token_lengths(:)
         integer :: child_index, next_token_index, index
+        logical :: tokens_complete, level_failed
 
         ! Resolve the lengths once, so the child gets a matching slice.
         allocate(token_lengths(size(tokens)))
@@ -992,10 +1052,11 @@ contains
         end do
 
         if (self%help_on_empty .and. size(tokens) == 0 .and. &
-            .not. self%config_errors%has_fatal_errors()) then
+            self%is_valid()) then
             parsed%outcome = PARSE_FAILURE
             call parsed%errors%add("no arguments were given", &
                 code=ERR_NO_ARGUMENTS)
+            call parsed%errors%set_prog(self%program_name())
             parsed%text = self%format_help()
             return
         end if
@@ -1011,28 +1072,32 @@ contains
             allocate(group_definitions(0))
         end if
         call self%selectable_names(command_names)
+        config_errors = self%get_config_errors()
 
         if (allocated(self%version)) then
-            parsed = parse_definitions(definitions, self%config_errors, tokens, &
+            parsed = parse_definitions(definitions, config_errors, tokens, &
                 group_definitions, version_text=self%version, &
                 subcommand_names=command_names, &
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
                 next_token_index=next_token_index, rules=self%rules, &
                 environment=environment, collect_extras=collect_extras, &
-                token_lengths=token_lengths)
+                token_lengths=token_lengths, tokens_complete=tokens_complete)
         else
-            parsed = parse_definitions(definitions, self%config_errors, tokens, &
+            parsed = parse_definitions(definitions, config_errors, tokens, &
                 group_definitions, subcommand_names=command_names, &
                 has_subcommands=self%subparsers_enabled, &
                 subcommand_required=self%subparsers_required, &
                 next_token_index=next_token_index, rules=self%rules, &
                 environment=environment, collect_extras=collect_extras, &
-                token_lengths=token_lengths)
+                token_lengths=token_lengths, tokens_complete=tokens_complete)
         end if
+        call parsed%errors%set_prog(self%program_name())
 
         if (parsed%outcome == PARSE_HELP) parsed%text = self%format_help()
-        if (parsed%outcome /= PARSE_SUCCESS) return
+        level_failed = parsed%outcome == PARSE_FAILURE
+        if (level_failed .and. .not. tokens_complete) return
+        if (parsed%outcome /= PARSE_SUCCESS .and. .not. level_failed) return
         if (.not. allocated(parsed%selected_command_path)) return
 
         command = trim(parsed%selected_command_path(1))
@@ -1055,14 +1120,25 @@ contains
         end if
         ! The child saw a slice of the line; report absolute token positions.
         call child_result%errors%offset_token_indices(next_token_index - 1)
+        if (child_result%outcome == PARSE_HELP .or. &
+            child_result%outcome == PARSE_VERSION) then
+            ! Help and version outcomes never carry fatal errors.
+            call keep_warnings(parsed%errors)
+            parsed%outcome = child_result%outcome
+        else if (level_failed) then
+            parsed%outcome = PARSE_FAILURE
+        else
+            parsed%outcome = child_result%outcome
+        end if
         call parsed%errors%merge(child_result%errors)
-        parsed%outcome = child_result%outcome
         call extend_command_path(parsed%selected_command_path, &
             child_result%selected_command_path)
         if (allocated(child_result%text)) then
             parsed%text = child_result%text
         else if (child_result%outcome == PARSE_FAILURE) then
             parsed%text = self%subparsers(child_index)%format_usage()
+        else if (level_failed) then
+            parsed%text = self%format_usage()
         end if
     end function parser_parse_level
 
@@ -1168,7 +1244,7 @@ contains
     subroutine parser_abort_invalid_definition(self)
         class(ArgumentParser), intent(in) :: self
 
-        call self%print_diagnostics(self%config_errors)
+        call self%print_diagnostics(self%get_config_errors())
         flush(error_unit)
         stop 70, quiet=.true.
     end subroutine parser_abort_invalid_definition
@@ -1199,7 +1275,12 @@ contains
         else
             severity = "error"
         end if
-        prog = self%program_name()
+        ! A subcommand's diagnostic names the subcommand, as its usage does.
+        if (allocated(entry%prog)) then
+            prog = entry%prog
+        else
+            prog = self%program_name()
+        end if
         message = ""
         if (allocated(entry%message)) message = trim(entry%message)
 
@@ -1218,8 +1299,9 @@ contains
 
         select case (entry%code)
         case (ERR_UNKNOWN_ARGUMENT, ERR_EXTRA_POSITIONAL, ERR_UNKNOWN_SUBCOMMAND)
+            ! Tokens are quoted verbatim, so that blanks in them show.
             if (allocated(entry%token)) then
-                message = message // " '" // trim(entry%token) // "'"
+                message = message // " '" // entry%token // "'"
             end if
         case (ERR_MUTEX_CONFLICT, ERR_MUTEX_REQUIRED, ERR_MISSING_SUBCOMMAND)
             continue
@@ -1232,7 +1314,7 @@ contains
             select case (entry%code)
             case (ERR_INVALID_VALUE, ERR_INVALID_CHOICE, ERR_VALIDATION_FAILED)
                 if (allocated(entry%token)) then
-                    message = message // " (got '" // trim(entry%token) // "')"
+                    message = message // " (got '" // entry%token // "')"
                 end if
             case default
                 ! Other diagnostics do not quote the offending token.
@@ -1372,6 +1454,7 @@ contains
         call move_alloc(help_values, self%subparser_helps)
     end subroutine parser_append_subparser
 
+    !> Index of the subcommand that a name or alias selects, zero if none.
     pure integer function parser_find_subparser(self, name) result(index)
         class(ArgumentParser), intent(in) :: self
         character(len=*), intent(in) :: name
@@ -1410,6 +1493,46 @@ contains
             if (conflict) return
         end do
     end function parser_has_global_conflict
+
+    !> Describe why a destination of a parent level cannot be merged with this
+    !> subcommand tree; `message` is empty when it can.
+    !>
+    !> Without `definition`, `dest` is the parent's subparser destination,
+    !> which no argument of the tree may use: its value would replace the
+    !> selected command name. With `definition`, an argument of the tree may
+    !> share the destination only with the same data type and rank, since
+    !> the merged namespace holds one value per destination. Nested
+    !> subparser collections may reuse the destination; the deepest wins.
+    recursive subroutine parser_dest_clash(self, dest, message, definition)
+        class(ArgumentParser), intent(in) :: self
+        character(len=*), intent(in) :: dest
+        character(len=:), allocatable, intent(out) :: message
+        type(Argument), intent(in), optional :: definition
+        integer :: index
+
+        message = ""
+        do index = 1, self%argument_count()
+            associate (child => self%arguments(index))
+                if (child%dest /= dest) cycle
+                if (.not. present(definition)) then
+                    message = "stores the selected command in " // &
+                        child%display_label()
+                    return
+                end if
+                if (child%data_type /= definition%data_type .or. &
+                    (child%produces_list() .neqv. &
+                    definition%produces_list())) then
+                    message = "stores destination '" // dest // &
+                        "' with another type in " // child%display_label()
+                    return
+                end if
+            end associate
+        end do
+        do index = 1, self%subparser_count()
+            call self%subparsers(index)%dest_clash(dest, message, definition)
+            if (len(message) > 0) return
+        end do
+    end subroutine parser_dest_clash
 
     !> Add a copy of a global option to this parser and every subcommand.
     recursive subroutine parser_inherit_global(self, definition)
@@ -1718,6 +1841,20 @@ contains
         entry = parsed%errors%get(1)
         empty_line = entry%code == ERR_NO_ARGUMENTS
     end function is_empty_line_help
+
+    !> Drop every fatal entry of a stack, keeping its warnings in order.
+    subroutine keep_warnings(errors)
+        type(ErrorStack), intent(inout) :: errors
+        type(ErrorStack) :: kept
+        type(ErrorEntry) :: entry
+        integer :: index
+
+        do index = 1, errors%count()
+            entry = errors%get(index)
+            if (entry%severity == ERROR_WARNING) call kept%append(entry)
+        end do
+        errors = kept
+    end subroutine keep_warnings
 
     !> Read the process command line into a token array and the exact
     !> length of every token.

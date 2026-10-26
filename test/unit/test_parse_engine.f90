@@ -1,9 +1,10 @@
 module test_parse_engine
     use, intrinsic :: iso_fortran_env, only : wp => real64
-    use fclap, only : ArgumentParser, ErrorEntry, ParseResult, &
+    use fclap, only : ArgumentParser, ErrorEntry, GroupHandle, ParseResult, &
         FCLAP_OK, PARSE_SUCCESS, PARSE_FAILURE, ERR_DUPLICATE_OPTION, &
         ERR_UNKNOWN_ARGUMENT, ERR_MISSING_VALUE, ERR_EXTRA_POSITIONAL, &
-        ERR_MISSING_REQUIRED
+        ERR_MISSING_REQUIRED, ERR_INVALID_VALUE, ERR_REMOVED_ARGUMENT, &
+        count, store_true
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -25,7 +26,11 @@ contains
             new_unittest("missing option value", test_missing_option_value), &
             new_unittest("extra positional", test_extra_positional), &
             new_unittest("end of options marker", test_end_of_options), &
-            new_unittest("negative numeric values", test_negative_values) &
+            new_unittest("negative numeric values", test_negative_values), &
+            new_unittest("token errors are not repeated by presence checks", &
+                test_no_cascade), &
+            new_unittest("numeric-looking tokens are numeric values", &
+                test_numeric_looking_values) &
         ]
     end subroutine collect_parse_engine
 
@@ -287,5 +292,109 @@ contains
         if (allocated(error)) return
         call check(error, level, -7)
     end subroutine test_negative_values
+
+    !> A failing token stops parsing; the argument it belongs to, and every
+    !> argument after it, must not also be reported as missing.
+    subroutine test_no_cascade(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, mutex_parser, cluster_parser, &
+            pair_parser
+        type(GroupHandle) :: group
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("--n", data_type="integer", required=.true.)
+        call check_single_error(error, parser, &
+            [character(len=3) :: "--n", "abc"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, [character(len=3) :: "--n"], &
+            ERR_MISSING_VALUE)
+        if (allocated(error)) return
+
+        call mutex_parser%init(add_help=.false.)
+        group = mutex_parser%add_mutually_exclusive_group(required=.true.)
+        call mutex_parser%add_argument("--a", data_type="integer", group=group)
+        call mutex_parser%add_argument("--b", group=group)
+        call check_single_error(error, mutex_parser, &
+            [character(len=3) :: "--a", "abc"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+
+        call cluster_parser%init(add_help=.false.)
+        call cluster_parser%add_argument("-v", action=count())
+        call cluster_parser%add_argument("-r", action=store_true(), &
+            removed_msg="removed")
+        call cluster_parser%add_argument("-n", data_type="integer", &
+            required=.true.)
+        call check_single_error(error, cluster_parser, &
+            [character(len=5) :: "-vrn1"], ERR_REMOVED_ARGUMENT)
+        if (allocated(error)) return
+
+        call pair_parser%init(add_help=.false.)
+        call pair_parser%add_argument("--pair", nargs=2, data_type="integer")
+        call pair_parser%add_argument("a")
+        call check_single_error(error, pair_parser, &
+            [character(len=6) :: "--pair", "1", "--", "a"], ERR_MISSING_VALUE)
+    end subroutine test_no_cascade
+
+    !> A token that looks like a number is the value of a numeric argument,
+    !> so a malformed number is an invalid value, not an unknown option.
+    subroutine test_numeric_looking_values(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, positional_parser
+        type(ParseResult) :: result
+        real(wp) :: offset
+        integer :: stat
+
+        call parser%init(add_help=.false.)
+        call parser%add_argument("-n", data_type="integer")
+        call parser%add_argument("--pair", nargs=2, data_type="integer")
+        call parser%add_argument("--offset", data_type="real")
+        call check_single_error(error, parser, &
+            [character(len=6) :: "-n", "-1.5e3"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=20) :: "-n", "-9223372036854775809"], &
+            ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=6) :: "-n", "-1_000"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        call check_single_error(error, parser, &
+            [character(len=6) :: "--pair", "-1", "-2.5"], ERR_INVALID_VALUE)
+        if (allocated(error)) return
+        ! Other option-like tokens are still unknown options.
+        call check_single_error(error, parser, &
+            [character(len=4) :: "-n", "-x"], ERR_UNKNOWN_ARGUMENT)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=8) :: "--offset", "-inf"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("offset", offset, stat)
+        call check(error, offset < 0.0_wp .and. abs(offset) > huge(offset))
+        if (allocated(error)) return
+
+        call positional_parser%init(add_help=.false.)
+        call positional_parser%add_argument("a", nargs="+", data_type="integer")
+        call check_single_error(error, positional_parser, &
+            [character(len=4) :: "-1", "-1e3"], ERR_INVALID_VALUE)
+    end subroutine test_numeric_looking_values
+
+    !> Check that parsing fails with exactly one error of the given code.
+    subroutine check_single_error(error, parser, tokens, code)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser), intent(in) :: parser
+        character(len=*), intent(in) :: tokens(:)
+        integer, intent(in) :: code
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        result = parser%parse_tokens(tokens)
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, code)
+    end subroutine check_single_error
 
 end module test_parse_engine

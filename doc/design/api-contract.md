@@ -184,13 +184,18 @@ source=...)`; it never retains pointers to caller-owned factory results.
 `env="NAME"` declares an environment fallback for an option. Precedence is
 command line, then environment, then default; an empty variable is unset. The
 value passes through the same conversion, choices, and validator as a token,
-with diagnostics prefixed by `environment variable NAME: `. Zero-value
-actions read a logical: true applies the action once, false applies nothing,
-except `boolean_optional`, which stores false. Options producing a list split
-the value at blanks and must receive an accepted count. An environment value
-marks the argument as explicitly present for required checks, groups, and
-rules. Positionals and removed options cannot declare `env`
-(`ERR_INVALID_ENV`).
+with diagnostics prefixed by `environment variable NAME: `. Leading and
+trailing blanks of the value are ignored. Zero-value actions read a logical:
+true applies the action once, false applies nothing, except
+`boolean_optional`, which stores false, and `count`, which reads a
+non-negative integer as the number of occurrences. Options producing a list
+split the value at blanks and must receive an accepted count; otherwise too
+few values are `ERR_MISSING_VALUE` and too many `ERR_UNEXPECTED_VALUE`, both
+reporting `expected N values (got M)`. An environment value marks the
+argument as explicitly present for required checks, groups, and rules, even
+when it is rejected, so only its own error is reported. Conflict, dependency,
+and mutex errors involving an environment value name the variable.
+Positionals and removed options cannot declare `env` (`ERR_INVALID_ENV`).
 
 `global=.true.` copies the option into every subcommand subtree when a
 command is registered and into existing subtrees when the global option is
@@ -202,10 +207,13 @@ of rules (`ERR_INCOMPATIBLE_ACTION`, `ERR_INVALID_GROUP`,
 `ERR_DUPLICATE_OPTION`.
 
 `delimiter` (one non-blank character other than `-` and `=`) makes each
-occurrence read exactly one token and split it, keeping empty items; nargs
-must produce a list and bounds the item count (`ERR_MISSING_VALUE` with
-`expected N values separated by 'D' (got M)` otherwise). Environment values
-use the delimiter instead of blanks. Positionals cannot declare a delimiter.
+occurrence read exactly one token and split it, keeping every item verbatim,
+including empty items and their blanks; nargs must produce a list and bounds
+the item count (too few items are `ERR_MISSING_VALUE`, too many
+`ERR_UNEXPECTED_VALUE`, both reporting `expected N values separated by 'D'
+(got M)`). An empty token is an empty list. For numeric items a separate
+token such as `-1,2` is a value, not an option. Environment values use the
+delimiter instead of blanks. Positionals cannot declare a delimiter.
 
 `choice_help` must have exactly one entry per choice (`ERR_INVALID_DEFAULT`)
 and is rendered one choice per line below the argument help.
@@ -220,6 +228,12 @@ validator factory so callers do not need to construct heterogeneous arrays.
   with `-`.
 - Every alias of an optional definition begins with `-`.
 - Empty names, `-`, and `--` are invalid.
+- Names and destinations must not contain blanks or `=`, and an option alias
+  must not begin with `---`; such spellings could never be matched.
+- A single-dash alias must not read as a negative number (`-1`, `-.5`,
+  `-1e3`), because numeric tokens are values where one is expected.
+- A name or destination colliding with the automatic help or version
+  argument is reported as such a collision.
 - Positional and optional spellings cannot be mixed in one definition.
 - Names and aliases are case-sensitive.
 - An option alias must be unique across the parser.
@@ -260,7 +274,9 @@ fclap kind parameter. Narrowing on retrieval is range-checked.
 
 - A non-character default must have the declared intrinsic type category.
   Supported integer or real kinds are converted to the storage kind (`int64` or `real64`)
-  with range checking. There is no implicit integer-to-real,
+  with range checking. A `real32` value (default, const, choice, or bound) is
+  widened through its shortest decimal text, so `0.1` is stored as
+  `0.1_real64` rather than `0.10000000149011612`. There is no implicit integer-to-real,
   real-to-integer, logical-to-numeric, or numeric-to-logical conversion.
 - A character default may be parsed using the declared type as a convenience.
 - Defaults are converted and checked against choices and validators during
@@ -283,7 +299,8 @@ list-producing arguments; `const` is always a scalar.
 - Positionals with minimum cardinality at least one are required.
 - Positional `?` and `*` arguments are not required.
 - Explicit `required=.true.` is invalid for a positional whose `nargs` permits
-  zero values.
+  zero values, and explicit `required=.false.` is invalid for a positional
+  needing at least one value (`ERR_INCOMPATIBLE_ACTION`).
 - A required option is satisfied only by explicit command-line presence; its
   default does not satisfy the requirement.
 
@@ -310,7 +327,9 @@ list-producing arguments; `const` is always a scalar.
 | `NARGS_REMAINDER` | 0 | all remaining | String or converted list |
 
 - Negative integers and unsupported strings are configuration errors.
-- Zero is valid only for actions declaring zero-value compatibility.
+- Zero is valid only for actions declaring zero-value compatibility, and
+  only for options: a positional that can never take a value (a zero-value
+  action or `nargs=0`) is `ERR_INCOMPATIBLE_ACTION`.
 - Boolean, count, help, and version actions default to zero and reject
   incompatible explicit arity.
 - `AppendAction` defaults to one but can append each value from a supported
@@ -376,9 +395,11 @@ not_bigger_than(upper_bound)
 in_range(lower_bound, upper_bound)
 ```
 
-A bound whose type does not match the argument's `data_type`, or an
-`in_range` whose lower bound exceeds its upper bound, is rejected at
-registration with `ERR_INCOMPATIBLE_VALIDATOR`.
+A bound whose type does not match the argument's `data_type`, or a
+validator that accepts no value at all (an `in_range` whose lower bound
+exceeds its upper bound, or a NaN bound), is rejected at registration with
+`ERR_INCOMPATIBLE_VALIDATOR` and a message naming the problem. `real32`
+bounds are widened through their shortest decimal text.
 
 Choices are represented internally by a validator but remain a dedicated
 `choices=` registration keyword because that interface is concise and their
@@ -389,6 +410,11 @@ ASCII letter case is ignored and an accepted value, default, or const is
 stored with the declared choice's spelling. The option requires string
 choices (`ERR_INCOMPATIBLE_ACTION` otherwise), and choices that differ only by
 case are rejected with `ERR_INVALID_DEFAULT`.
+
+Choices must be non-empty and free of repeats, and every choice must pass
+the argument's validator; otherwise the definition is rejected with
+`ERR_INVALID_DEFAULT`. An invalid value reports the allowed values
+(`invalid choice: choose from 'a', 'b'`), shortened with `...` when long.
 
 Validators receive converted values. A multi-value argument applies its normal
 per-value validators to every value and reports the failing value and argument
@@ -421,6 +447,10 @@ different parser.
 - An optional mutex group permits zero or one explicitly seen members.
 - A required mutex group requires exactly one explicitly seen member.
 - Namespace defaults do not count as seen.
+- A required mutex group without members can never be satisfied; it makes
+  the parser invalid (`is_valid()` is false) with `ERR_INVALID_GROUP`.
+- Hidden members are not named in mutex diagnostics; when every member is
+  hidden the message names the group instead.
 - Mutex members must be omissible. A `required=.true.` option or a positional
   needing at least one value is rejected with `ERR_INVALID_GROUP`.
 - One argument belongs to at most one help group.
@@ -450,7 +480,8 @@ call parser%add_required_unless("input", "--generate")
 - `add_requires`: the subject being given requires every listed argument;
   one `ERR_MISSING_DEPENDENCY` lists all missing ones.
 - `add_conflict`: symmetric; one `ERR_ARGUMENT_CONFLICT` per listed argument
-  given together with the subject.
+  given together with the subject. A repeated entry, or a pair declared in
+  both directions, is reported once.
 - `add_required_unless`: the subject is required unless at least one listed
   argument is given; reported as `ERR_MISSING_REQUIRED`.
 - `ERR_INVALID_RULE` rejects unknown names, an empty list, a rule naming its
@@ -510,7 +541,8 @@ call parser%add_parser("clone", clone_parser, &
 `title`, `description`, and `dest` are optional. The defaults are `commands`,
 no description, and `command`. `required` defaults to false, matching modern
 Python `argparse`. Command names are exact, case-sensitive, nonempty tokens and
-must not begin with `-`.
+must not begin with `-`; trailing blanks of a command-line token are ignored,
+so `'run '` selects `run`.
 
 `add_parser(name, subparser, help, aliases)` accepts an optional rank-one
 array of aliases. Aliases follow the command-name rules, must not repeat any
@@ -532,9 +564,16 @@ the selected child. A remainder positional cannot coexist with a subparser
 collection because both would own the remaining token stream. Parent options
 therefore precede the command; options after it belong to the selected child.
 
-Unknown commands return `ERR_UNKNOWN_SUBCOMMAND`. Omitting a required
-collection returns `ERR_MISSING_SUBCOMMAND`. Help and version requests bypass
+Unknown commands return `ERR_UNKNOWN_SUBCOMMAND`, without an additional
+`ERR_MISSING_SUBCOMMAND`. Omitting a required collection returns
+`ERR_MISSING_SUBCOMMAND`. Help and version requests bypass
 required-subcommand checks at the level where they occur.
+
+A selected command is still parsed when its parent fails only presence
+checks (required arguments, groups, rules) or an environment value: a help
+or version request inside the command then wins, otherwise the errors of
+both levels are reported. A token, conversion, or validation failure in the
+parent stops before the command.
 
 ### Hierarchical results and namespace merge
 
@@ -546,7 +585,10 @@ has a higher-precedence value source (command line > environment > default);
 unrelated parent values remain. Consequently, between equally sourced values
 the deepest definition wins a destination collision, including when nested
 collections reuse `dest="command"`, but a child default never hides a value
-the user supplied to a parent.
+the user supplied to a parent. An argument of a command tree must not use
+its parent's subparser `dest`, whose value would replace the selected command
+name, and a destination shared between levels must have the same data type
+and rank; both are `ERR_DUPLICATE_DEST` at registration.
 
 The complete, unambiguous hierarchy is retained separately in
 `ParseResult%selected_command_path` in root-to-leaf order. Each child owns and
@@ -665,7 +707,10 @@ PARSE_VERSION
 - Help and version outcomes do not contain fatal errors.
 - A fatal token matching, conversion, or validation error stops further token
   consumption to avoid cascading diagnostics.
-- Independent post-parse required/group checks may append multiple errors.
+- Independent post-parse required, group, and rule checks may append
+  multiple errors. They are skipped after a fatal token error, because the
+  unconsumed tokens might have satisfied them, and an argument that was
+  supplied but rejected counts as present.
 - Values already accepted before an error may remain in the result namespace.
   The value belonging to the failing argument is never partially stored.
 - A `ParseResult` is self-contained; a later parse does not modify it.
@@ -677,7 +722,7 @@ PARSE_VERSION
   selected subcommand are merged with the child taking precedence, and the
   subparser destination itself is `SOURCE_COMMAND_LINE`.
 - As in argparse, an exact `-h`/`--help` or `--version` later on the command
-  line (before `--`) wins over an unknown-option or extra-positional failure:
+  line (before `--` and before a command name) wins over an unknown-option or extra-positional failure:
   the outcome is `PARSE_HELP` or `PARSE_VERSION` and only warnings are kept.
   Conversion and validation failures still win.
 
@@ -688,13 +733,17 @@ PARSE_VERSION
 - Matching is case-sensitive. An exact registered spelling always wins,
   including multi-letter single-dash options such as `-np`.
 - Long-option abbreviation is not supported.
+- Trailing blanks never change a name: `'-v '`, `'--quiet '`, and `'-- '`
+  name `-v`, `--quiet`, and the end-of-options marker even when exact token
+  lengths are given. Values keep their exact length, so `--sep ", "` stores
+  the trailing blank.
 - `--name=value` and `-n=value` split at the first `=` when the text before it
   is a registered option. The attached text is the only value of that
   occurrence, so it may begin with `-`. Flags reject an attached value with
   `ERR_UNEXPECTED_VALUE`; options needing more than one value report
   `ERR_MISSING_VALUE`.
 - `-nVALUE` attaches the rest of the token to a one-letter option that takes
-  values.
+  values; in a cluster the value may also follow `=` (`-vn=3`).
 - A token whose first letter is a one-letter flag is a cluster such as `-vvn`.
   Every letter must be a registered one-letter option; the first one that
   takes values ends the cluster and receives the remaining text, or the
@@ -705,7 +754,9 @@ PARSE_VERSION
 - A known option token, in any of the spellings above, terminates variable
   value consumption unless remainder mode is active.
 - An unknown token beginning with `-` is an unknown-option error, except when a
-  numeric value is currently expected and the token converts successfully.
+  numeric value is currently expected and the token looks numeric: a sign
+  followed by a digit, by `.` and a digit, or by `inf`, `infinity`, or `nan`.
+  Such a token is converted, and an invalid number is `ERR_INVALID_VALUE`.
 - String values beginning with `-` are supplied with the attached form
   (`--pattern=-x`) or as positionals after `--`.
 
@@ -715,7 +766,8 @@ PARSE_VERSION
   64-bit range; out-of-range text is `ERR_INVALID_VALUE`.
 - Reals are decimal literals with an optional `e`, `E`, `d`, or `D` exponent,
   or the case-insensitive `inf`, `infinity`, and `nan`, each with an optional
-  sign.
+  sign. A literal beyond the `real64` range is `ERR_INVALID_VALUE`; one too
+  small to represent reads as zero.
 - Surrounding blanks are ignored. Any other text, including Fortran
   list-directed forms such as `2*7`, `4,5`, `5/`, or a lone `,`, is rejected.
 
@@ -784,7 +836,8 @@ naming the key, because it indicates a programming error.
 - A missing key returns `ERR_NAMESPACE_MISSING_KEY`.
 - A type or rank mismatch returns `ERR_NAMESPACE_TYPE_MISMATCH`.
 - A value outside a narrower requested kind returns
-  `ERR_NAMESPACE_OUT_OF_RANGE`.
+  `ERR_NAMESPACE_OUT_OF_RANGE`, including a nonzero real that would become
+  zero as `real32`.
 - String outputs are `character(len=:), allocatable` and receive the exact
   stored length; fixed-length character variables do not match `get`.
 - On failure, an already allocated or initialized output remains unchanged.
@@ -808,10 +861,14 @@ code
 severity
 message
 argument destination, when applicable
-offending token, when applicable
+offending token, verbatim, when applicable
 token index, when applicable
 suggested spelling, when applicable
+program name of the reporting parser level (`prog`), when applicable
 ```
+
+Diagnostics from a selected command are prefixed with that command's program
+name (`tool go: error: ...`).
 
 A suggestion is attached to unknown options, unknown subcommands, and invalid
 string choices when a known spelling has a Jaro similarity above 0.7 to the
@@ -846,10 +903,10 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_INVALID_NARGS` | 1004 | Unsupported or inconsistent nargs. |
 | `ERR_INCOMPATIBLE_ACTION` | 1005 | Action and argument configuration conflict. |
 | `ERR_INVALID_DEFAULT` | 1006 | Default type, conversion, choice, or validation failure. |
-| `ERR_INVALID_GROUP` | 1007 | Invalid group handle or membership. |
+| `ERR_INVALID_GROUP` | 1007 | Invalid group handle or membership, or a group no parse can satisfy. |
 | `ERR_INVALID_TYPE_NAME` | 1008 | Unknown data type name. |
 | `ERR_INVALID_LIFECYCLE` | 1009 | Conflicting deprecation/removal configuration. |
-| `ERR_INCOMPATIBLE_VALIDATOR` | 1010 | Validator cannot check the argument type, or has an empty range. |
+| `ERR_INCOMPATIBLE_VALIDATOR` | 1010 | Validator cannot check the argument type, or accepts no value (empty range, NaN bound). |
 | `ERR_INVALID_RULE` | 1011 | Argument rule names unknown arguments or can never be satisfied. |
 | `ERR_INVALID_ENV` | 1012 | Invalid environment variable name, or `env=` on a positional or removed option. |
 | `ERR_UNKNOWN_ARGUMENT` | 2001 | Unknown option token. |
@@ -863,7 +920,7 @@ any severity; use `has_fatal_errors` to determine parse failure.
 | `ERR_MUTEX_REQUIRED` | 2009 | No member of a required mutex group was supplied. |
 | `ERR_REMOVED_ARGUMENT` | 2010 | A removed argument was used. |
 | `ERR_DEPRECATED_ARGUMENT` | 2011 | Warning that a deprecated argument was used. |
-| `ERR_UNEXPECTED_VALUE` | 2012 | An attached value was given to an option that takes none. |
+| `ERR_UNEXPECTED_VALUE` | 2012 | An attached value was given to an option that takes none, or more values than the argument accepts. |
 | `ERR_MISSING_DEPENDENCY` | 2013 | An argument was given without an argument it requires. |
 | `ERR_ARGUMENT_CONFLICT` | 2014 | Two arguments declared as conflicting were given together. |
 | `ERR_NO_ARGUMENTS` | 2015 | Empty command line at a `help_on_empty` parser; `text` holds its help. |
@@ -895,7 +952,8 @@ no I/O side effects.
 - Lowercase `usage:` prefix; usage lists options before positionals.
 - Choices shown as the metavar (`{a,b}`) unless an explicit `metavar` is given.
 - A fixed count repeats the metavar per value (`--grid N N N`, with a
-  delimiter `--grid N,N,N`). An explicit `metavar` that already contains the
+  delimiter `--grid N,N,N`); counts above 10 number the values instead
+  (`N1 N2 ... N100`, `L1,L2,...,L100`). An explicit `metavar` that already contains the
   separator (a blank, or the delimiter) describes every value and is shown
   once (`metavar="X Y Z"`, `metavar="EX,EY,EZ"`).
 - Implicit action defaults (e.g. a flag's `.false.`) are not annotated.
@@ -910,7 +968,18 @@ no I/O side effects.
 - String defaults and choices quoted; numeric and logical values unquoted.
 - Per-argument `print_default` default true.
 - Per-argument `print_choices` default false.
-- Default width 80.
+- Default width 80; a `help_width` from 1 to 19 is raised to the minimum of
+  20, and zero or a negative width selects the default.
+- Wrapping and alignment count UTF-8 characters, not bytes, and never split a
+  word.
+- A user-supplied `usage=` is printed verbatim after `usage: `; only generated
+  usage is wrapped.
+- Help lines carry no trailing blanks, and whitespace-only help counts as no
+  help.
+- Groups without visible members and without a description are omitted; an
+  empty group or command title falls back to `arguments:` or `commands:`.
+- An empty deprecation or removal message renders `(deprecated)` or
+  `(removed)`.
 - Deterministic newline and indentation behavior tested by complete-string
   `test-drive` assertions.
 - Subcommand choices appear as `{name,...}` in usage, bracketed when the
@@ -932,7 +1001,10 @@ Their deferred procedure signatures become public API once implemented.
 `option_names` (add spellings at registration), `apply_option` (react to the
 matched spelling), and `replaces_default` (start empty on the first explicit
 occurrence). `ValidatorType` offers `accepts_type(type_name)`, which rejects
-argument types the validator cannot check; the default accepts every type.
+argument types the validator cannot check, and `is_consistent(reason)`,
+which reports a configuration that accepts no value; the defaults accept
+every type and are consistent. A custom validator that rejects a value
+without setting `message` is reported with the generic message.
 Before
 the first stable release, at least one test-only concrete extension outside the
 implementation module must compile and work for each abstract type. This proves

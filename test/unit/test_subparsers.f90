@@ -1,7 +1,8 @@
 module test_subparsers
     use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, FormatterType, &
         GroupHandle, HelpModel, ParseResult, FCLAP_OK, PARSE_SUCCESS, &
-        PARSE_FAILURE, PARSE_HELP, ERR_DUPLICATE_DEST, ERR_MISSING_REQUIRED, &
+        PARSE_FAILURE, PARSE_HELP, PARSE_VERSION, ERR_DUPLICATE_DEST, &
+        ERR_MISSING_REQUIRED, ERR_UNKNOWN_ARGUMENT, &
         ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, &
         ERR_VALIDATION_FAILED, ERR_DUPLICATE_OPTION, ERR_INVALID_ARGUMENT_NAME, &
         SOURCE_DEFAULT, SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE, &
@@ -54,7 +55,23 @@ contains
             new_unittest("global options are accepted after the command", &
                 test_global_options), &
             new_unittest("invalid global options are configuration errors", &
-                test_invalid_globals) &
+                test_invalid_globals), &
+            new_unittest("subcommand help wins over parent presence checks", &
+                test_child_help_first), &
+            new_unittest("parent and subcommand errors are both reported", &
+                test_both_levels_fail), &
+            new_unittest("later exit requests stop at the subcommand", &
+                test_exit_request_boundary), &
+            new_unittest("unknown required subcommand is one error", &
+                test_unknown_required_command), &
+            new_unittest("subcommands cannot store the command destination", &
+                test_command_dest_clash), &
+            new_unittest("shared destinations need one type", &
+                test_shared_dest_type), &
+            new_unittest("subparser destination conflict names the argument", &
+                test_subparser_dest_conflict), &
+            new_unittest("subcommand diagnostics name the subcommand", &
+                test_child_diagnostic_prog) &
         ]
     end subroutine collect_subparsers
 
@@ -646,5 +663,237 @@ contains
         if (allocated(error)) return
         call check(error, parser%subparser_count(), 0)
     end subroutine test_invalid_globals
+
+    !> A subcommand's help or version is shown although the parent misses a
+    !> required option, a required group member, or a rule's argument.
+    subroutine test_child_help_first(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser
+        type(ParseResult) :: result
+        type(GroupHandle) :: group
+
+        call run_parser%init(add_help=.true., version="run 1.0")
+        call run_parser%add_argument("--mode")
+        call parser%init(prog="tool", version="tool 2.0")
+        call parser%add_argument("--cfg", required=.true.)
+        group = parser%add_mutually_exclusive_group(required=.true.)
+        call parser%add_argument("--fast", action=store_true(), group=group)
+        call parser%add_argument("--slow", action=store_true(), group=group)
+        call parser%add_argument("--in")
+        call parser%add_argument("--out")
+        call parser%add_required_unless("--in", "--out")
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("run", run_parser)
+
+        result = parser%parse_tokens([character(len=9) :: "run", "-h"])
+        call check(error, result%outcome, PARSE_HELP)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 0)
+        if (allocated(error)) return
+        call check(error, index(result%text, "usage: tool run") == 1)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=9) :: "run", "--version"])
+        call check(error, result%outcome, PARSE_VERSION)
+        if (allocated(error)) return
+        call check(error, result%text, "run 1.0")
+    end subroutine test_child_help_first
+
+    subroutine test_both_levels_fail(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call run_parser%init(add_help=.false.)
+        call run_parser%add_argument("--mode")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--cfg", required=.true.)
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("run", run_parser)
+
+        result = parser%parse_tokens([character(len=4) :: "run", "--zz"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 2)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_REQUIRED)
+        if (allocated(error)) return
+        entry = result%errors%get(2)
+        call check(error, entry%code, ERR_UNKNOWN_ARGUMENT)
+        if (allocated(error)) return
+        call check(error, entry%token_index, 2)
+        if (allocated(error)) return
+
+        ! A valid subcommand line does not hide the parent's error.
+        result = parser%parse_tokens([character(len=6) :: "run", "--mode", "x"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_REQUIRED)
+    end subroutine test_both_levels_fail
+
+    !> `-h` or `--version` after an unknown parent option wins only up to
+    !> the command name; the subcommand's own options start there.
+    subroutine test_exit_request_boundary(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call run_parser%init(add_help=.true.)
+        call parser%init(prog="tool", version="1.0")
+        call parser%add_argument("--cfg")
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("run", run_parser)
+
+        result = parser%parse_tokens([character(len=9) :: &
+            "--zzz", "run", "--version"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNKNOWN_ARGUMENT)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=5) :: &
+            "--cfg", "a", "--zzz", "run", "-h"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+
+        ! Before the command name the request still wins.
+        result = parser%parse_tokens([character(len=5) :: "--zzz", "-h", "run"])
+        call check(error, result%outcome, PARSE_HELP)
+    end subroutine test_exit_request_boundary
+
+    subroutine test_unknown_required_command(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--cfg", required=.true.)
+        call parser%add_subparsers(required=.true.)
+        call parser%add_parser("run")
+
+        result = parser%parse_tokens([character(len=4) :: "nope"])
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNKNOWN_SUBCOMMAND)
+    end subroutine test_unknown_required_command
+
+    !> The selected command name must not be replaced by a subcommand value.
+    subroutine test_command_dest_clash(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser, mid_parser, leaf_parser
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+
+        call run_parser%init(add_help=.false.)
+        call run_parser%add_argument("--cmd", default="childval")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("run", run_parser)
+        call check(error, parser%is_valid(), .false.)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_DUPLICATE_DEST)
+        if (allocated(error)) return
+
+        ! Nested subcommands are checked too.
+        call leaf_parser%init(add_help=.false.)
+        call leaf_parser%add_argument("--cmd")
+        call mid_parser%init(add_help=.false.)
+        call mid_parser%add_subparsers(dest="action")
+        call mid_parser%add_parser("leaf", leaf_parser)
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("mid", mid_parser)
+        call check(error, parser%is_valid(), .false.)
+        if (allocated(error)) return
+
+        ! Nested collections may reuse the destination; the deepest wins.
+        call mid_parser%init(add_help=.false.)
+        call mid_parser%add_subparsers(dest="cmd")
+        call mid_parser%add_parser("leaf")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers(dest="cmd")
+        call parser%add_parser("mid", mid_parser)
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_command_dest_clash
+
+    subroutine test_shared_dest_type(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, run_parser
+        type(ErrorStack) :: errors
+        type(ErrorEntry) :: entry
+
+        call run_parser%init(add_help=.false.)
+        call run_parser%add_argument("--level", data_type="integer")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--level")
+        call parser%add_subparsers()
+        call parser%add_parser("run", run_parser)
+        call check(error, parser%is_valid(), .false.)
+        if (allocated(error)) return
+        errors = parser%get_config_errors()
+        entry = errors%get(1)
+        call check(error, entry%code, ERR_DUPLICATE_DEST)
+        if (allocated(error)) return
+
+        ! The same check applies to a parent option added later.
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_subparsers()
+        call parser%add_parser("run", run_parser)
+        call parser%add_argument("--level", nargs="+", data_type="integer")
+        call check(error, parser%is_valid(), .false.)
+        if (allocated(error)) return
+
+        ! An equally typed destination may be shared.
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--level", data_type="integer")
+        call parser%add_subparsers()
+        call parser%add_parser("run", run_parser)
+        call check(error, parser%is_valid(), .true.)
+    end subroutine test_shared_dest_type
+
+    subroutine test_subparser_dest_conflict(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ErrorStack) :: errors
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--x", dest="command")
+        call parser%add_subparsers()
+        errors = parser%get_config_errors()
+        call check(error, parser%format_diagnostics(errors), &
+            "tool: invalid parser definition: argument --x: the subparser " // &
+            "destination 'command' is already used by this argument")
+    end subroutine test_subparser_dest_conflict
+
+    !> As in argparse, `tool go: error: ...` matches the `tool go` usage.
+    subroutine test_child_diagnostic_prog(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, go_parser
+        type(ParseResult) :: result
+
+        call go_parser%init(add_help=.false.)
+        call go_parser%add_argument("--n", data_type="integer")
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--cfg", required=.true.)
+        call parser%add_subparsers()
+        call parser%add_parser("go", go_parser)
+
+        result = parser%parse_tokens([character(len=3) :: "go", "--n", "x"])
+        call check(error, parser%format_diagnostics(result%errors), &
+            "tool: error: argument --cfg: required argument was not " // &
+            "supplied" // new_line("a") // &
+            "tool go: error: argument --n: invalid integer value (got 'x')")
+    end subroutine test_child_diagnostic_prog
 
 end module test_subparsers

@@ -15,6 +15,9 @@ module fclap_parse_context
         integer :: positional_cursor = 1
         logical :: options_enabled = .true.
         logical, allocatable :: seen(:)
+        !> Arguments given a value that was rejected; they count as present
+        !> for required checks, groups, and rules
+        logical, allocatable :: supplied(:)
         logical, allocatable :: completed(:)
         type(Namespace) :: namespace
         type(ErrorStack) :: errors
@@ -30,8 +33,10 @@ module fclap_parse_context
         character(len=:), allocatable :: environment(:)
         !> Keep unknown options and surplus positionals instead of failing
         logical :: collect_extras = .false.
-        !> Tokens kept by `collect_extras`, in command-line order
-        character(len=:), allocatable :: extra_tokens(:)
+        !> Positions of the tokens kept by `collect_extras`, in command-line
+        !> order; only the first `extra_count` entries are used
+        integer, allocatable :: extra_positions(:)
+        integer :: extra_count = 0
     contains
         procedure :: init => context_init
         procedure :: at_end => context_at_end
@@ -40,12 +45,15 @@ module fclap_parse_context
         procedure :: advance => context_advance
         procedure :: mark_seen => context_mark_seen
         procedure :: was_seen => context_was_seen
+        procedure :: mark_supplied => context_mark_supplied
+        procedure :: presence => context_presence
         procedure :: mark_completed => context_mark_completed
         procedure :: was_completed => context_was_completed
         procedure :: configure_subcommands => context_configure_subcommands
         procedure :: is_subcommand => context_is_subcommand
         procedure :: select_command => context_select_command
         procedure :: add_extra => context_add_extra
+        procedure :: extra_tokens => context_extra_tokens
     end type ParseContext
 
 contains
@@ -78,6 +86,7 @@ contains
         end do
 
         allocate(self%seen(max(0, argument_count)), source=.false.)
+        allocate(self%supplied(max(0, argument_count)), source=.false.)
         allocate(self%completed(max(0, argument_count)), source=.false.)
         allocate(self%from_env(max(0, argument_count)), source=.false.)
         call self%namespace%clear()
@@ -117,22 +126,36 @@ contains
     !> Keep the current token as an extra token and move past it.
     subroutine context_add_extra(self)
         class(ParseContext), intent(inout) :: self
-        character(len=:), allocatable :: token, extras(:)
-        integer :: count, width
+        integer, allocatable :: positions(:)
 
-        token = self%current_token()
-        count = 0
-        width = max(1, len(token))
-        if (allocated(self%extra_tokens)) then
-            count = size(self%extra_tokens)
-            width = max(width, len(self%extra_tokens))
+        if (.not. allocated(self%extra_positions)) then
+            allocate(self%extra_positions(8))
+        else if (self%extra_count == size(self%extra_positions)) then
+            ! Doubling keeps collecting many extra tokens linear.
+            allocate(positions(2 * self%extra_count))
+            positions(:self%extra_count) = self%extra_positions
+            call move_alloc(positions, self%extra_positions)
         end if
-        allocate(character(len=width) :: extras(count + 1))
-        if (count > 0) extras(:count) = self%extra_tokens
-        extras(count + 1) = token
-        call move_alloc(extras, self%extra_tokens)
+        self%extra_count = self%extra_count + 1
+        self%extra_positions(self%extra_count) = self%cursor
         call self%advance()
     end subroutine context_add_extra
+
+    !> Tokens kept by `add_extra`, in command-line order.
+    function context_extra_tokens(self) result(extras)
+        class(ParseContext), intent(in) :: self
+        character(len=:), allocatable :: extras(:)
+        integer :: index, width
+
+        width = 1
+        do index = 1, self%extra_count
+            width = max(width, self%token_lengths(self%extra_positions(index)))
+        end do
+        allocate(character(len=width) :: extras(self%extra_count))
+        do index = 1, self%extra_count
+            extras(index) = self%token_at(self%extra_positions(index))
+        end do
+    end function context_extra_tokens
 
     subroutine context_select_command(self, name)
         class(ParseContext), intent(inout) :: self
@@ -200,6 +223,24 @@ contains
         if (index < 1 .or. index > size(self%seen)) return
         seen = self%seen(index)
     end function context_was_seen
+
+    subroutine context_mark_supplied(self, index)
+        class(ParseContext), intent(inout) :: self
+        integer, intent(in) :: index
+
+        if (.not. allocated(self%supplied)) return
+        if (index < 1 .or. index > size(self%supplied)) return
+        self%supplied(index) = .true.
+    end subroutine context_mark_supplied
+
+    !> Arguments present for required checks, groups, and rules: those
+    !> applied successfully and those given a value that was rejected.
+    pure function context_presence(self) result(present_arguments)
+        class(ParseContext), intent(in) :: self
+        logical, allocatable :: present_arguments(:)
+
+        present_arguments = self%seen .or. self%supplied
+    end function context_presence
 
     subroutine context_mark_completed(self, index)
         class(ParseContext), intent(inout) :: self

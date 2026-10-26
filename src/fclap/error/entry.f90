@@ -23,6 +23,9 @@ module fclap_error_entry
         integer :: token_index = 0
         !> Likely intended spelling of `token`, e.g. a known option name
         character(len=:), allocatable :: suggestion
+        !> Program name of the parser level that reported the diagnostic,
+        !> e.g. `tool run` for an error inside subcommand `run`
+        character(len=:), allocatable :: prog
     contains
         procedure :: init => error_entry_init
     end type ErrorEntry
@@ -42,7 +45,8 @@ contains
         if (present(code)) self%code = code
         if (present(severity)) self%severity = severity
         if (present(arg_name)) self%arg_name = trim(arg_name)
-        if (present(token)) self%token = trim(token)
+        ! A token is exact text, e.g. `"zz  "`; its blanks are reported too.
+        if (present(token)) self%token = token
         if (present(token_index)) self%token_index = token_index
         if (present(suggestion)) then
             if (len_trim(suggestion) > 0) self%suggestion = trim(suggestion)

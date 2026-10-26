@@ -1,7 +1,7 @@
 module test_values
     use, intrinsic :: ieee_arithmetic, only : ieee_value, ieee_positive_inf, &
         ieee_negative_inf, ieee_quiet_nan
-    use fclap_utils_accuracy, only : ip, wp
+    use fclap_utils_accuracy, only : ip, sp, wp, widen_real
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : StringValue, IntegerValue, RealValue, &
         LogicalValue, ListValue, new_value
@@ -21,7 +21,10 @@ contains
             new_unittest("deep clone", test_deep_clone), &
             new_unittest("typed list", test_typed_list), &
             new_unittest("empty typed list", test_empty_typed_list), &
-            new_unittest("real text form", test_real_text) &
+            new_unittest("real text form", test_real_text), &
+            new_unittest("list growth keeps items", test_list_growth), &
+            new_unittest("single-precision reals widen by shortest text", &
+                test_single_precision_widening) &
         ]
     end subroutine collect_values
 
@@ -191,5 +194,76 @@ contains
         box = new_value(value)
         text = box%to_string()
     end function real_text
+
+    subroutine test_list_growth(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ListValue) :: list, copy
+        type(ValueBox) :: item
+        character(len=:), allocatable :: text
+        integer :: index
+
+        do index = 1, 100
+            call list%append(new_value(int(index, kind=ip)))
+        end do
+        call list%append(new_value("ignored"))
+        call check(error, list%size(), 100)
+        if (allocated(error)) return
+        item = list%get(100)
+        call check(error, item%to_string(), "100")
+        if (allocated(error)) return
+        item = list%get(101)
+        call check(error, item%type_name(), "unallocated")
+        if (allocated(error)) return
+        text = list%to_string()
+        call check(error, text(:7) // text(len(text) - 7:), "[1, 2, 99, 100]")
+        if (allocated(error)) return
+
+        ! A copy owns its items, including the spare capacity.
+        copy = list
+        call copy%append(new_value(101_ip))
+        call check(error, copy%size(), 101)
+        if (allocated(error)) return
+        call check(error, list%size(), 100)
+        if (allocated(error)) return
+        select type (stored => copy%items(1)%item)
+        type is (IntegerValue)
+            stored%value = -1
+        end select
+        item = list%get(1)
+        call check(error, item%to_string(), "1")
+    end subroutine test_list_growth
+
+    subroutine test_single_precision_widening(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ValueBox) :: box
+        real(sp) :: samples(9)
+        integer :: index
+
+        ! Exact widening would show 0.10000000149011612.
+        box = new_value(0.1_sp)
+        call check(error, box%to_string(), "0.1")
+        if (allocated(error)) return
+        select type (stored => box%item)
+        type is (RealValue)
+            call check(error, stored%value == 0.1_wp, .true.)
+        class default
+            call check(error, .false., "expected RealValue")
+        end select
+        if (allocated(error)) return
+        box = new_value([0.1_sp, -2.5_sp, 1.0e-3_sp])
+        call check(error, box%to_string(), "[0.1, -2.5, 0.001]")
+        if (allocated(error)) return
+        call check(error, widen_real(1.0_sp / 3.0_sp) == 0.33333334_wp, .true.)
+        if (allocated(error)) return
+
+        ! Narrowing the widened value always gives the original back.
+        samples = [0.1_sp, 1.0_sp / 3.0_sp, -7.1e-3_sp, huge(1.0_sp), &
+            -huge(1.0_sp), tiny(1.0_sp), 1.0e-40_sp, 1.0e-45_sp, 0.0_sp]
+        do index = 1, size(samples)
+            call check(error, real(widen_real(samples(index)), kind=sp) == &
+                samples(index), .true.)
+            if (allocated(error)) return
+        end do
+    end subroutine test_single_precision_widening
 
 end module test_values

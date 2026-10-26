@@ -1,10 +1,10 @@
 module test_environment
-    use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ParseResult, &
-        PARSE_SUCCESS, PARSE_FAILURE, SOURCE_NONE, SOURCE_DEFAULT, &
-        SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE, ERR_INVALID_ENV, &
-        ERR_INVALID_VALUE, ERR_VALIDATION_FAILED, ERR_MISSING_VALUE, &
-        ERR_ARGUMENT_CONFLICT, boolean_optional, count, not_less_than, &
-        store_true
+    use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, GroupHandle, &
+        ParseResult, PARSE_SUCCESS, PARSE_FAILURE, SOURCE_NONE, &
+        SOURCE_DEFAULT, SOURCE_ENVIRONMENT, SOURCE_COMMAND_LINE, &
+        ERR_INVALID_ENV, ERR_INVALID_VALUE, ERR_VALIDATION_FAILED, &
+        ERR_MISSING_VALUE, ERR_UNEXPECTED_VALUE, ERR_ARGUMENT_CONFLICT, &
+        ERR_MUTEX_CONFLICT, boolean_optional, count, not_less_than, store_true
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -30,7 +30,13 @@ contains
             new_unittest("invalid env definitions", test_invalid_definitions), &
             new_unittest("help names the variable", test_help), &
             new_unittest("subcommands read and report sources", &
-                test_subcommands) &
+                test_subcommands), &
+            new_unittest("counts read a number of occurrences", test_count), &
+            new_unittest("wrong value counts name both counts", &
+                test_list_counts), &
+            new_unittest("conflicts name the variable", test_conflict_source), &
+            new_unittest("invalid values are not also missing", &
+                test_invalid_required) &
         ]
     end subroutine collect_environment
 
@@ -123,7 +129,7 @@ contains
         entry = result%errors%get(1)
         call check(error, parser%format_diagnostic(entry), &
             "tool: error: argument --mode: environment variable TOOL_MODE: " // &
-            "value is not one of the allowed choices (got 'fsat') " // &
+            "invalid choice: choose from 'fast', 'safe' (got 'fsat') " // &
             "(did you mean 'fast'?)")
     end subroutine test_invalid_values
 
@@ -212,7 +218,7 @@ contains
         result = parser%parse_tokens(no_tokens, &
             environment=[character(len=16) :: "TOOL_PAIR=a b c"])
         entry = result%errors%get(1)
-        call check(error, entry%code, ERR_MISSING_VALUE)
+        call check(error, entry%code, ERR_UNEXPECTED_VALUE)
     end subroutine test_lists
 
     subroutine test_presence(error)
@@ -308,5 +314,136 @@ contains
         if (allocated(error)) return
         call check(error, result%value_source("verbose"), SOURCE_COMMAND_LINE)
     end subroutine test_subcommands
+
+
+    !> A count reads the number of occurrences.
+    subroutine test_count(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        integer :: level, stat
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("-v", action=count(), dest="verbose", &
+            env="TOOL_VERBOSE")
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=14) :: "TOOL_VERBOSE=3"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("verbose", level, stat)
+        call check(error, level, 3)
+        if (allocated(error)) return
+        call check(error, result%value_source("verbose"), SOURCE_ENVIRONMENT)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=14) :: "TOOL_VERBOSE=0"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call check(error, result%value_source("verbose"), SOURCE_DEFAULT)
+        if (allocated(error)) return
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=15) :: "TOOL_VERBOSE=-1"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_INVALID_VALUE)
+    end subroutine test_count
+
+    subroutine test_list_counts(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--pair", nargs=2, env="TOOL_PAIR")
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=16) :: "TOOL_PAIR=a b c"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNEXPECTED_VALUE)
+        if (allocated(error)) return
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --pair: environment variable " // &
+            "TOOL_PAIR: expected 2 values (got 3)")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=16) :: "TOOL_PAIR=a"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MISSING_VALUE)
+        if (allocated(error)) return
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --pair: environment variable " // &
+            "TOOL_PAIR: expected 2 values (got 1)")
+    end subroutine test_list_counts
+
+    !> A conflict or dependency error caused by an environment value names
+    !> the variable, which the command line does not show.
+    subroutine test_conflict_source(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser, mutex_parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+        type(GroupHandle) :: group
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--a", env="A_ENV")
+        call parser%add_argument("--b", action=store_true())
+        call parser%add_conflict("--a", "--b")
+        result = parser%parse_tokens([character(len=3) :: "--b"], &
+            environment=[character(len=7) :: "A_ENV=1"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_ARGUMENT_CONFLICT)
+        if (allocated(error)) return
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --a: not allowed with argument --b " // &
+            "(--a from environment variable A_ENV)")
+        if (allocated(error)) return
+
+        call mutex_parser%init(prog="tool", add_help=.false.)
+        group = mutex_parser%add_mutually_exclusive_group()
+        call mutex_parser%add_argument("--a", env="A_ENV", group=group)
+        call mutex_parser%add_argument("--b", action=store_true(), group=group)
+        result = mutex_parser%parse_tokens([character(len=3) :: "--b"], &
+            environment=[character(len=7) :: "A_ENV=1"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_MUTEX_CONFLICT)
+        if (allocated(error)) return
+        call check(error, index(entry%message, &
+            "(--a from environment variable A_ENV)") > 0)
+    end subroutine test_conflict_source
+
+    !> An invalid environment value is reported once: its option is not also
+    !> missing, and other variables are still applied.
+    subroutine test_invalid_required(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--n", data_type="integer", required=.true., &
+            env="TOOL_N")
+        call parser%add_argument("--m", data_type="integer", required=.true., &
+            env="TOOL_M")
+
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=8) :: "TOOL_N=x", "TOOL_M=2"])
+        call check(error, result%outcome, PARSE_FAILURE)
+        if (allocated(error)) return
+        call check(error, result%errors%count(), 1)
+        if (allocated(error)) return
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_INVALID_VALUE)
+        if (allocated(error)) return
+
+        ! Both invalid values are reported.
+        result = parser%parse_tokens(no_tokens, &
+            environment=[character(len=8) :: "TOOL_N=x", "TOOL_M=y"])
+        call check(error, result%errors%count(), 2)
+    end subroutine test_invalid_required
 
 end module test_environment

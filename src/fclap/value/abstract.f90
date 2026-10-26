@@ -63,7 +63,10 @@ contains
         class(ValueBox), intent(in) :: self
         type(ValueBox) :: cloned
 
-        if (allocated(self%item)) cloned%item = self%item%clone()
+        ! Sourced allocation deep-copies the dynamic type directly. Assigning
+        ! the polymorphic result of `self%item%clone()` instead leaks that
+        ! function result with gfortran.
+        if (allocated(self%item)) allocate(cloned%item, source=self%item)
     end function value_box_clone
 
     recursive function value_box_to_string(self) result(text)

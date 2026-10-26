@@ -2,13 +2,15 @@
 module fclap_parse_engine
     use fclap_actions_abstract, only : ACTION_CONTINUE, &
         ACTION_HELP_REQUESTED, ACTION_VERSION_REQUESTED
+    use fclap_actions_accumulate, only : CountAction
     use fclap_actions_boolean, only : BooleanOptionalAction
     use fclap_argument, only : Argument
-    use fclap_error_codes, only : ERROR_WARNING, ERR_DEPRECATED_ARGUMENT, &
-        ERR_EXTRA_POSITIONAL, ERR_INVALID_CHOICE, ERR_INVALID_VALUE, &
-        ERR_MISSING_REQUIRED, ERR_MISSING_VALUE, ERR_REMOVED_ARGUMENT, &
-        ERR_UNKNOWN_ARGUMENT, ERR_VALIDATION_FAILED, ERR_UNKNOWN_SUBCOMMAND, &
-        ERR_MISSING_SUBCOMMAND, ERR_UNEXPECTED_VALUE
+    use fclap_error_codes, only : FCLAP_OK, ERROR_WARNING, &
+        ERR_DEPRECATED_ARGUMENT, ERR_EXTRA_POSITIONAL, ERR_INVALID_CHOICE, &
+        ERR_INVALID_VALUE, ERR_MISSING_REQUIRED, ERR_MISSING_VALUE, &
+        ERR_REMOVED_ARGUMENT, ERR_UNKNOWN_ARGUMENT, ERR_VALIDATION_FAILED, &
+        ERR_UNKNOWN_SUBCOMMAND, ERR_MISSING_SUBCOMMAND, ERR_UNEXPECTED_VALUE, &
+        ERR_MUTEX_CONFLICT, ERR_ARGUMENT_CONFLICT, ERR_MISSING_DEPENDENCY
     use fclap_error_entry, only : ErrorEntry
     use fclap_error_stack, only : ErrorStack
     use fclap_groups_abstract, only : GroupBox
@@ -20,11 +22,12 @@ module fclap_parse_engine
         PARSE_HELP, PARSE_VERSION, SOURCE_DEFAULT, SOURCE_ENVIRONMENT, &
         SOURCE_COMMAND_LINE
     use fclap_rules, only : ArgumentRule
+    use fclap_utils_accuracy, only : i8
     use fclap_utils_similarity, only : closest_match
     use fclap_validators_choices, only : ChoicesValidator, choices_validator
     use fclap_value_abstract, only : ValueBox
     use fclap_value_builtin, only : ListValue
-    use fclap_value_builtin, only : StringValue, LogicalValue
+    use fclap_value_builtin, only : StringValue, LogicalValue, IntegerValue
     use fclap_value_convert, only : CONVERT_SUCCESS, convert_value, &
         canonicalize_choice, lowercase
     implicit none
@@ -50,7 +53,7 @@ contains
     function parse_definitions(arguments, config_errors, tokens, groups, &
         version_text, subcommand_names, has_subcommands, &
         subcommand_required, next_token_index, rules, environment, &
-        collect_extras, token_lengths) result(parsed)
+        collect_extras, token_lengths, tokens_complete) result(parsed)
         type(Argument), intent(in) :: arguments(:)
         type(ErrorStack), intent(in) :: config_errors
         character(len=*), intent(in) :: tokens(:)
@@ -66,17 +69,21 @@ contains
         logical, intent(in), optional :: collect_extras
         !> Exact token lengths; trailing blanks are padding without them
         integer, intent(in), optional :: token_lengths(:)
+        !> Every token up to the end or the selected subcommand was consumed
+        !> without a fatal error; a failure then comes only from environment
+        !> values or presence checks, and a selected subcommand may still run
+        logical, intent(out), optional :: tokens_complete
         type(ParseResult) :: parsed
         type(ParseContext) :: context
         character(len=:), allocatable :: token, attached
         integer :: argument_index, action_outcome, form
+        logical :: token_failed
 
+        if (present(tokens_complete)) tokens_complete = .false.
         call context%init(tokens, size(arguments), token_lengths)
         call collect_option_names(arguments, context)
         if (present(environment)) context%environment = environment
         if (present(collect_extras)) context%collect_extras = collect_extras
-        if (context%collect_extras) allocate(character(len=1) :: &
-            context%extra_tokens(0))
         if (present(has_subcommands)) then
             if (has_subcommands) then
                 if (present(subcommand_names)) then
@@ -169,14 +176,14 @@ contains
             if (action_outcome /= ACTION_CONTINUE) exit
         end do
 
-        if (action_outcome == ACTION_CONTINUE .and. &
-            .not. context%errors%has_fatal_errors()) then
+        token_failed = context%errors%has_fatal_errors()
+        if (action_outcome == ACTION_CONTINUE .and. .not. token_failed) then
             call materialize_empty_positionals(arguments, context, action_outcome)
-            if (action_outcome == ACTION_CONTINUE .and. &
-                .not. context%errors%has_fatal_errors()) then
+            token_failed = context%errors%has_fatal_errors()
+            if (action_outcome == ACTION_CONTINUE .and. .not. token_failed) then
                 call apply_environment(arguments, context)
             end if
-        else if (context%errors%has_fatal_errors()) then
+        else if (token_failed) then
             call find_later_exit_request(arguments, context, action_outcome)
         end if
 
@@ -189,14 +196,20 @@ contains
             return
         end if
 
-        call check_required(arguments, context)
-        call validate_groups(arguments, groups, context)
-        if (present(rules)) call validate_rules(arguments, rules, context)
-        if (context%subcommands_enabled .and. context%subcommand_required .and. &
-            .not. allocated(context%selected_command_path)) then
-            call context%errors%add("a subcommand is required", &
-                code=ERR_MISSING_SUBCOMMAND)
+        ! Presence checks would only repeat a token error: the failing
+        ! argument and every argument after it were never consumed.
+        if (.not. token_failed) then
+            call check_required(arguments, context)
+            call validate_groups(arguments, groups, context)
+            if (present(rules)) call validate_rules(arguments, rules, context)
+            if (context%subcommands_enabled .and. &
+                context%subcommand_required .and. &
+                .not. allocated(context%selected_command_path)) then
+                call context%errors%add("a subcommand is required", &
+                    code=ERR_MISSING_SUBCOMMAND)
+            end if
         end if
+        if (present(tokens_complete)) tokens_complete = .not. token_failed
         if (context%errors%has_fatal_errors()) then
             call finish_result(parsed, context, PARSE_FAILURE, next_token_index)
         else
@@ -210,37 +223,51 @@ contains
     !>
     !> A value from the environment is converted and validated like a
     !> command-line value and counts as explicitly given, so it satisfies
-    !> `required` and takes part in groups and rules.
+    !> `required` and takes part in groups and rules. Every variable is
+    !> applied, so that one invalid value neither hides the errors of others
+    !> nor makes their options look missing; a rejected value still counts
+    !> as given for the presence checks.
     subroutine apply_environment(arguments, context)
         type(Argument), intent(in) :: arguments(:)
         type(ParseContext), intent(inout) :: context
         character(len=:), allocatable :: text
+        type(ErrorStack) :: earlier
         integer :: index, outcome
-        logical :: found
 
         do index = 1, size(arguments)
             if (.not. allocated(arguments(index)%env)) cycle
             if (context%was_seen(index)) cycle
-            call lookup_environment(context, arguments(index)%env, text, found)
-            if (.not. found) cycle
+            call lookup_environment(context, arguments(index)%env, text)
+            if (len(text) == 0) cycle
+            ! Apply each value against an empty stack, since conversion and
+            ! actions stop at any fatal error already on the stack.
+            earlier = context%errors
+            call context%errors%clear()
             call apply_environment_value(arguments(index), index, context, &
                 text, outcome)
-            if (context%errors%has_fatal_errors()) return
-            if (context%was_seen(index)) context%from_env(index) = .true.
+            if (context%was_seen(index)) then
+                context%from_env(index) = .true.
+            else if (context%errors%has_fatal_errors()) then
+                call context%mark_supplied(index)
+            end if
+            call earlier%merge(context%errors)
+            context%errors = earlier
         end do
     end subroutine apply_environment
 
     !> Value of an environment variable, from the explicit environment given
     !> to the parse when there is one, otherwise from the process.
-    subroutine lookup_environment(context, name, text, found)
+    !>
+    !> Trailing blanks are dropped from both sources alike: entries of an
+    !> explicit environment array are blank-padded, so they cannot carry them.
+    !> A variable that is unset, empty, or blank yields empty text.
+    subroutine lookup_environment(context, name, text)
         type(ParseContext), intent(in) :: context
         character(len=*), intent(in) :: name
         character(len=:), allocatable, intent(out) :: text
-        logical, intent(out) :: found
         integer :: current, length, stat
 
         text = ""
-        found = .false.
         if (allocated(context%environment)) then
             ! The last entry for a name wins, as when a shell exports twice.
             do current = 1, size(context%environment)
@@ -258,13 +285,14 @@ contains
             call get_environment_variable(name, value=text, status=stat)
             if (stat /= 0) text = ""
         end if
-        found = len_trim(text) > 0
+        text = trim(text)
     end subroutine lookup_environment
 
     !> Apply one environment value as if the option had been given with it.
     !>
     !> A flag reads the value as a logical: true acts like the flag, false
     !> leaves the option unset, except that a `--x/--no-x` flag stores false.
+    !> A count reads a non-negative integer, the number of occurrences.
     !> An option taking several values splits the text at blanks.
     subroutine apply_environment_value(definition, index, context, text, &
         outcome)
@@ -274,13 +302,20 @@ contains
         character(len=*), intent(in) :: text
         integer, intent(out) :: outcome
         character(len=:), allocatable :: origin, words(:)
-        type(ValueBox) :: value, item
-        type(ListValue) :: list
+        type(ValueBox) :: value
+        type(ValueBox), allocatable :: items(:)
         integer :: stat, word
         logical :: enabled
 
         outcome = ACTION_CONTINUE
         origin = "environment variable " // definition%env // ": "
+
+        select type (action => definition%action)
+        class is (CountAction)
+            call apply_environment_count(definition, index, context, text, &
+                origin)
+            return
+        end select
 
         if (definition%nargs_value() == NARGS_ZERO) then
             call convert_value(text, "logical", value, stat)
@@ -328,21 +363,56 @@ contains
         call split_words(text, words)
         if (size(words) < definition%nargs%min_count() .or. &
             size(words) > definition%nargs%max_count()) then
-            call context%errors%add(origin // "wrong number of values", &
-                code=ERR_MISSING_VALUE, arg_name=definition%dest, token=text)
+            call add_count_mismatch(context, definition, size(words), "", &
+                text, 0, origin)
             return
         end if
-        call list%initialize(definition%data_type)
+        allocate(items(size(words)))
         do word = 1, size(words)
             call convert_and_validate_text(definition, context, &
-                trim(words(word)), 0, item, origin)
+                trim(words(word)), 0, items(word), origin)
             if (context%errors%has_fatal_errors()) return
-            call list%append(item)
         end do
-        call value%set(list)
+        call set_list(definition%data_type, items, value)
         call execute_action(definition, index, value, context, outcome, &
             mark_explicit=.true.)
     end subroutine apply_environment_value
+
+    !> Apply an environment count as that many occurrences of the option.
+    !>
+    !> Zero leaves the option unset, like a false flag.
+    subroutine apply_environment_count(definition, index, context, text, &
+        origin)
+        type(Argument), intent(in) :: definition
+        integer, intent(in) :: index
+        type(ParseContext), intent(inout) :: context
+        character(len=*), intent(in) :: text, origin
+        type(ValueBox) :: value
+        integer(i8) :: occurrences, current
+        integer :: stat
+
+        occurrences = -1_i8
+        call convert_value(text, "integer", value, stat)
+        if (stat == CONVERT_SUCCESS) then
+            select type (number => value%item)
+            type is (IntegerValue)
+                occurrences = number%value
+            end select
+        end if
+        if (occurrences < 0_i8) then
+            call context%errors%add(origin // "invalid count value", &
+                code=ERR_INVALID_VALUE, arg_name=definition%dest, token=text)
+            return
+        end if
+        if (occurrences == 0_i8) return
+
+        current = 0_i8
+        call context%namespace%get_integer_i8(definition%dest, current, stat)
+        if (stat /= FCLAP_OK) current = 0_i8
+        call context%namespace%set_integer_i8(definition%dest, &
+            current + occurrences)
+        call context%mark_seen(index)
+    end subroutine apply_environment_count
 
     !> Split text at blanks and tabs into its non-empty words.
     subroutine split_words(text, words)
@@ -393,7 +463,9 @@ contains
     !> token, as argparse does; conversion and validation errors still win.
     !>
     !> When an exit request is found, fatal diagnostics are dropped so help
-    !> and version outcomes never carry errors.
+    !> and version outcomes never carry errors. The search stops at `--` and
+    !> at a subcommand name: later tokens belong to the subcommand, whose
+    !> options may differ from this parser's.
     subroutine find_later_exit_request(arguments, context, action_outcome)
         type(Argument), intent(in) :: arguments(:)
         type(ParseContext), intent(inout) :: context
@@ -412,6 +484,7 @@ contains
         do position = context%cursor, size(context%tokens)
             token = context%token_at(position)
             if (token == "--") return
+            if (context%is_subcommand(token)) return
             argument_index = find_option(arguments, token)
             if (argument_index == 0) cycle
             if (arguments(argument_index)%nargs_value() /= NARGS_ZERO) cycle
@@ -510,7 +583,7 @@ contains
                 call add_unknown_at(context, context%cursor + available)
             else
                 call add_missing_value(context, arguments(index), option_token, &
-                    option_token_index)
+                    option_token_index, count)
             end if
             return
         end if
@@ -546,8 +619,10 @@ contains
         type(ValueBox) :: value
         character(len=:), allocatable :: text
         integer :: available, boundary, text_index
+        logical :: consumed
 
         action_outcome = ACTION_CONTINUE
+        consumed = .false.
         associate (definition => arguments(index))
             if (present(attached)) then
                 text = attached
@@ -562,13 +637,15 @@ contains
                             call add_unknown_at(context, context%cursor)
                         else
                             call add_missing_value(context, definition, &
-                                option_token, option_token_index)
+                                option_token, option_token_index, 0)
                         end if
                         return
                     end if
                     text = ""
                 else
+                    ! An empty token is read too: it is the empty list.
                     text = context%token_at(context%cursor)
+                    consumed = .true.
                 end if
                 text_index = context%cursor
             end if
@@ -579,15 +656,15 @@ contains
             call execute_action(definition, index, value, context, &
                 action_outcome, mark_explicit=.true., option_name=option_name)
             if (context%errors%has_fatal_errors()) return
-            if (.not. present(attached) .and. len(text) > 0) then
-                call context%advance()
-            end if
+            if (consumed) call context%advance()
         end associate
     end subroutine consume_delimited
 
     !> Split delimited text and convert every item into a list value.
     !>
-    !> Empty text is an empty list. The item count must satisfy nargs.
+    !> Empty text is an empty list. The item count must satisfy nargs. Items
+    !> are taken verbatim, blanks included; numeric conversion ignores
+    !> surrounding blanks, string items keep them.
     subroutine convert_delimited(definition, context, text, text_index, &
         value, origin)
         type(Argument), intent(in) :: definition
@@ -596,69 +673,74 @@ contains
         integer, intent(in) :: text_index
         type(ValueBox), intent(out) :: value
         character(len=*), intent(in), optional :: origin
-        character(len=:), allocatable :: items(:), prefix
-        type(ValueBox) :: item
-        type(ListValue) :: list
+        integer, allocatable :: first(:), last(:)
+        type(ValueBox), allocatable :: items(:)
         integer :: current, count
-        character(len=32) :: got, wanted
 
-        prefix = ""
-        if (present(origin)) prefix = origin
         if (len(text) == 0) then
-            allocate(character(len=1) :: items(0))
+            allocate(first(0), last(0))
         else
-            call split_at(text, definition%delimiter, items)
+            call split_at(text, definition%delimiter, first, last)
         end if
-        count = size(items)
+        count = size(first)
         if (count < definition%nargs%min_count() .or. &
             count > definition%nargs%max_count()) then
-            if (definition%nargs%min_count() == definition%nargs%max_count()) &
-                then
-                write(wanted, "(i0)") definition%nargs%min_count()
-                wanted = trim(wanted) // " values"
-            else
-                wanted = "at least one value"
-            end if
-            write(got, "(i0)") count
-            call context%errors%add(prefix // "expected " // trim(wanted) // &
-                " separated by '" // definition%delimiter // "' (got " // &
-                trim(got) // ")", code=ERR_MISSING_VALUE, &
-                arg_name=definition%dest, token=text, token_index=text_index)
+            call add_count_mismatch(context, definition, count, &
+                " separated by '" // definition%delimiter // "'", text, &
+                text_index, origin)
             return
         end if
 
-        call list%initialize(definition%data_type)
+        allocate(items(count))
         do current = 1, count
             call convert_and_validate_text(definition, context, &
-                trim(items(current)), text_index, item, origin)
+                text(first(current):last(current)), text_index, &
+                items(current), origin)
             if (context%errors%has_fatal_errors()) return
-            call list%append(item)
         end do
-        call value%set(list)
+        call set_list(definition%data_type, items, value)
     end subroutine convert_delimited
 
-    !> Split text at every occurrence of a one-character separator, keeping
-    !> empty items so that `1,,2` is reported instead of silently shortened.
-    subroutine split_at(text, separator, items)
+    !> Store converted items as one list value without copying them one by
+    !> one, which would be quadratic in the number of items.
+    subroutine set_list(type_name, items, value)
+        character(len=*), intent(in) :: type_name
+        type(ValueBox), allocatable, intent(inout) :: items(:)
+        type(ValueBox), intent(out) :: value
+        type(ListValue) :: list
+
+        call list%initialize(type_name)
+        call list%adopt(items)
+        call value%set(list)
+    end subroutine set_list
+
+    !> Bounds of the items of text split at every occurrence of a
+    !> one-character separator.
+    !>
+    !> Empty items are kept, so `1,,2` has three items: an empty string item,
+    !> or an invalid-value error for a numeric option, never a silently
+    !> shortened list. Item `i` is `text(first(i):last(i))`.
+    subroutine split_at(text, separator, first, last)
         character(len=*), intent(in) :: text
         character(len=*), intent(in) :: separator
-        character(len=:), allocatable, intent(out) :: items(:)
-        integer :: first, position, count, current
+        integer, allocatable, intent(out) :: first(:), last(:)
+        integer :: start, position, count, current
 
         count = 1
         do position = 1, len(text)
             if (text(position:position) == separator) count = count + 1
         end do
-        allocate(character(len=max(1, len(text))) :: items(count))
-        first = 1
+        allocate(first(count), last(count))
+        start = 1
         current = 0
         do position = 1, len(text) + 1
             if (position <= len(text)) then
                 if (text(position:position) /= separator) cycle
             end if
             current = current + 1
-            items(current) = text(first:position - 1)
-            first = position + 1
+            first(current) = start
+            last(current) = position - 1
+            start = position + 1
         end do
     end subroutine split_at
 
@@ -683,7 +765,7 @@ contains
         end if
         if (definition%nargs%min_count() > 1) then
             call add_missing_value(context, definition, option_token, &
-                option_token_index)
+                option_token_index, 1)
             return
         end if
 
@@ -708,14 +790,15 @@ contains
     !> Every letter must name a registered one-letter option. Flags are applied
     !> in order; the first letter whose option takes values ends the cluster
     !> and receives the remaining text, or the following tokens when the
-    !> remainder is empty.
+    !> remainder is empty. As in `-n=3`, an `=` right after that letter only
+    !> separates it from its value: `-vn=3` gives `-n` the value `3`.
     subroutine consume_cluster(arguments, context, action_outcome, token)
         type(Argument), intent(in) :: arguments(:)
         type(ParseContext), intent(inout) :: context
         integer, intent(out) :: action_outcome
         character(len=*), intent(in) :: token
         type(ValueBox) :: value
-        integer :: argument_index, position
+        integer :: argument_index, position, first
         logical :: continue_parsing
 
         action_outcome = ACTION_CONTINUE
@@ -728,8 +811,10 @@ contains
 
             if (arguments(argument_index)%nargs_value() /= NARGS_ZERO) then
                 if (position < len(token)) then
+                    first = position + 1
+                    if (token(first:first) == "=") first = first + 1
                     call consume_option(arguments, argument_index, context, &
-                        action_outcome, token, token(position + 1:), &
+                        action_outcome, token, token(first:), &
                         "-" // token(position:position))
                 else
                     call consume_option(arguments, argument_index, context, &
@@ -919,19 +1004,17 @@ contains
         type(ParseContext), intent(inout) :: context
         integer, intent(in) :: first, count
         type(ValueBox), intent(out) :: value
-        type(ValueBox) :: item
-        type(ListValue) :: list
+        type(ValueBox), allocatable :: items(:)
         integer :: offset
 
         if (definition%nargs%produces_list()) then
-            call list%initialize(definition%data_type)
+            allocate(items(count))
             do offset = 0, count - 1
                 call convert_and_validate_token(definition, context, &
-                    first + offset, item)
+                    first + offset, items(offset + 1))
                 if (context%errors%has_fatal_errors()) return
-                call list%append(item)
             end do
-            call value%set(list)
+            call set_list(definition%data_type, items, value)
         else
             call convert_and_validate_token(definition, context, first, value)
         end if
@@ -1111,11 +1194,13 @@ contains
     subroutine check_required(arguments, context)
         type(Argument), intent(in) :: arguments(:)
         type(ParseContext), intent(inout) :: context
+        logical, allocatable :: presence(:)
         integer :: index
 
+        presence = context%presence()
         do index = 1, size(arguments)
             if (.not. arguments(index)%required) cycle
-            if (context%was_seen(index)) cycle
+            if (presence(index)) cycle
             call context%errors%add("required argument was not supplied", &
                 code=ERR_MISSING_REQUIRED, arg_name=arguments(index)%dest)
         end do
@@ -1126,14 +1211,25 @@ contains
         type(GroupBox), intent(in) :: groups(:)
         type(ParseContext), intent(inout) :: context
         character(len=:), allocatable :: labels(:)
+        logical, allocatable :: presence(:), visible(:)
+        type(ErrorStack) :: found
         integer :: group_index
 
         if (size(groups) == 0) return
         call argument_labels(arguments, labels)
+        presence = context%presence()
+        visible = arguments%visible
         do group_index = 1, size(groups)
             if (.not. allocated(groups(group_index)%item)) cycle
-            call groups(group_index)%item%validate_presence( &
-                context%seen, labels, group_index, context%errors)
+            call found%clear()
+            call groups(group_index)%item%validate_presence(presence, labels, &
+                group_index, found, visible=visible)
+            if (allocated(groups(group_index)%item%members)) then
+                call append_with_sources(arguments, context, found, &
+                    groups(group_index)%item%members)
+            else
+                call context%errors%merge(found)
+            end if
         end do
     end subroutine validate_groups
 
@@ -1141,13 +1237,60 @@ contains
         type(Argument), intent(in) :: arguments(:)
         type(ArgumentRule), intent(in) :: rules(:)
         type(ParseContext), intent(inout) :: context
-        integer :: rule_index
+        logical, allocatable :: presence(:)
+        type(ErrorStack) :: found
+        integer :: rule_index, first
 
+        presence = context%presence()
+        ! `found` collects every rule's errors so a rule can see what earlier
+        ! rules reported (a mirrored conflict is reported once); only the
+        ! entries of the current rule are appended to the context.
         do rule_index = 1, size(rules)
-            call rules(rule_index)%validate_presence(arguments, context%seen, &
-                context%errors)
+            first = found%count() + 1
+            call rules(rule_index)%validate_presence(arguments, presence, found)
+            call append_with_sources(arguments, context, found, &
+                [rules(rule_index)%subject, rules(rule_index)%others], first)
         end do
     end subroutine validate_rules
+
+    !> Append group or rule diagnostics, naming the environment variable of
+    !> every involved argument that was given only through one.
+    !>
+    !> A conflict caused by an exported variable is otherwise puzzling,
+    !> e.g. `argument --b: not allowed with argument --a (--a from
+    !> environment variable A_ENV)`.
+    subroutine append_with_sources(arguments, context, found, involved, first)
+        type(Argument), intent(in) :: arguments(:)
+        type(ParseContext), intent(inout) :: context
+        type(ErrorStack), intent(in) :: found
+        integer, intent(in) :: involved(:)
+        !> First entry of `found` to append, all entries when absent
+        integer, intent(in), optional :: first
+        type(ErrorEntry) :: entry
+        character(len=:), allocatable :: sources
+        integer :: index, member, start
+
+        sources = ""
+        do index = 1, size(involved)
+            member = involved(index)
+            if (member < 1 .or. member > size(arguments)) cycle
+            if (.not. context%from_env(member)) cycle
+            if (len(sources) > 0) sources = sources // ", "
+            sources = sources // arguments(member)%display_label() // &
+                " from environment variable " // arguments(member)%env
+        end do
+        start = 1
+        if (present(first)) start = first
+        do index = start, found%count()
+            entry = found%get(index)
+            if (len(sources) > 0 .and. (entry%code == ERR_MUTEX_CONFLICT .or. &
+                entry%code == ERR_ARGUMENT_CONFLICT .or. &
+                entry%code == ERR_MISSING_DEPENDENCY)) then
+                entry%message = entry%message // " (" // sources // ")"
+            end if
+            call context%errors%append(entry)
+        end do
+    end subroutine append_with_sources
 
     integer function find_option(arguments, token) result(index)
         type(Argument), intent(in) :: arguments(:)
@@ -1220,18 +1363,52 @@ contains
         end do
     end function later_positional_minimum
 
+    !> Whether an option-like token is a value of a numeric argument.
+    !>
+    !> Any token that looks like a number counts, so that `-1.5e3` given to
+    !> an integer option is reported as an invalid integer rather than as an
+    !> unknown option. A delimited argument looks at its first item only.
     logical function token_is_numeric_value(definition, token) result(is_value)
         type(Argument), intent(in) :: definition
         character(len=*), intent(in) :: token
-        type(ValueBox) :: value
-        integer :: stat
+        integer :: last
 
         is_value = .false.
         if (definition%data_type /= "integer" .and. &
             definition%data_type /= "real") return
-        call convert_value(token, definition%data_type, value, stat)
-        is_value = stat == CONVERT_SUCCESS
+        last = len(token)
+        if (allocated(definition%delimiter)) then
+            last = index(token, definition%delimiter) - 1
+            if (last < 0) last = len(token)
+        end if
+        is_value = looks_numeric(token(:last))
     end function token_is_numeric_value
+
+    !> Whether text is a signed number in any spelling a user may intend,
+    !> valid or not: a sign followed by a digit, by `.` and a digit, or by
+    !> `inf`, `infinity`, or `nan` in any letter case.
+    pure logical function looks_numeric(text) result(numeric)
+        character(len=*), intent(in) :: text
+        character(len=:), allocatable :: rest
+
+        numeric = .false.
+        if (len(text) < 2) return
+        if (text(1:1) /= "-" .and. text(1:1) /= "+") return
+        rest = lowercase(text(2:))
+        if (is_digit(rest(1:1))) then
+            numeric = .true.
+        else if (len(rest) > 1 .and. rest(1:1) == ".") then
+            numeric = is_digit(rest(2:2))
+        else
+            numeric = rest == "inf" .or. rest == "infinity" .or. rest == "nan"
+        end if
+    end function looks_numeric
+
+    pure logical function is_digit(letter) result(digit)
+        character(len=1), intent(in) :: letter
+
+        digit = letter >= "0" .and. letter <= "9"
+    end function is_digit
 
     !> A lone `-` is an ordinary value, conventionally standard input/output.
     pure logical function token_starts_option(token) result(starts_option)
@@ -1402,16 +1579,83 @@ contains
         end if
     end function strip_hyphens
 
-    subroutine add_missing_value(context, definition, token, token_index)
+    !> Report an option occurrence that received too few values.
+    subroutine add_missing_value(context, definition, token, token_index, got)
         type(ParseContext), intent(inout) :: context
         type(Argument), intent(in) :: definition
         character(len=*), intent(in) :: token
         integer, intent(in) :: token_index
+        !> Number of values the occurrence received
+        integer, intent(in) :: got
 
-        call context%errors%add("option requires more values", &
-            code=ERR_MISSING_VALUE, arg_name=definition%dest, token=token, &
-            token_index=token_index)
+        call add_count_mismatch(context, definition, got, "", token, &
+            token_index)
     end subroutine add_missing_value
+
+    !> Report a value count outside the nargs bounds of an option, e.g.
+    !> `expected 2 values (got 3)`.
+    !>
+    !> Too few values are `ERR_MISSING_VALUE`, too many `ERR_UNEXPECTED_VALUE`.
+    subroutine add_count_mismatch(context, definition, got, detail, token, &
+        token_index, origin)
+        type(ParseContext), intent(inout) :: context
+        type(Argument), intent(in) :: definition
+        integer, intent(in) :: got
+        !> Text placed after the expected count, e.g. ` separated by ','`
+        character(len=*), intent(in) :: detail
+        character(len=*), intent(in) :: token
+        !> Position of `token` on the command line, zero if not from it
+        integer, intent(in) :: token_index
+        !> Prefix naming where the values came from
+        character(len=*), intent(in), optional :: origin
+        character(len=:), allocatable :: prefix
+        character(len=32) :: text
+        integer :: code
+
+        prefix = ""
+        if (present(origin)) prefix = origin
+        code = ERR_MISSING_VALUE
+        if (got > definition%nargs%max_count()) code = ERR_UNEXPECTED_VALUE
+        write(text, "(i0)") got
+        call context%errors%add(prefix // "expected " // &
+            expected_values(definition%nargs%min_count(), &
+            definition%nargs%max_count()) // detail // " (got " // &
+            trim(text) // ")", code=code, arg_name=definition%dest, &
+            token=token, token_index=token_index)
+    end subroutine add_count_mismatch
+
+    !> Spell an accepted value count, e.g. `2 values` or `at least one value`.
+    function expected_values(minimum, maximum) result(text)
+        integer, intent(in) :: minimum, maximum
+        character(len=:), allocatable :: text
+        character(len=32) :: low, high
+
+        write(low, "(i0)") minimum
+        write(high, "(i0)") maximum
+        if (minimum == maximum) then
+            text = trim(low) // plural(" value", minimum)
+        else if (maximum == huge(0)) then
+            if (minimum == 1) then
+                text = "at least one value"
+            else
+                text = "at least " // trim(low) // plural(" value", minimum)
+            end if
+        else if (minimum == 0) then
+            text = "at most " // trim(high) // plural(" value", maximum)
+        else
+            text = "between " // trim(low) // " and " // trim(high) // &
+                " values"
+        end if
+    end function expected_values
+
+    pure function plural(noun, count) result(text)
+        character(len=*), intent(in) :: noun
+        integer, intent(in) :: count
+        character(len=:), allocatable :: text
+
+        text = noun
+        if (count /= 1) text = noun // "s"
+    end function plural
 
     subroutine add_missing_positional_value(context, definition)
         type(ParseContext), intent(inout) :: context
@@ -1438,9 +1682,7 @@ contains
         parsed%namespace = context%namespace
         parsed%errors = context%errors
         parsed%outcome = outcome
-        if (allocated(context%extra_tokens)) then
-            parsed%extra_tokens = context%extra_tokens
-        end if
+        if (context%collect_extras) parsed%extra_tokens = context%extra_tokens()
         if (present(next_token_index)) next_token_index = context%cursor
         if (allocated(context%selected_command_path)) then
             parsed%selected_command_path = context%selected_command_path

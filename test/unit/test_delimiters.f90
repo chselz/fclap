@@ -1,7 +1,8 @@
 module test_delimiters
+    use, intrinsic :: iso_fortran_env, only : wp => real64
     use fclap, only : ArgumentParser, ErrorEntry, ErrorStack, ParseResult, &
         PARSE_SUCCESS, PARSE_FAILURE, ERR_MISSING_VALUE, ERR_INVALID_VALUE, &
-        ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION, append
+        ERR_INVALID_NARGS, ERR_INCOMPATIBLE_ACTION, ERR_UNEXPECTED_VALUE, append
     use testdrive, only : new_unittest, unittest_type, error_type, check
     implicit none
     private
@@ -23,7 +24,12 @@ contains
                 test_invalid_definitions), &
             new_unittest("usage shows the delimiter", test_usage), &
             new_unittest("explicit metavar of a delimited count", &
-                test_explicit_metavar) &
+                test_explicit_metavar), &
+            new_unittest("negative numeric items", test_negative_items), &
+            new_unittest("an empty token is an empty list", test_empty_token), &
+            new_unittest("items are kept verbatim", test_verbatim_items), &
+            new_unittest("too many items", test_too_many_items), &
+            new_unittest("many items split in linear time", test_many_items) &
         ]
     end subroutine collect_delimiters
 
@@ -60,18 +66,12 @@ contains
         call check(error, all(grid == [1, 2, 3]))
         if (allocated(error)) return
 
-        ! Negative items need the attached form: `-1,0,1` alone looks like
-        ! an option.
         result = parser%parse_tokens([character(len=14) :: &
             "--grid=-1,0,1", "in.dat"])
         call check(error, result%outcome, PARSE_SUCCESS)
         if (allocated(error)) return
         call result%namespace%get("grid", grid, stat)
         call check(error, all(grid == [-1, 0, 1]))
-        if (allocated(error)) return
-        result = parser%parse_tokens([character(len=8) :: &
-            "--grid", "-1,0,1", "in.dat"])
-        call check(error, result%outcome, PARSE_FAILURE)
     end subroutine test_exact_count
 
     subroutine test_variable_counts(error)
@@ -261,5 +261,141 @@ contains
             "  --field E,E,E         field" // nl // &
             "  --axes {x,y},{x,y}    axes")
     end subroutine test_explicit_metavar
+
+
+    !> A separate token starting with a negative number is a value of a
+    !> numeric delimited option, as a single negative number is.
+    subroutine test_negative_items(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        integer, allocatable :: grid(:)
+        real(wp), allocatable :: shift(:)
+        integer :: stat
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--grid", nargs="+", data_type="integer", &
+            delimiter=",")
+        call parser%add_argument("--shift", nargs="+", data_type="real", &
+            delimiter=",")
+
+        result = parser%parse_tokens([character(len=7) :: &
+            "--grid", "-1,0,1", "--shift", "-1.5,2"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("grid", grid, stat)
+        call check(error, all(grid == [-1, 0, 1]))
+        if (allocated(error)) return
+        call result%namespace%get("shift", shift, stat)
+        call check(error, all(abs(shift - [-1.5_wp, 2.0_wp]) < epsilon(1.0_wp)))
+    end subroutine test_negative_items
+
+    subroutine test_empty_token(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: values(:), input
+        integer :: stat
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--tags", nargs="*", delimiter=",")
+        call parser%add_argument("input", nargs="?")
+
+        result = parser%parse_tokens([character(len=6) :: "--tags", ""], &
+            lengths=[6, 0])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("tags", values, stat)
+        call check(error, size(values), 0)
+        if (allocated(error)) return
+
+        ! The empty token is the option's value, not the positional.
+        result = parser%parse_tokens([character(len=6) :: "--tags", "", "x"], &
+            lengths=[6, 0, 1])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("input", input, stat)
+        call check(error, input, "x")
+    end subroutine test_empty_token
+
+    !> Items keep their blanks on both sides, and empty string items are
+    !> kept as empty strings.
+    subroutine test_verbatim_items(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=:), allocatable :: values(:)
+        integer :: stat
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--names", nargs="+", delimiter=",")
+
+        result = parser%parse_tokens([character(len=8) :: "--names", &
+            "a, b ,c"], lengths=[7, 7])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("names", values, stat)
+        call check(error, size(values), 3)
+        if (allocated(error)) return
+        ! The longest item, ` b `, sets the length of the array.
+        call check(error, len(values), 3)
+        if (allocated(error)) return
+        call check(error, values(2), " b ")
+        if (allocated(error)) return
+
+        result = parser%parse_tokens([character(len=7) :: "--names", "a,,b"])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("names", values, stat)
+        call check(error, size(values), 3)
+        if (allocated(error)) return
+        call check(error, len_trim(values(2)), 0)
+    end subroutine test_verbatim_items
+
+    subroutine test_too_many_items(error)
+        type(error_type), allocatable, intent(out) :: error
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        type(ErrorEntry) :: entry
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--grid", nargs=3, data_type="integer", &
+            delimiter=",")
+
+        result = parser%parse_tokens([character(len=7) :: "--grid", "1,2,3,4"])
+        entry = result%errors%get(1)
+        call check(error, entry%code, ERR_UNEXPECTED_VALUE)
+        if (allocated(error)) return
+        call check(error, parser%format_diagnostic(entry), &
+            "tool: error: argument --grid: expected 3 values separated " // &
+            "by ',' (got 4)")
+    end subroutine test_too_many_items
+
+    !> Splitting used to give every item the length of the whole text.
+    subroutine test_many_items(error)
+        type(error_type), allocatable, intent(out) :: error
+        integer, parameter :: item_count = 20000
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=2 * item_count - 1) :: text
+        integer, allocatable :: values(:)
+        integer :: index, stat
+
+        do index = 1, item_count - 1
+            text(2 * index - 1:2 * index) = "7,"
+        end do
+        text(len(text):) = "8"
+
+        call parser%init(prog="tool", add_help=.false.)
+        call parser%add_argument("--l", nargs="+", data_type="integer", &
+            delimiter=",")
+        result = parser%parse_tokens([character(len=len(text)) :: "--l", text])
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call result%namespace%get("l", values, stat)
+        call check(error, size(values), item_count)
+        if (allocated(error)) return
+        call check(error, values(item_count), 8)
+    end subroutine test_many_items
 
 end module test_delimiters

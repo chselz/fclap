@@ -21,7 +21,9 @@ contains
             new_unittest("known options still need their values", &
                 test_missing_values), &
             new_unittest("subcommands collect extra tokens", &
-                test_subcommands) &
+                test_subcommands), &
+            new_unittest("many extra tokens keep their order", &
+                test_many_extras) &
         ]
     end subroutine collect_known_args
 
@@ -152,5 +154,28 @@ contains
         entry = result%errors%get(1)
         call check(error, entry%code, ERR_UNKNOWN_SUBCOMMAND)
     end subroutine test_subcommands
+
+
+    subroutine test_many_extras(error)
+        type(error_type), allocatable, intent(out) :: error
+        integer, parameter :: token_count = 2000
+        type(ArgumentParser) :: parser
+        type(ParseResult) :: result
+        character(len=8) :: tokens(token_count)
+        integer :: index
+
+        do index = 1, token_count
+            write(tokens(index), "('-x', i0)") index
+        end do
+        call parser%init(prog="tool", add_help=.false.)
+        result = parser%parse_known_tokens(tokens)
+        call check(error, result%outcome, PARSE_SUCCESS)
+        if (allocated(error)) return
+        call check(error, size(result%extra_tokens), token_count)
+        if (allocated(error)) return
+        call check(error, trim(result%extra_tokens(1)), "-x1")
+        if (allocated(error)) return
+        call check(error, trim(result%extra_tokens(token_count)), "-x2000")
+    end subroutine test_many_extras
 
 end module test_known_args
